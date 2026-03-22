@@ -367,3 +367,103 @@ func TestDoubleClaim(t *testing.T) {
 		t.Errorf("expected 409 for double claim, got %d", resp2.StatusCode)
 	}
 }
+
+func TestUpdateTaskNotFound(t *testing.T) {
+	_, ts := setup(t)
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/tasks/nonexistent",
+		bytes.NewBufferString(`{"title":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteTaskNotFound(t *testing.T) {
+	_, ts := setup(t)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/tasks/nonexistent", nil)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestClaimTaskNotFound(t *testing.T) {
+	_, ts := setup(t)
+	resp, _ := http.Post(ts.URL+"/api/tasks/nonexistent/claim", "application/json",
+		bytes.NewBufferString(`{"agent":"test"}`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestCompleteTaskNotFound(t *testing.T) {
+	_, ts := setup(t)
+	resp, _ := http.Post(ts.URL+"/api/tasks/nonexistent/complete", "application/json", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestUnclaimWrongAgent(t *testing.T) {
+	_, ts := setup(t)
+
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Owned","status":"ready"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+
+	http.Post(ts.URL+"/api/agents/register", "application/json", bytes.NewBufferString(`{"name":"owner","type":"test"}`))
+	http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"owner"}`))
+
+	// Try unclaim by wrong agent
+	resp2, _ := http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/unclaim", "application/json",
+		bytes.NewBufferString(`{"agent":"thief"}`))
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for wrong agent unclaim, got %d", resp2.StatusCode)
+	}
+}
+
+func TestAgentNotFound(t *testing.T) {
+	_, ts := setup(t)
+	resp, _ := http.Get(ts.URL + "/api/agents/nonexistent")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestMessagesMissingTo(t *testing.T) {
+	_, ts := setup(t)
+	resp, _ := http.Get(ts.URL + "/api/messages")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing 'to', got %d", resp.StatusCode)
+	}
+}
+
+func TestMessagesMissingFields(t *testing.T) {
+	_, ts := setup(t)
+	resp, _ := http.Post(ts.URL+"/api/messages", "application/json", bytes.NewBufferString(`{"body":"no from"}`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing from, got %d", resp.StatusCode)
+	}
+}
+
+func TestMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	// PUT on tasks should be 405
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/tasks", nil)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+}
