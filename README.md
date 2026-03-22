@@ -38,7 +38,7 @@ Connect Claude Code to a running Waggle server:
 waggle connect    # generates .mcp.json in current directory
 ```
 
-This exposes 12 tools: `waggle_register_agent`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_update_task`, `waggle_claim_task`, `waggle_unclaim_task`, `waggle_complete_task`, `waggle_list_agents`, `waggle_set_status`, `waggle_send_message`, `waggle_read_messages`.
+This exposes 14 tools: `waggle_register_agent`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_update_task`, `waggle_claim_task`, `waggle_unclaim_task`, `waggle_complete_task`, `waggle_delete_task`, `waggle_get_next_task`, `waggle_list_agents`, `waggle_set_status`, `waggle_send_message`, `waggle_read_messages`.
 
 ## SMART Tasks
 
@@ -60,7 +60,8 @@ waggle mcp                       Start MCP stdio adapter
 waggle connect                   Generate .mcp.json for Claude Code
 
 waggle task add "title" [flags]  Create a task
-waggle task list [--status X]    List tasks
+waggle task list [--status X]    List tasks (also --priority, --tag, --search/-q)
+waggle task next [--tag X]       Show highest-priority ready task
 waggle task show <id>            Show task detail
 waggle task update <id> [flags]  Update a task
 waggle task claim <id>           Claim a task
@@ -82,7 +83,7 @@ waggle reset                     Wipe database
 
 ```
 POST   /api/tasks                Create task
-GET    /api/tasks                List tasks (?status=&assignee=&priority=&tag=)
+GET    /api/tasks                List tasks (?status=&assignee=&priority=&tag=&q=)
 GET    /api/tasks/:id            Get task
 PATCH  /api/tasks/:id            Update task
 DELETE /api/tasks/:id            Delete task (rejects if in_progress)
