@@ -56,6 +56,8 @@ func main() {
 			os.Exit(1)
 		}
 		cmdMsg(os.Args[2], os.Args[3:])
+	case "config":
+		cmdConfig(os.Args[2:])
 	case "stop":
 		cmdStop()
 	case "backup":
@@ -137,9 +139,24 @@ func cmdTask(subcmd string, args []string) {
 		task := map[string]any{"title": args[0]}
 		for i := 1; i < len(args); i++ {
 			switch args[i] {
+			case "--description", "--desc":
+				if i+1 < len(args) {
+					task["description"] = args[i+1]
+					i++
+				}
+			case "--status":
+				if i+1 < len(args) {
+					task["status"] = args[i+1]
+					i++
+				}
 			case "--priority":
 				if i+1 < len(args) {
 					task["priority"] = args[i+1]
+					i++
+				}
+			case "--deadline":
+				if i+1 < len(args) {
+					task["deadline"] = args[i+1]
 					i++
 				}
 			case "--tag":
@@ -432,6 +449,50 @@ func statusIcon(status any) string {
 	}
 }
 
+func cmdConfig(args []string) {
+	home, _ := os.UserHomeDir()
+	configPath := filepath.Join(home, ".waggle", "config.json")
+
+	// Load existing config
+	config := map[string]string{
+		"port":              "4740",
+		"event_retention":   "30d",
+		"message_retention": "7d",
+	}
+	if data, err := os.ReadFile(configPath); err == nil {
+		json.Unmarshal(data, &config)
+	}
+
+	if len(args) == 0 {
+		// Show all config
+		for k, v := range config {
+			fmt.Printf("  %s = %s\n", k, v)
+		}
+		return
+	}
+
+	if len(args) == 1 {
+		// Get single key
+		if v, ok := config[args[0]]; ok {
+			fmt.Println(v)
+		} else {
+			fmt.Fprintf(os.Stderr, "unknown config key: %s\n", args[0])
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Set key=value
+	config[args[0]] = args[1]
+	os.MkdirAll(filepath.Dir(configPath), 0755)
+	data, _ := json.MarshalIndent(config, "", "  ")
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "error writing config: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Set %s = %s\n", args[0], args[1])
+}
+
 func cmdStop() {
 	// Send shutdown signal by checking if server is running, then kill it
 	// For now, just check and inform — daemon mode would use a PID file
@@ -661,10 +722,13 @@ Usage:
   waggle connect                   Generate .mcp.json for Claude Code
 
   waggle task add "title" [flags]  Create a task
-    --priority high                  Set priority (critical|high|medium|low)
-    --criteria "criterion"           Add acceptance criterion (repeatable)
-    --tag backend                    Add tag (repeatable)
+    --desc "description"             Task description
+    --status ready                   Initial status
+    --priority high                  Priority (critical|high|medium|low)
+    --criteria "criterion"           Acceptance criterion (repeatable)
+    --tag backend                    Tag (repeatable)
     --estimate 2h                    Time estimate
+    --deadline 2026-03-25            Deadline (RFC3339 or YYYY-MM-DD)
     --parent wg-xxx                  Parent task ID
     --depends wg-xxx                 Dependency (repeatable)
   waggle task list [--status X]    List tasks
@@ -675,11 +739,15 @@ Usage:
   waggle task rm <id>              Delete a task
   waggle tasks                     Shorthand for task list
 
+  waggle agent show <name>         Show agent detail
   waggle agents                    List connected agents
   waggle watch [--agent X]         Tail event stream (SSE)
   waggle msg send <agent> "msg"    Send a message
   waggle msg list [agent]          List messages
 
+  waggle config                    Show all config
+  waggle config <key>              Get config value
+  waggle config <key> <value>      Set config value
   waggle backup                    Backup database
   waggle reset                     Wipe database (with confirmation)
   waggle version                   Show version`)
