@@ -327,6 +327,39 @@ func TestSearchTasks(t *testing.T) {
 	}
 }
 
+func TestComments(t *testing.T) {
+	s := tempStore(t)
+	task := &model.Task{Title: "Commentable task"}
+	s.CreateTask(task)
+
+	// Add comments
+	s.AddComment(&model.Comment{TaskID: task.ID, Author: "agent-1", Body: "Started working on this"})
+	s.AddComment(&model.Comment{TaskID: task.ID, Author: "agent-2", Body: "Looks good so far"})
+
+	comments, err := s.ListComments(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 2 {
+		t.Errorf("expected 2 comments, got %d", len(comments))
+	}
+	if comments[0].Author != "agent-1" {
+		t.Errorf("expected agent-1, got %s", comments[0].Author)
+	}
+	if comments[1].Body != "Looks good so far" {
+		t.Errorf("unexpected body: %s", comments[1].Body)
+	}
+
+	// Empty task has no comments
+	comments, err = s.ListComments("wg-nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments, got %d", len(comments))
+	}
+}
+
 func TestStats(t *testing.T) {
 	s := tempStore(t)
 	s.CreateTask(&model.Task{Title: "Task 1", Status: model.TaskReady, Priority: model.PriorityHigh})

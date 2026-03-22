@@ -456,6 +456,57 @@ func TestMessagesMissingFields(t *testing.T) {
 	}
 }
 
+func TestCommentsAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a task
+	body, _ := json.Marshal(map[string]string{"title": "Comment test"})
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	// Add a comment
+	commentBody, _ := json.Marshal(map[string]string{"author": "test-agent", "body": "Working on it"})
+	resp, _ = http.Post(ts.URL+"/api/tasks/"+taskID+"/comments", "application/json", bytes.NewBuffer(commentBody))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// List comments
+	resp, _ = http.Get(ts.URL + "/api/tasks/" + taskID + "/comments")
+	defer resp.Body.Close()
+	var comments []map[string]any
+	json.NewDecoder(resp.Body).Decode(&comments)
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	if comments[0]["body"] != "Working on it" {
+		t.Errorf("unexpected body: %v", comments[0]["body"])
+	}
+}
+
+func TestCommentsMissingFields(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"title": "Comment test 2"})
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	// Missing author
+	commentBody, _ := json.Marshal(map[string]string{"body": "no author"})
+	resp, _ = http.Post(ts.URL+"/api/tasks/"+taskID+"/comments", "application/json", bytes.NewBuffer(commentBody))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
 func TestStatsAPI(t *testing.T) {
 	_, ts := setup(t)
 

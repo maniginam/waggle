@@ -99,6 +99,14 @@ type Event struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type Comment struct {
+	ID        string    `json:"id"`
+	TaskID    string    `json:"task_id"`
+	Author    string    `json:"author"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Message struct {
 	ID        string    `json:"id"`
 	From      string    `json:"from"`
