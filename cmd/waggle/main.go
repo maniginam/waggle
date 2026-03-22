@@ -38,6 +38,12 @@ func main() {
 		cmdTask("list", os.Args[2:])
 	case "agents":
 		cmdAgents()
+	case "agent":
+		if len(os.Args) < 4 || os.Args[2] != "show" {
+			fmt.Println("Usage: waggle agent show <name>")
+			os.Exit(1)
+		}
+		cmdAgentShow(os.Args[3])
 	case "mcp":
 		cmdMCP()
 	case "connect":
@@ -370,6 +376,23 @@ func cmdAgents() {
 		}
 		fmt.Printf("  %s (%s) [%s]%s\n", a["name"], a["type"], a["status"], task)
 	}
+}
+
+func cmdAgentShow(name string) {
+	resp, err := http.Get(baseURL() + "/api/agents/" + name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		fmt.Fprintf(os.Stderr, "agent %s not found\n", name)
+		os.Exit(1)
+	}
+	var agent map[string]any
+	json.NewDecoder(resp.Body).Decode(&agent)
+	data, _ := json.MarshalIndent(agent, "", "  ")
+	fmt.Println(string(data))
 }
 
 func baseURL() string {
