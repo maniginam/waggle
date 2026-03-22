@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cleancoders-studio/waggle/internal/model"
+	"github.com/maniginam/waggle/internal/model"
 )
 
 func TestCleanupEvents(t *testing.T) {

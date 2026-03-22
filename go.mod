@@ -1,4 +1,4 @@
-module github.com/cleancoders-studio/waggle
+module github.com/maniginam/waggle
 
 go 1.25.0
 

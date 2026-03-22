@@ -221,7 +221,7 @@ Backup: `waggle backup` copies to `~/.waggle/backups/waggle-YYYY-MM-DD-HHMMSS.db
 
 ```
 brew install waggle
-go install github.com/cleancoders-studio/waggle@latest
+go install github.com/maniginam/waggle@latest
 curl -fsSL waggle.dev/install | sh
 ```
 

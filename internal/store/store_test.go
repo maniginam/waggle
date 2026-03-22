@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cleancoders-studio/waggle/internal/model"
+	"github.com/maniginam/waggle/internal/model"
 )
 
 func tempStore(t *testing.T) *Store {

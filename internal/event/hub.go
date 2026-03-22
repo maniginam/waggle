@@ -3,7 +3,7 @@ package event
 import (
 	"sync"
 
-	"github.com/cleancoders-studio/waggle/internal/model"
+	"github.com/maniginam/waggle/internal/model"
 )
 
 type Subscriber struct {

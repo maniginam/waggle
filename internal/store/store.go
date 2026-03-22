@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cleancoders-studio/waggle/internal/model"
-	"github.com/cleancoders-studio/waggle/pkg/id"
+	"github.com/maniginam/waggle/internal/model"
+	"github.com/maniginam/waggle/pkg/id"
 	_ "modernc.org/sqlite"
 )
 
