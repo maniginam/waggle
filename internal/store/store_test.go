@@ -327,6 +327,31 @@ func TestSearchTasks(t *testing.T) {
 	}
 }
 
+func TestStats(t *testing.T) {
+	s := tempStore(t)
+	s.CreateTask(&model.Task{Title: "Task 1", Status: model.TaskReady, Priority: model.PriorityHigh})
+	s.CreateTask(&model.Task{Title: "Task 2", Status: model.TaskReady, Priority: model.PriorityCritical})
+	s.CreateTask(&model.Task{Title: "Task 3", Status: model.TaskDone, Priority: model.PriorityLow})
+	s.RegisterAgent("agent-1", "test")
+
+	stats, err := s.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TotalTasks != 3 {
+		t.Errorf("expected 3 tasks, got %d", stats.TotalTasks)
+	}
+	if stats.TasksByStatus["ready"] != 2 {
+		t.Errorf("expected 2 ready tasks, got %d", stats.TasksByStatus["ready"])
+	}
+	if stats.TasksByPriority["critical"] != 1 {
+		t.Errorf("expected 1 critical task, got %d", stats.TasksByPriority["critical"])
+	}
+	if stats.TotalAgents != 1 {
+		t.Errorf("expected 1 agent, got %d", stats.TotalAgents)
+	}
+}
+
 func TestBroadcastMessage(t *testing.T) {
 	s := tempStore(t)
 	msg := &model.Message{From: "agent-1", To: "", Body: "broadcast"}

@@ -456,6 +456,34 @@ func TestMessagesMissingFields(t *testing.T) {
 	}
 }
 
+func TestStatsAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create some tasks
+	for _, body := range []string{
+		`{"title":"Task 1","status":"ready","priority":"high"}`,
+		`{"title":"Task 2","status":"ready","priority":"critical"}`,
+		`{"title":"Task 3","status":"done","priority":"low"}`,
+	} {
+		http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(body))
+	}
+
+	resp, _ := http.Get(ts.URL + "/api/stats")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var stats map[string]any
+	json.NewDecoder(resp.Body).Decode(&stats)
+	if stats["total_tasks"].(float64) != 3 {
+		t.Errorf("expected 3 total tasks, got %v", stats["total_tasks"])
+	}
+	byStatus := stats["tasks_by_status"].(map[string]any)
+	if byStatus["ready"].(float64) != 2 {
+		t.Errorf("expected 2 ready, got %v", byStatus["ready"])
+	}
+}
+
 func TestSearchTasksAPI(t *testing.T) {
 	_, ts := setup(t)
 

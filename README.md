@@ -97,6 +97,7 @@ POST   /api/agents/:name/status  Update agent status
 POST   /api/messages             Send message
 GET    /api/messages?to=<name>   Read messages
 GET    /api/events               List events (or SSE with Accept: text/event-stream)
+GET    /api/stats                Dashboard stats (tasks/agents/messages summary)
 GET    /health                   Health check
 WS     /ws                       WebSocket endpoint
 ```

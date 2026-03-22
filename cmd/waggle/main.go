@@ -114,16 +114,58 @@ func cmdStatus() {
 	defer resp.Body.Close()
 	fmt.Println("waggle server is running")
 
-	// Show agents
+	// Show stats
+	statsResp, err := http.Get(baseURL() + "/api/stats")
+	if err == nil {
+		defer statsResp.Body.Close()
+		var stats map[string]any
+		json.NewDecoder(statsResp.Body).Decode(&stats)
+
+		totalTasks := int(stats["total_tasks"].(float64))
+		totalAgents := int(stats["total_agents"].(float64))
+		unread := int(stats["unread_messages"].(float64))
+
+		fmt.Printf("\nTasks: %d", totalTasks)
+		if totalTasks > 0 {
+			byStatus := stats["tasks_by_status"].(map[string]any)
+			parts := []string{}
+			for _, s := range []string{"ready", "in_progress", "blocked", "review", "done", "backlog"} {
+				if v, ok := byStatus[s]; ok {
+					parts = append(parts, fmt.Sprintf("%s: %d", s, int(v.(float64))))
+				}
+			}
+			if len(parts) > 0 {
+				fmt.Printf(" (%s)", strings.Join(parts, ", "))
+			}
+		}
+		fmt.Println()
+
+		fmt.Printf("Agents: %d\n", totalAgents)
+		if unread > 0 {
+			fmt.Printf("Unread messages: %d\n", unread)
+		}
+	}
+
+	// Show connected agents
 	agentResp, err := http.Get(baseURL() + "/api/agents")
 	if err == nil {
 		defer agentResp.Body.Close()
 		var agents []map[string]any
 		json.NewDecoder(agentResp.Body).Decode(&agents)
-		if len(agents) > 0 {
-			fmt.Printf("\nConnected agents: %d\n", len(agents))
-			for _, a := range agents {
-				fmt.Printf("  %s (%s) - %s\n", a["name"], a["type"], a["status"])
+		active := []map[string]any{}
+		for _, a := range agents {
+			if a["status"] != "disconnected" {
+				active = append(active, a)
+			}
+		}
+		if len(active) > 0 {
+			fmt.Println()
+			for _, a := range active {
+				task := ""
+				if t, ok := a["current_task"].(string); ok && t != "" {
+					task = " working on " + t
+				}
+				fmt.Printf("  %s (%s) [%s]%s\n", a["name"], a["type"], a["status"], task)
 			}
 		}
 	}
