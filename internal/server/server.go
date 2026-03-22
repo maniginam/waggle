@@ -80,6 +80,7 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) Start() error {
 	s.stopReaper = make(chan struct{})
 	go s.reapStaleAgents()
+	go s.retentionCleanup()
 	log.Printf("waggle server listening on %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
@@ -120,6 +121,25 @@ func (s *Server) reapStaleAgents() {
 						AgentID: agent.Name,
 					})
 				}
+			}
+		}
+	}
+}
+
+func (s *Server) retentionCleanup() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopReaper:
+			return
+		case <-ticker.C:
+			if n, err := s.store.CleanupEvents(30); err == nil && n > 0 {
+				log.Printf("cleaned up %d old events", n)
+			}
+			if n, err := s.store.CleanupMessages(7); err == nil && n > 0 {
+				log.Printf("cleaned up %d old read messages", n)
 			}
 		}
 	}
