@@ -30,7 +30,7 @@ func main() {
 		cmdStatus()
 	case "task":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: waggle task <add|list|show|update|claim|done|rm|next> [args]")
+			fmt.Println("Usage: waggle task <add|list|show|update|claim|done|comment|rm|next> [args]")
 			os.Exit(1)
 		}
 		cmdTask(os.Args[2], os.Args[3:])
@@ -330,8 +330,56 @@ func cmdTask(subcmd string, args []string) {
 			fmt.Fprintf(os.Stderr, "task %s not found\n", args[0])
 			os.Exit(1)
 		}
-		data, _ := json.MarshalIndent(task, "", "  ")
-		fmt.Println(string(data))
+
+		// Pretty format
+		fmt.Printf("%s %s [%s] %s\n", task["id"], statusIcon(task["status"]), task["priority"], task["title"])
+		if desc, ok := task["description"].(string); ok && desc != "" {
+			fmt.Printf("  %s\n", desc)
+		}
+		if assignee, ok := task["assignee"].(string); ok && assignee != "" {
+			fmt.Printf("  Assigned to: %s\n", assignee)
+		}
+		if tags, ok := task["tags"].([]any); ok && len(tags) > 0 {
+			tagStrs := make([]string, len(tags))
+			for i, t := range tags {
+				tagStrs[i] = fmt.Sprintf("%v", t)
+			}
+			fmt.Printf("  Tags: %s\n", strings.Join(tagStrs, ", "))
+		}
+		if criteria, ok := task["criteria"].([]any); ok && len(criteria) > 0 {
+			fmt.Println("  Criteria:")
+			for _, c := range criteria {
+				fmt.Printf("    - %v\n", c)
+			}
+		}
+		if deps, ok := task["depends_on"].([]any); ok && len(deps) > 0 {
+			depStrs := make([]string, len(deps))
+			for i, d := range deps {
+				depStrs[i] = fmt.Sprintf("%v", d)
+			}
+			fmt.Printf("  Depends on: %s\n", strings.Join(depStrs, ", "))
+		}
+		if est, ok := task["estimate"].(string); ok && est != "" {
+			fmt.Printf("  Estimate: %s\n", est)
+		}
+		if dl, ok := task["deadline"].(string); ok && dl != "" {
+			fmt.Printf("  Deadline: %s\n", dl)
+		}
+		fmt.Printf("  Created: %s\n", task["created_at"])
+
+		// Show comments
+		commResp, err := http.Get(baseURL() + "/api/tasks/" + args[0] + "/comments")
+		if err == nil {
+			defer commResp.Body.Close()
+			var comments []map[string]any
+			json.NewDecoder(commResp.Body).Decode(&comments)
+			if len(comments) > 0 {
+				fmt.Printf("\n  Comments (%d):\n", len(comments))
+				for _, c := range comments {
+					fmt.Printf("    [%s] %s: %s\n", c["created_at"], c["author"], c["body"])
+				}
+			}
+		}
 
 	case "update":
 		if len(args) < 2 {
@@ -402,6 +450,35 @@ func cmdTask(subcmd string, args []string) {
 		}
 		defer resp.Body.Close()
 		fmt.Printf("Completed task %s\n", args[0])
+
+	case "comment":
+		if len(args) < 2 {
+			fmt.Println("Usage: waggle task comment <id> \"message\" [--author name]")
+			os.Exit(1)
+		}
+		taskID := args[0]
+		body := args[1]
+		author := "cli"
+		for i := 2; i < len(args); i++ {
+			if args[i] == "--author" && i+1 < len(args) {
+				author = args[i+1]
+				i++
+			}
+		}
+		commentJSON, _ := json.Marshal(map[string]string{"author": author, "body": body})
+		resp, err := http.Post(baseURL()+"/api/tasks/"+taskID+"/comments", "application/json", strings.NewReader(string(commentJSON)))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			var errResp map[string]any
+			json.NewDecoder(resp.Body).Decode(&errResp)
+			fmt.Fprintf(os.Stderr, "error: %v\n", errResp)
+			os.Exit(1)
+		}
+		fmt.Printf("Comment added to %s\n", taskID)
 
 	case "rm":
 		if len(args) < 1 {
@@ -838,6 +915,7 @@ Usage:
   waggle task update <id> [flags]  Update a task
   waggle task claim <id>           Claim a task
   waggle task done <id>            Mark task complete
+  waggle task comment <id> "msg"   Add comment to task
   waggle task rm <id>              Delete a task
   waggle tasks                     Shorthand for task list
 
