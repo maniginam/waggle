@@ -100,6 +100,7 @@ func TestToolsList(t *testing.T) {
 		"waggle_register_agent", "waggle_create_task", "waggle_list_tasks",
 		"waggle_show_task", "waggle_claim_task", "waggle_complete_task",
 		"waggle_send_message", "waggle_read_messages",
+		"waggle_delete_task", "waggle_get_next_task",
 	}
 	for _, name := range expected {
 		if !names[name] {
@@ -355,5 +356,108 @@ func TestClaimWithoutRegister(t *testing.T) {
 	result := mcpResp["result"].(map[string]any)
 	if result["isError"] == nil || !result["isError"].(bool) {
 		t.Error("expected error when claiming without registration")
+	}
+}
+
+func TestDeleteTask(t *testing.T) {
+	adapter, ts := setupMCP(t)
+	taskID := createTaskViaREST(t, ts, "Delete me")
+
+	resp := callMCP(t, adapter, "tools/call", 20, map[string]any{
+		"name":      "waggle_delete_task",
+		"arguments": map[string]any{"id": taskID},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("delete task failed: %v", result)
+	}
+
+	// Verify it's gone
+	resp2 := callMCP(t, adapter, "tools/call", 21, map[string]any{
+		"name":      "waggle_show_task",
+		"arguments": map[string]any{"id": taskID},
+	})
+	result2 := resp2["result"].(map[string]any)
+	if result2["isError"] == nil || !result2["isError"].(bool) {
+		t.Error("expected error showing deleted task")
+	}
+}
+
+func TestGetNextTask(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "next-agent")
+
+	// Create tasks with different priorities via REST
+	for _, body := range []string{
+		`{"title":"Low task","priority":"low","status":"ready"}`,
+		`{"title":"Critical task","priority":"critical","status":"ready"}`,
+		`{"title":"High task","priority":"high","status":"ready"}`,
+	} {
+		resp, _ := ts.Client().Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+		resp.Body.Close()
+	}
+
+	resp := callMCP(t, adapter, "tools/call", 22, map[string]any{
+		"name":      "waggle_get_next_task",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("get next task failed: %v", result)
+	}
+
+	// Parse the content text to verify it's the critical task
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var task map[string]any
+	json.Unmarshal([]byte(text), &task)
+	if task["title"] != "Critical task" {
+		t.Errorf("expected critical task, got %v", task["title"])
+	}
+}
+
+func TestGetNextTaskEmpty(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	resp := callMCP(t, adapter, "tools/call", 23, map[string]any{
+		"name":      "waggle_get_next_task",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("get next task failed: %v", result)
+	}
+	// Should return "no ready tasks" message
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "No ready tasks") {
+		t.Errorf("expected 'No ready tasks' message, got %s", text)
+	}
+}
+
+func TestSearchViaMCP(t *testing.T) {
+	adapter, ts := setupMCP(t)
+
+	// Create tasks
+	for _, title := range []string{"Build auth module", "Fix login bug", "Write tests"} {
+		body := `{"title":"` + title + `"}`
+		resp, _ := ts.Client().Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+		resp.Body.Close()
+	}
+
+	resp := callMCP(t, adapter, "tools/call", 24, map[string]any{
+		"name":      "waggle_list_tasks",
+		"arguments": map[string]any{"q": "auth"},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("search failed: %v", result)
+	}
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var tasks []any
+	json.Unmarshal([]byte(text), &tasks)
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 task matching 'auth', got %d", len(tasks))
 	}
 }
