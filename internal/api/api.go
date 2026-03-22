@@ -28,6 +28,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/agents/", a.handleAgent)
 	mux.HandleFunc("/api/events", a.handleEvents)
 	mux.HandleFunc("/api/messages", a.handleMessages)
+	mux.HandleFunc("/api/stats", a.handleStats)
 	return mux
 }
 
@@ -447,6 +448,19 @@ func (a *API) handleSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
+		return
+	}
+	stats, err := a.store.Stats()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "stats_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

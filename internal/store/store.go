@@ -630,3 +630,68 @@ func scanAgent(row scanner) (*model.Agent, error) {
 func scanAgentRows(rows *sql.Rows) (*model.Agent, error) {
 	return scanAgent(rows)
 }
+
+// --- Stats ---
+
+type Stats struct {
+	TasksByStatus  map[string]int `json:"tasks_by_status"`
+	TasksByPriority map[string]int `json:"tasks_by_priority"`
+	TotalTasks     int            `json:"total_tasks"`
+	AgentsByStatus map[string]int `json:"agents_by_status"`
+	TotalAgents    int            `json:"total_agents"`
+	UnreadMessages int            `json:"unread_messages"`
+}
+
+func (s *Store) Stats() (*Stats, error) {
+	stats := &Stats{
+		TasksByStatus:   map[string]int{},
+		TasksByPriority: map[string]int{},
+		AgentsByStatus:  map[string]int{},
+	}
+
+	// Tasks by status
+	rows, err := s.db.Query("SELECT status, COUNT(*) FROM tasks GROUP BY status")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var status string
+		var count int
+		rows.Scan(&status, &count)
+		stats.TasksByStatus[status] = count
+		stats.TotalTasks += count
+	}
+	rows.Close()
+
+	// Tasks by priority
+	rows, err = s.db.Query("SELECT priority, COUNT(*) FROM tasks GROUP BY priority")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var priority string
+		var count int
+		rows.Scan(&priority, &count)
+		stats.TasksByPriority[priority] = count
+	}
+	rows.Close()
+
+	// Agents by status
+	rows, err = s.db.Query("SELECT status, COUNT(*) FROM agents GROUP BY status")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var status string
+		var count int
+		rows.Scan(&status, &count)
+		stats.AgentsByStatus[status] = count
+		stats.TotalAgents += count
+	}
+	rows.Close()
+
+	// Unread messages
+	s.db.QueryRow("SELECT COUNT(*) FROM messages WHERE read = 0").Scan(&stats.UnreadMessages)
+
+	return stats, nil
+}
