@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cleancoders-studio/waggle/internal/mcp"
-	"github.com/cleancoders-studio/waggle/internal/server"
+	"github.com/maniginam/waggle/internal/mcp"
+	"github.com/maniginam/waggle/internal/server"
 )
 
 func main() {

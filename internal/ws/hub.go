@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cleancoders-studio/waggle/internal/event"
-	"github.com/cleancoders-studio/waggle/internal/model"
-	"github.com/cleancoders-studio/waggle/internal/store"
+	"github.com/maniginam/waggle/internal/event"
+	"github.com/maniginam/waggle/internal/model"
+	"github.com/maniginam/waggle/internal/store"
 	"golang.org/x/net/websocket"
 )
 

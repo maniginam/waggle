@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cleancoders-studio/waggle/internal/event"
-	"github.com/cleancoders-studio/waggle/internal/store"
+	"github.com/maniginam/waggle/internal/event"
+	"github.com/maniginam/waggle/internal/store"
 )
 
 func setup(t *testing.T) (*API, *httptest.Server) {

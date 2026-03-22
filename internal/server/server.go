@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cleancoders-studio/waggle/internal/api"
-	"github.com/cleancoders-studio/waggle/internal/event"
-	"github.com/cleancoders-studio/waggle/internal/model"
-	"github.com/cleancoders-studio/waggle/internal/store"
-	"github.com/cleancoders-studio/waggle/internal/ws"
+	"github.com/maniginam/waggle/internal/api"
+	"github.com/maniginam/waggle/internal/event"
+	"github.com/maniginam/waggle/internal/model"
+	"github.com/maniginam/waggle/internal/store"
+	"github.com/maniginam/waggle/internal/ws"
 )
 
 type Server struct {

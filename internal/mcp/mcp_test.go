@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cleancoders-studio/waggle/internal/api"
-	"github.com/cleancoders-studio/waggle/internal/event"
-	"github.com/cleancoders-studio/waggle/internal/store"
+	"github.com/maniginam/waggle/internal/api"
+	"github.com/maniginam/waggle/internal/event"
+	"github.com/maniginam/waggle/internal/store"
 )
 
 func setupMCP(t *testing.T) (*Adapter, *httptest.Server) {
