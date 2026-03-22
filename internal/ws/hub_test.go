@@ -107,6 +107,167 @@ func TestWebSocketReceivesEvents(t *testing.T) {
 	}
 }
 
+func connectAndRegister(t *testing.T, serverURL, agentName string) *websocket.Conn {
+	t.Helper()
+	wsURL := "ws" + serverURL[4:] + "/ws"
+	conn, err := websocket.Dial(wsURL, "", serverURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := `{"action":"register","data":{"name":"` + agentName + `","type":"test"}}`
+	websocket.Message.Send(conn, msg)
+	// Drain the "registered" response and the "agent_joined" event broadcast
+	for i := 0; i < 2; i++ {
+		var resp string
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		websocket.Message.Receive(conn, &resp)
+	}
+	conn.SetReadDeadline(time.Time{})
+	return conn
+}
+
+func readWSMessage(t *testing.T, conn *websocket.Conn) map[string]any {
+	t.Helper()
+	var resp string
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := websocket.Message.Receive(conn, &resp); err != nil {
+		t.Fatalf("failed to read WS message: %v", err)
+	}
+	var parsed map[string]any
+	json.Unmarshal([]byte(resp), &parsed)
+	return parsed
+}
+
+func TestWebSocketClaimTask(t *testing.T) {
+	hub, serverURL := setupWSHub(t)
+
+	conn := connectAndRegister(t, serverURL, "claim-agent")
+	defer conn.Close()
+
+	// Create a task in the store
+	task := &model.Task{Title: "WS claim test", Status: model.TaskReady}
+	hub.store.CreateTask(task)
+
+	// Claim via WS
+	websocket.Message.Send(conn, `{"action":"claim","data":{"task_id":"`+task.ID+`"}}`)
+
+	// Read the event broadcast
+	evt := readWSMessage(t, conn)
+	if evt["type"] != string(model.EventTaskClaimed) {
+		t.Errorf("expected task_claimed event, got %v", evt["type"])
+	}
+
+	// Verify in store
+	got, _ := hub.store.GetTask(task.ID)
+	if got.Assignee != "claim-agent" {
+		t.Errorf("expected claim-agent, got %s", got.Assignee)
+	}
+}
+
+func TestWebSocketCompleteTask(t *testing.T) {
+	hub, serverURL := setupWSHub(t)
+
+	conn := connectAndRegister(t, serverURL, "complete-agent")
+	defer conn.Close()
+
+	task := &model.Task{Title: "WS complete test", Status: model.TaskInProgress, Assignee: "complete-agent"}
+	hub.store.CreateTask(task)
+
+	websocket.Message.Send(conn, `{"action":"complete","data":{"task_id":"`+task.ID+`"}}`)
+
+	evt := readWSMessage(t, conn)
+	if evt["type"] != string(model.EventTaskCompleted) {
+		t.Errorf("expected task_completed event, got %v", evt["type"])
+	}
+
+	got, _ := hub.store.GetTask(task.ID)
+	if got.Status != model.TaskDone {
+		t.Errorf("expected done, got %s", got.Status)
+	}
+}
+
+func TestWebSocketUnclaimTask(t *testing.T) {
+	hub, serverURL := setupWSHub(t)
+
+	conn := connectAndRegister(t, serverURL, "unclaim-agent")
+	defer conn.Close()
+
+	task := &model.Task{Title: "WS unclaim test", Status: model.TaskInProgress, Assignee: "unclaim-agent"}
+	hub.store.CreateTask(task)
+
+	websocket.Message.Send(conn, `{"action":"unclaim","data":{"task_id":"`+task.ID+`"}}`)
+
+	evt := readWSMessage(t, conn)
+	if evt["type"] != string(model.EventTaskUnclaimed) {
+		t.Errorf("expected task_unclaimed event, got %v", evt["type"])
+	}
+
+	got, _ := hub.store.GetTask(task.ID)
+	if got.Assignee != "" {
+		t.Errorf("expected empty assignee, got %s", got.Assignee)
+	}
+}
+
+func TestWebSocketSendMessage(t *testing.T) {
+	hub, serverURL := setupWSHub(t)
+
+	conn := connectAndRegister(t, serverURL, "msg-sender")
+	defer conn.Close()
+
+	websocket.Message.Send(conn, `{"action":"message","data":{"to":"other-agent","body":"hello via ws"}}`)
+
+	// Read the event broadcast
+	evt := readWSMessage(t, conn)
+	if evt["type"] != string(model.EventMessage) {
+		t.Errorf("expected message event, got %v", evt["type"])
+	}
+
+	// Verify in store
+	msgs, _ := hub.store.ReadMessages("other-agent", 10)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Body != "hello via ws" {
+		t.Errorf("expected 'hello via ws', got %s", msgs[0].Body)
+	}
+}
+
+func TestWebSocketHeartbeat(t *testing.T) {
+	hub, serverURL := setupWSHub(t)
+
+	conn := connectAndRegister(t, serverURL, "heartbeat-agent")
+	defer conn.Close()
+
+	websocket.Message.Send(conn, `{"action":"heartbeat","data":{}}`)
+	time.Sleep(50 * time.Millisecond)
+
+	agent, err := hub.store.GetAgentByName("heartbeat-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Status != model.AgentConnected {
+		t.Errorf("expected connected, got %s", agent.Status)
+	}
+}
+
+func TestWebSocketClaimAlreadyClaimed(t *testing.T) {
+	hub, serverURL := setupWSHub(t)
+
+	conn := connectAndRegister(t, serverURL, "second-claimer")
+	defer conn.Close()
+
+	// Create a task already claimed by someone else
+	task := &model.Task{Title: "Already claimed", Status: model.TaskInProgress, Assignee: "first-agent"}
+	hub.store.CreateTask(task)
+
+	websocket.Message.Send(conn, `{"action":"claim","data":{"task_id":"`+task.ID+`"}}`)
+
+	evt := readWSMessage(t, conn)
+	if evt["type"] != "error" {
+		t.Errorf("expected error response, got %v", evt["type"])
+	}
+}
+
 func TestWebSocketDisconnectCleansUp(t *testing.T) {
 	hub, serverURL := setupWSHub(t)
 
