@@ -75,6 +75,31 @@ func main() {
 	}
 }
 
+func pidFilePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".waggle", "waggle.pid")
+}
+
+func writePID() {
+	home, _ := os.UserHomeDir()
+	os.MkdirAll(filepath.Join(home, ".waggle"), 0755)
+	os.WriteFile(pidFilePath(), []byte(fmt.Sprintf("%d", os.Getpid())), 0644)
+}
+
+func removePID() {
+	os.Remove(pidFilePath())
+}
+
+func readPID() (int, error) {
+	data, err := os.ReadFile(pidFilePath())
+	if err != nil {
+		return 0, err
+	}
+	var pid int
+	_, err = fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &pid)
+	return pid, err
+}
+
 func cmdStart() {
 	port := 4740
 	for i, arg := range os.Args[2:] {
@@ -89,17 +114,21 @@ func cmdStart() {
 		os.Exit(1)
 	}
 
+	writePID()
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-sigCh
+		removePID()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx)
 	}()
 
 	if err := srv.Start(); err != nil && err != http.ErrServerClosed {
+		removePID()
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}
@@ -112,7 +141,11 @@ func cmdStatus() {
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-	fmt.Println("waggle server is running")
+	if pid, err := readPID(); err == nil {
+		fmt.Printf("waggle server is running (pid %d)\n", pid)
+	} else {
+		fmt.Println("waggle server is running")
+	}
 
 	// Show stats
 	statsResp, err := http.Get(baseURL() + "/api/stats")
@@ -672,16 +705,40 @@ func cmdConfig(args []string) {
 }
 
 func cmdStop() {
-	// Send shutdown signal by checking if server is running, then kill it
-	// For now, just check and inform — daemon mode would use a PID file
-	resp, err := http.Get(baseURL() + "/health")
+	pid, err := readPID()
 	if err != nil {
-		fmt.Println("waggle server is not running")
+		// No PID file — check if server is running anyway
+		if _, err := http.Get(baseURL() + "/health"); err != nil {
+			fmt.Println("waggle server is not running")
+		} else {
+			fmt.Println("waggle server is running but no PID file found")
+			fmt.Println("Stop it manually with Ctrl+C in the terminal running 'waggle start'")
+		}
 		return
 	}
-	resp.Body.Close()
-	fmt.Println("To stop waggle, press Ctrl+C in the terminal running 'waggle start'")
-	fmt.Println("(Daemon mode with 'waggle stop' support coming in a future release)")
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error finding process %d: %v\n", pid, err)
+		removePID()
+		return
+	}
+
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		fmt.Fprintf(os.Stderr, "error stopping waggle (pid %d): %v\n", pid, err)
+		removePID()
+		return
+	}
+
+	// Wait for shutdown
+	for i := 0; i < 30; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if _, err := http.Get(baseURL() + "/health"); err != nil {
+			fmt.Println("waggle server stopped")
+			return
+		}
+	}
+	fmt.Println("waggle server may still be shutting down")
 }
 
 func cmdBackup() {
