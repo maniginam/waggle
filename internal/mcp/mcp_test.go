@@ -180,6 +180,163 @@ func TestUnknownMethod(t *testing.T) {
 	}
 }
 
+func registeredAdapter(t *testing.T, ts *httptest.Server, name string) *Adapter {
+	t.Helper()
+	// Register via REST
+	body := `{"name":"` + name + `","type":"test"}`
+	resp, _ := ts.Client().Post(ts.URL+"/api/agents/register", "application/json", strings.NewReader(body))
+	resp.Body.Close()
+	a := NewAdapter(ts.URL)
+	a.agentName = name
+	return a
+}
+
+func createTaskViaREST(t *testing.T, ts *httptest.Server, title string) string {
+	t.Helper()
+	body := `{"title":"` + title + `","status":"ready"}`
+	resp, _ := ts.Client().Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	return task["id"].(string)
+}
+
+func TestShowTask(t *testing.T) {
+	adapter, ts := setupMCP(t)
+	taskID := createTaskViaREST(t, ts, "Show me")
+
+	resp := callMCP(t, adapter, "tools/call", 10, map[string]any{
+		"name":      "waggle_show_task",
+		"arguments": map[string]any{"id": taskID},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("show task failed: %v", result)
+	}
+}
+
+func TestUpdateTask(t *testing.T) {
+	adapter, ts := setupMCP(t)
+	taskID := createTaskViaREST(t, ts, "Update me")
+
+	resp := callMCP(t, adapter, "tools/call", 11, map[string]any{
+		"name":      "waggle_update_task",
+		"arguments": map[string]any{"id": taskID, "priority": "critical"},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("update task failed: %v", result)
+	}
+}
+
+func TestClaimAndUnclaim(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "claim-agent")
+	taskID := createTaskViaREST(t, ts, "Claim test")
+
+	// Claim
+	resp := callMCP(t, adapter, "tools/call", 12, map[string]any{
+		"name":      "waggle_claim_task",
+		"arguments": map[string]any{"id": taskID},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("claim failed: %v", result)
+	}
+
+	// Unclaim
+	adapter2 := registeredAdapter(t, ts, "claim-agent")
+	resp2 := callMCP(t, adapter2, "tools/call", 13, map[string]any{
+		"name":      "waggle_unclaim_task",
+		"arguments": map[string]any{"id": taskID},
+	})
+	result2 := resp2["result"].(map[string]any)
+	if result2["isError"] != nil && result2["isError"].(bool) {
+		t.Fatalf("unclaim failed: %v", result2)
+	}
+}
+
+func TestCompleteTask(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "completer")
+	taskID := createTaskViaREST(t, ts, "Complete me")
+
+	resp := callMCP(t, adapter, "tools/call", 14, map[string]any{
+		"name":      "waggle_complete_task",
+		"arguments": map[string]any{"id": taskID},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("complete failed: %v", result)
+	}
+}
+
+func TestListAgents(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "list-agent")
+
+	resp := callMCP(t, adapter, "tools/call", 15, map[string]any{
+		"name":      "waggle_list_agents",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("list agents failed: %v", result)
+	}
+}
+
+func TestSetStatus(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "status-agent")
+
+	resp := callMCP(t, adapter, "tools/call", 16, map[string]any{
+		"name":      "waggle_set_status",
+		"arguments": map[string]any{"status": "working", "current_task": "wg-123"},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("set status failed: %v", result)
+	}
+}
+
+func TestSendAndReadMessages(t *testing.T) {
+	_, ts := setupMCP(t)
+	sender := registeredAdapter(t, ts, "sender-agent")
+
+	// Send
+	resp := callMCP(t, sender, "tools/call", 17, map[string]any{
+		"name":      "waggle_send_message",
+		"arguments": map[string]any{"to": "recipient", "body": "hello from mcp"},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("send message failed: %v", result)
+	}
+
+	// Read
+	reader := registeredAdapter(t, ts, "recipient")
+	resp2 := callMCP(t, reader, "tools/call", 18, map[string]any{
+		"name":      "waggle_read_messages",
+		"arguments": map[string]any{"limit": 10},
+	})
+	result2 := resp2["result"].(map[string]any)
+	if result2["isError"] != nil && result2["isError"].(bool) {
+		t.Fatalf("read messages failed: %v", result2)
+	}
+}
+
+func TestUnknownTool(t *testing.T) {
+	adapter, _ := setupMCP(t)
+	resp := callMCP(t, adapter, "tools/call", 19, map[string]any{
+		"name":      "waggle_nonexistent",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] == nil || !result["isError"].(bool) {
+		t.Error("expected error for unknown tool")
+	}
+}
+
 func TestClaimWithoutRegister(t *testing.T) {
 	adapter, ts := setupMCP(t)
 
