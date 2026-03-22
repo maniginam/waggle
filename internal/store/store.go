@@ -180,6 +180,10 @@ func (s *Store) ListTasks(filters map[string]string) ([]*model.Task, error) {
 		conditions = append(conditions, "parent_id = ?")
 		args = append(args, v)
 	}
+	if v, ok := filters["q"]; ok {
+		conditions = append(conditions, "(title LIKE ? OR description LIKE ?)")
+		args = append(args, "%"+v+"%", "%"+v+"%")
+	}
 
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")

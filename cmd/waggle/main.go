@@ -236,6 +236,16 @@ func cmdTask(subcmd string, args []string) {
 					params = append(params, "priority="+args[i+1])
 					i++
 				}
+			case "--tag":
+				if i+1 < len(args) {
+					params = append(params, "tag="+args[i+1])
+					i++
+				}
+			case "--search", "-q":
+				if i+1 < len(args) {
+					params = append(params, "q="+args[i+1])
+					i++
+				}
 			}
 		}
 		if len(params) > 0 {
