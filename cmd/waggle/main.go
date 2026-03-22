@@ -466,7 +466,28 @@ func cmdReset() {
 }
 
 func cmdMCP() {
-	adapter := mcp.NewAdapter(baseURL())
+	url := baseURL()
+	// Auto-start server if not running
+	if _, err := http.Get(url + "/health"); err != nil {
+		fmt.Fprintf(os.Stderr, "waggle: auto-starting server...\n")
+		go func() {
+			srv, err := server.New(server.Config{})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "waggle: failed to start server: %v\n", err)
+				return
+			}
+			srv.Start()
+		}()
+		// Wait for server to be ready
+		for i := 0; i < 50; i++ {
+			time.Sleep(100 * time.Millisecond)
+			if _, err := http.Get(url + "/health"); err == nil {
+				break
+			}
+		}
+	}
+
+	adapter := mcp.NewAdapter(url)
 	if err := adapter.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp error: %v\n", err)
 		os.Exit(1)
