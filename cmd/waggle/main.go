@@ -30,7 +30,7 @@ func main() {
 		cmdStatus()
 	case "task":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: waggle task <add|list|show|update|claim|done|rm> [args]")
+			fmt.Println("Usage: waggle task <add|list|show|update|claim|done|rm|next> [args]")
 			os.Exit(1)
 		}
 		cmdTask(os.Args[2], os.Args[3:])
@@ -380,6 +380,55 @@ func cmdTask(subcmd string, args []string) {
 			os.Exit(1)
 		}
 		fmt.Printf("Deleted task %s\n", args[0])
+
+	case "next":
+		url := baseURL() + "/api/tasks?status=ready"
+		for i := 0; i < len(args); i++ {
+			if args[i] == "--tag" && i+1 < len(args) {
+				url += "&tag=" + args[i+1]
+				i++
+			}
+		}
+		resp, err := http.Get(url)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		var tasks []map[string]any
+		json.NewDecoder(resp.Body).Decode(&tasks)
+		if len(tasks) == 0 {
+			fmt.Println("No ready tasks available")
+			return
+		}
+		priorityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}
+		best := tasks[0]
+		bestPri := 4
+		if p, ok := best["priority"].(string); ok {
+			if v, ok := priorityOrder[p]; ok {
+				bestPri = v
+			}
+		}
+		for _, t := range tasks[1:] {
+			pri := 4
+			if p, ok := t["priority"].(string); ok {
+				if v, ok := priorityOrder[p]; ok {
+					pri = v
+				}
+			}
+			if pri < bestPri {
+				best = t
+				bestPri = pri
+			}
+		}
+		assignee := ""
+		if a, ok := best["assignee"].(string); ok && a != "" {
+			assignee = " -> " + a
+		}
+		fmt.Printf("Next task:\n  [%s] %s %-12s %s%s\n", best["id"], statusIcon(best["status"]), best["priority"], best["title"], assignee)
+		if desc, ok := best["description"].(string); ok && desc != "" {
+			fmt.Printf("  %s\n", desc)
+		}
 	}
 }
 
@@ -741,7 +790,8 @@ Usage:
     --deadline 2026-03-25            Deadline (RFC3339 or YYYY-MM-DD)
     --parent wg-xxx                  Parent task ID
     --depends wg-xxx                 Dependency (repeatable)
-  waggle task list [--status X]    List tasks
+  waggle task list [--status X]    List tasks (also --priority, --tag, --search/-q)
+  waggle task next [--tag X]       Show highest-priority ready task
   waggle task show <id>            Show task detail
   waggle task update <id> [flags]  Update a task
   waggle task claim <id>           Claim a task

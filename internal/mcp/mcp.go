@@ -135,6 +135,7 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"assignee": prop("string", "Filter by assignee name"),
 				"tag":      prop("string", "Filter by tag"),
 				"priority": propEnum("string", []string{"critical", "high", "medium", "low"}, "Filter by priority"),
+				"q":        prop("string", "Search title and description"),
 			},
 		}),
 		toolDef("waggle_show_task", "Show details of a specific task.", map[string]any{
@@ -169,6 +170,17 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			"type":       "object",
 			"properties": map[string]any{"id": prop("string", "Task ID to complete")},
 			"required":   []string{"id"},
+		}),
+		toolDef("waggle_delete_task", "Delete a task (fails if in_progress).", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": prop("string", "Task ID to delete")},
+			"required":   []string{"id"},
+		}),
+		toolDef("waggle_get_next_task", "Get the highest-priority ready task to work on. Returns the best available task.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{
+				"tag": prop("string", "Optional tag filter"),
+			},
 		}),
 		toolDef("waggle_list_agents", "List connected agents.", map[string]any{
 			"type": "object",
@@ -268,7 +280,7 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 
 	case "waggle_list_tasks":
 		params := []string{}
-		for _, key := range []string{"status", "assignee", "tag", "priority"} {
+		for _, key := range []string{"status", "assignee", "tag", "priority", "q"} {
 			if v, ok := args[key].(string); ok && v != "" {
 				params = append(params, key+"="+v)
 			}
@@ -325,6 +337,51 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("id is required")
 		}
 		return a.postJSON("/api/tasks/"+id+"/complete", nil)
+
+	case "waggle_delete_task":
+		id, _ := args["id"].(string)
+		if id == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		return a.deleteJSON("/api/tasks/" + id)
+
+	case "waggle_get_next_task":
+		params := []string{"status=ready"}
+		if tag, ok := args["tag"].(string); ok && tag != "" {
+			params = append(params, "tag="+tag)
+		}
+		url := "/api/tasks?" + strings.Join(params, "&")
+		result, err := a.get(url)
+		if err != nil {
+			return nil, err
+		}
+		tasks, ok := result.([]any)
+		if !ok || len(tasks) == 0 {
+			return map[string]any{"message": "No ready tasks available"}, nil
+		}
+		// Find highest priority task
+		priorityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}
+		best := tasks[0].(map[string]any)
+		bestPri := 4
+		if p, ok := best["priority"].(string); ok {
+			if v, ok := priorityOrder[p]; ok {
+				bestPri = v
+			}
+		}
+		for _, t := range tasks[1:] {
+			task := t.(map[string]any)
+			pri := 4
+			if p, ok := task["priority"].(string); ok {
+				if v, ok := priorityOrder[p]; ok {
+					pri = v
+				}
+			}
+			if pri < bestPri {
+				best = task
+				bestPri = pri
+			}
+		}
+		return best, nil
 
 	case "waggle_list_agents":
 		url := "/api/agents"
@@ -420,6 +477,24 @@ func (a *Adapter) patchJSON(path string, body any) (any, error) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("%v", result)
+	}
+	return result, nil
+}
+
+func (a *Adapter) deleteJSON(path string) (any, error) {
+	req, _ := http.NewRequest(http.MethodDelete, a.baseURL+path, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var result any
+	json.NewDecoder(resp.Body).Decode(&result)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%v", result)
+	}
+	if result == nil {
+		return map[string]any{"status": "deleted"}, nil
 	}
 	return result, nil
 }
