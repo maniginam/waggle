@@ -307,3 +307,63 @@ func TestUnclaimTask(t *testing.T) {
 		t.Errorf("expected ready after unclaim, got %v", unclaimed["status"])
 	}
 }
+
+func TestCreateTaskInvalidStatus(t *testing.T) {
+	_, ts := setup(t)
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Bad","status":"invalid"}`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid status, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreateTaskInvalidPriority(t *testing.T) {
+	_, ts := setup(t)
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Bad","priority":"urgent"}`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid priority, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteInProgressTaskRejected(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create and claim (makes it in_progress)
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Busy task","status":"ready"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+
+	http.Post(ts.URL+"/api/agents/register", "application/json", bytes.NewBufferString(`{"name":"worker","type":"test"}`))
+	http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"worker"}`))
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/tasks/"+task["id"].(string), nil)
+	resp2, _ := http.DefaultClient.Do(req)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 for in-progress delete, got %d", resp2.StatusCode)
+	}
+}
+
+func TestDoubleClaim(t *testing.T) {
+	_, ts := setup(t)
+
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Race test","status":"ready"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+
+	http.Post(ts.URL+"/api/agents/register", "application/json", bytes.NewBufferString(`{"name":"agent-a","type":"test"}`))
+	http.Post(ts.URL+"/api/agents/register", "application/json", bytes.NewBufferString(`{"name":"agent-b","type":"test"}`))
+
+	// First claim
+	http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"agent-a"}`))
+
+	// Second claim should fail
+	resp2, _ := http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"agent-b"}`))
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 for double claim, got %d", resp2.StatusCode)
+	}
+}

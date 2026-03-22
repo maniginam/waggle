@@ -60,6 +60,14 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "missing_title", "title is required")
 			return
 		}
+		if task.Status != "" && !task.Status.Valid() {
+			writeError(w, http.StatusBadRequest, "invalid_status", "invalid status: "+string(task.Status))
+			return
+		}
+		if task.Priority != "" && !task.Priority.Valid() {
+			writeError(w, http.StatusBadRequest, "invalid_priority", "invalid priority: "+string(task.Priority))
+			return
+		}
 		if err := a.store.CreateTask(&task); err != nil {
 			if err == store.ErrCycleDep {
 				writeError(w, http.StatusBadRequest, "cycle_detected", err.Error())
