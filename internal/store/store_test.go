@@ -302,6 +302,31 @@ func TestSendAndReadMessages(t *testing.T) {
 	}
 }
 
+func TestSearchTasks(t *testing.T) {
+	s := tempStore(t)
+	s.CreateTask(&model.Task{Title: "Build authentication module"})
+	s.CreateTask(&model.Task{Title: "Fix login bug", Description: "Authentication fails on timeout"})
+	s.CreateTask(&model.Task{Title: "Write docs"})
+
+	// Search by title
+	tasks, _ := s.ListTasks(map[string]string{"q": "auth"})
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks matching 'auth', got %d", len(tasks))
+	}
+
+	// Search by description
+	tasks, _ = s.ListTasks(map[string]string{"q": "timeout"})
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 task matching 'timeout', got %d", len(tasks))
+	}
+
+	// No matches
+	tasks, _ = s.ListTasks(map[string]string{"q": "nonexistent"})
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 tasks, got %d", len(tasks))
+	}
+}
+
 func TestBroadcastMessage(t *testing.T) {
 	s := tempStore(t)
 	msg := &model.Message{From: "agent-1", To: "", Body: "broadcast"}

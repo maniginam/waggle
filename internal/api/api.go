@@ -35,7 +35,7 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		filters := map[string]string{}
-		for _, key := range []string{"status", "assignee", "priority", "tag", "parent_id"} {
+		for _, key := range []string{"status", "assignee", "priority", "tag", "parent_id", "q"} {
 			if v := r.URL.Query().Get(key); v != "" {
 				filters[key] = v
 			}

@@ -456,6 +456,24 @@ func TestMessagesMissingFields(t *testing.T) {
 	}
 }
 
+func TestSearchTasksAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create tasks
+	for _, title := range []string{"Build auth", "Fix auth timeout", "Write docs"} {
+		body, _ := json.Marshal(map[string]string{"title": title})
+		http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	}
+
+	resp, _ := http.Get(ts.URL + "/api/tasks?q=auth")
+	defer resp.Body.Close()
+	var tasks []map[string]any
+	json.NewDecoder(resp.Body).Decode(&tasks)
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks matching 'auth', got %d", len(tasks))
+	}
+}
+
 func TestMethodNotAllowed(t *testing.T) {
 	_, ts := setup(t)
 
