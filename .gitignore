@@ -1,0 +1,5 @@
+/waggle
+*.db
+*.db-wal
+*.db-shm
+.idea/
