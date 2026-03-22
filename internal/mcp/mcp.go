@@ -182,6 +182,19 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"tag": prop("string", "Optional tag filter"),
 			},
 		}),
+		toolDef("waggle_add_comment", "Add a comment/note to a task.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":   prop("string", "Task ID"),
+				"body": prop("string", "Comment text"),
+			},
+			"required": []string{"id", "body"},
+		}),
+		toolDef("waggle_list_comments", "List comments on a task.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": prop("string", "Task ID")},
+			"required":   []string{"id"},
+		}),
 		toolDef("waggle_list_agents", "List connected agents.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -337,6 +350,28 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("id is required")
 		}
 		return a.postJSON("/api/tasks/"+id+"/complete", nil)
+
+	case "waggle_add_comment":
+		taskID, _ := args["id"].(string)
+		body, _ := args["body"].(string)
+		if taskID == "" || body == "" {
+			return nil, fmt.Errorf("id and body are required")
+		}
+		author := a.agentName
+		if author == "" {
+			author = "anonymous"
+		}
+		return a.postJSON("/api/tasks/"+taskID+"/comments", map[string]string{
+			"author": author,
+			"body":   body,
+		})
+
+	case "waggle_list_comments":
+		taskID, _ := args["id"].(string)
+		if taskID == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		return a.get("/api/tasks/" + taskID + "/comments")
 
 	case "waggle_delete_task":
 		id, _ := args["id"].(string)

@@ -111,6 +111,9 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 	case "complete":
 		a.handleTaskComplete(w, r, id)
 		return
+	case "comments":
+		a.handleTaskComments(w, r, id)
+		return
 	}
 
 	switch r.Method {
@@ -250,6 +253,41 @@ func (a *API) handleTaskComplete(w http.ResponseWriter, r *http.Request, taskID 
 	a.eventHub.Publish(&model.Event{Type: model.EventTaskCompleted, TaskID: taskID})
 	task, _ := a.store.GetTask(taskID)
 	writeJSON(w, http.StatusOK, task)
+}
+
+func (a *API) handleTaskComments(w http.ResponseWriter, r *http.Request, taskID string) {
+	switch r.Method {
+	case http.MethodGet:
+		comments, err := a.store.ListComments(taskID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		if comments == nil {
+			comments = []*model.Comment{}
+		}
+		writeJSON(w, http.StatusOK, comments)
+
+	case http.MethodPost:
+		var c model.Comment
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if c.Author == "" || c.Body == "" {
+			writeError(w, http.StatusBadRequest, "missing_fields", "author and body are required")
+			return
+		}
+		c.TaskID = taskID
+		if err := a.store.AddComment(&c); err != nil {
+			writeError(w, http.StatusInternalServerError, "comment_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, &c)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func (a *API) handleAgents(w http.ResponseWriter, r *http.Request) {

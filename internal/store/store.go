@@ -102,6 +102,16 @@ func (s *Store) migrate() error {
 			created_at TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS comments (
+			id         TEXT PRIMARY KEY,
+			task_id    TEXT NOT NULL,
+			author     TEXT NOT NULL,
+			body       TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
 		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 		CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
 		CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
@@ -629,6 +639,37 @@ func scanAgent(row scanner) (*model.Agent, error) {
 
 func scanAgentRows(rows *sql.Rows) (*model.Agent, error) {
 	return scanAgent(rows)
+}
+
+// --- Comments ---
+
+func (s *Store) AddComment(c *model.Comment) error {
+	if c.ID == "" {
+		c.ID = id.New()
+	}
+	c.CreatedAt = time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO comments (id, task_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+		c.ID, c.TaskID, c.Author, c.Body, c.CreatedAt.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) ListComments(taskID string) ([]*model.Comment, error) {
+	rows, err := s.db.Query(`SELECT id, task_id, author, body, created_at FROM comments WHERE task_id = ? ORDER BY created_at ASC`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var comments []*model.Comment
+	for rows.Next() {
+		var c model.Comment
+		var ts string
+		if err := rows.Scan(&c.ID, &c.TaskID, &c.Author, &c.Body, &ts); err != nil {
+			return nil, err
+		}
+		c.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+		comments = append(comments, &c)
+	}
+	return comments, nil
 }
 
 // --- Stats ---

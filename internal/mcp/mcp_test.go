@@ -435,6 +435,40 @@ func TestGetNextTaskEmpty(t *testing.T) {
 	}
 }
 
+func TestCommentsViaMCP(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "commenter")
+	taskID := createTaskViaREST(t, ts, "Comment target")
+
+	// Add comment
+	resp := callMCP(t, adapter, "tools/call", 25, map[string]any{
+		"name":      "waggle_add_comment",
+		"arguments": map[string]any{"id": taskID, "body": "Making progress"},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("add comment failed: %v", result)
+	}
+
+	// List comments
+	adapter2 := registeredAdapter(t, ts, "commenter")
+	resp2 := callMCP(t, adapter2, "tools/call", 26, map[string]any{
+		"name":      "waggle_list_comments",
+		"arguments": map[string]any{"id": taskID},
+	})
+	result2 := resp2["result"].(map[string]any)
+	if result2["isError"] != nil && result2["isError"].(bool) {
+		t.Fatalf("list comments failed: %v", result2)
+	}
+	content := result2["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var comments []any
+	json.Unmarshal([]byte(text), &comments)
+	if len(comments) != 1 {
+		t.Errorf("expected 1 comment, got %d", len(comments))
+	}
+}
+
 func TestSearchViaMCP(t *testing.T) {
 	adapter, ts := setupMCP(t)
 
