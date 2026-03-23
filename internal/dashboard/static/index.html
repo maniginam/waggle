@@ -750,6 +750,23 @@ select.form-input { cursor: pointer; }
   width: 6px; height: 6px; border-radius: 50%;
 }
 
+/* ── INLINE TASK CREATOR ── */
+.inline-creator {
+  padding: 8px; margin-bottom: 4px;
+  background: var(--bg-elevated); border: 1px dashed var(--amber-dim);
+  border-radius: var(--radius);
+}
+.inline-creator-input {
+  width: 100%; padding: 6px 8px; font-size: 0.8rem;
+  font-family: var(--font-mono); background: var(--bg-surface);
+  border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-primary); outline: none;
+}
+.inline-creator-input:focus { border-color: var(--amber-dim); }
+.inline-creator-actions {
+  display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end;
+}
+
 /* ── BULK MODE ── */
 .card.bulk-selectable { cursor: pointer; }
 .card.bulk-selectable::before {
@@ -3230,11 +3247,37 @@ async function doClaimTask(taskId, agentName) {
 
 // ── QUICK CREATE TASK ──
 
-async function quickCreateTask(status) {
-  const title = prompt('Task title:');
-  if (!title || !title.trim()) return;
-  const task = {title: title.trim(), status};
+function quickCreateTask(status) {
+  const colBody = document.querySelector(`.column-body[data-status="${status}"]`);
+  if (!colBody) return;
+  // Remove any existing inline creator
+  document.querySelectorAll('.inline-creator').forEach(el => el.remove());
+  const creator = document.createElement('div');
+  creator.className = 'inline-creator';
+  creator.innerHTML = `
+    <input class="inline-creator-input" placeholder="Task title..." autofocus>
+    <div class="inline-creator-actions">
+      <button class="btn btn-sm" onclick="submitInlineCreate('${status}', this)">Add</button>
+      <button class="btn-ghost btn-sm" onclick="this.closest('.inline-creator').remove()">Cancel</button>
+    </div>
+  `;
+  colBody.prepend(creator);
+  const input = creator.querySelector('input');
+  input.focus();
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitInlineCreate(status, input);
+    if (e.key === 'Escape') creator.remove();
+  });
+}
+
+async function submitInlineCreate(status, el) {
+  const creator = el.closest ? el.closest('.inline-creator') : el.parentElement.parentElement;
+  const input = creator.querySelector('input');
+  const title = (input.value || '').trim();
+  if (!title) { input.focus(); return; }
+  const task = {title, status};
   if (selectedProject && selectedProject !== 'none') task.project_id = selectedProject;
+  input.disabled = true;
   const resp = await fetch('/api/tasks', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -3246,6 +3289,8 @@ async function quickCreateTask(status) {
   } else {
     const err = await resp.json().catch(() => ({}));
     showToast('Error: ' + (err.error?.message || 'failed'), 'var(--red)');
+    input.disabled = false;
+    input.focus();
   }
 }
 
