@@ -38,7 +38,7 @@ Connect Claude Code to a running Waggle server:
 waggle connect    # generates .mcp.json in current directory
 ```
 
-This exposes 16 tools: `waggle_register_agent`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_update_task`, `waggle_claim_task`, `waggle_unclaim_task`, `waggle_complete_task`, `waggle_delete_task`, `waggle_get_next_task`, `waggle_add_comment`, `waggle_list_comments`, `waggle_list_agents`, `waggle_set_status`, `waggle_send_message`, `waggle_read_messages`.
+This exposes 18 tools: `waggle_register_agent`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_update_task`, `waggle_claim_task`, `waggle_unclaim_task`, `waggle_complete_task`, `waggle_delete_task`, `waggle_get_next_task`, `waggle_task_history`, `waggle_list_subtasks`, `waggle_add_comment`, `waggle_list_comments`, `waggle_list_agents`, `waggle_set_status`, `waggle_send_message`, `waggle_read_messages`.
 
 ## SMART Tasks
 
@@ -92,6 +92,8 @@ POST   /api/tasks/:id/unclaim    Unclaim task (self-only)
 POST   /api/tasks/:id/complete   Complete task (auto-unblocks dependents)
 GET    /api/tasks/:id/comments  List task comments
 POST   /api/tasks/:id/comments  Add comment (author, body)
+GET    /api/tasks/:id/history   Task event history
+GET    /api/tasks/:id/subtasks  Subtasks with progress (done/total)
 POST   /api/agents/register      Register agent
 GET    /api/agents               List agents
 GET    /api/agents/:id           Get agent

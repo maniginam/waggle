@@ -520,6 +520,42 @@ func (s *Store) ListEvents(limit int) ([]*model.Event, error) {
 	return events, rows.Err()
 }
 
+func (s *Store) ListTaskEvents(taskID string, limit int) ([]*model.Event, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT id, type, agent_id, task_id, payload, timestamp FROM events WHERE task_id = ? ORDER BY timestamp DESC LIMIT ?`, taskID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []*model.Event
+	for rows.Next() {
+		var e model.Event
+		var payloadStr, ts string
+		if err := rows.Scan(&e.ID, &e.Type, &e.AgentID, &e.TaskID, &payloadStr, &ts); err != nil {
+			return nil, err
+		}
+		json.Unmarshal([]byte(payloadStr), &e.Payload)
+		e.Timestamp, _ = time.Parse(time.RFC3339, ts)
+		events = append(events, &e)
+	}
+	return events, rows.Err()
+}
+
+// ListSubtasks returns all tasks with the given parent_id
+func (s *Store) ListSubtasks(parentID string) ([]*model.Task, error) {
+	return s.ListTasks(map[string]string{"parent_id": parentID})
+}
+
+// SubtaskProgress returns done/total counts for subtasks of a parent
+func (s *Store) SubtaskProgress(parentID string) (done, total int, err error) {
+	row := s.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) FROM tasks WHERE parent_id = ?`, parentID)
+	err = row.Scan(&total, &done)
+	return
+}
+
 // --- Messages ---
 
 func (s *Store) SendMessage(msg *model.Message) error {

@@ -400,6 +400,27 @@ func cmdTask(subcmd string, args []string) {
 		}
 		fmt.Printf("  Created: %s\n", task["created_at"])
 
+		// Show subtask progress
+		subResp, err := http.Get(baseURL() + "/api/tasks/" + args[0] + "/subtasks")
+		if err == nil {
+			defer subResp.Body.Close()
+			var subResult map[string]any
+			json.NewDecoder(subResp.Body).Decode(&subResult)
+			if progress, ok := subResult["progress"].(map[string]any); ok {
+				total := int(progress["total"].(float64))
+				if total > 0 {
+					done := int(progress["done"].(float64))
+					fmt.Printf("\n  Subtasks: %d/%d done\n", done, total)
+					if subs, ok := subResult["subtasks"].([]any); ok {
+						for _, s := range subs {
+							sub := s.(map[string]any)
+							fmt.Printf("    %s %s %s\n", statusIcon(sub["status"]), sub["id"], sub["title"])
+						}
+					}
+				}
+			}
+		}
+
 		// Show comments
 		commResp, err := http.Get(baseURL() + "/api/tasks/" + args[0] + "/comments")
 		if err == nil {
