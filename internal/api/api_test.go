@@ -638,6 +638,159 @@ func TestSearchTasksAPI(t *testing.T) {
 	}
 }
 
+func TestProjectCRUDAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create project
+	body := `{"name":"Auth System","description":"Authentication and authorization"}`
+	resp, _ := http.Post(ts.URL+"/api/projects", "application/json", bytes.NewBufferString(body))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var project map[string]any
+	json.NewDecoder(resp.Body).Decode(&project)
+	resp.Body.Close()
+	projectID := project["id"].(string)
+
+	if project["name"] != "Auth System" {
+		t.Errorf("expected Auth System, got %v", project["name"])
+	}
+
+	// Get project
+	resp, _ = http.Get(ts.URL + "/api/projects/" + projectID)
+	var got map[string]any
+	json.NewDecoder(resp.Body).Decode(&got)
+	resp.Body.Close()
+	if got["name"] != "Auth System" {
+		t.Errorf("expected Auth System, got %v", got["name"])
+	}
+
+	// List projects
+	resp, _ = http.Get(ts.URL + "/api/projects")
+	var projects []map[string]any
+	json.NewDecoder(resp.Body).Decode(&projects)
+	resp.Body.Close()
+	if len(projects) != 1 {
+		t.Errorf("expected 1 project, got %d", len(projects))
+	}
+
+	// Update project
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/projects/"+projectID,
+		bytes.NewBufferString(`{"name":"Auth System v2"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = http.DefaultClient.Do(req)
+	var updated map[string]any
+	json.NewDecoder(resp.Body).Decode(&updated)
+	resp.Body.Close()
+	if updated["name"] != "Auth System v2" {
+		t.Errorf("expected Auth System v2, got %v", updated["name"])
+	}
+
+	// Delete project
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/projects/"+projectID, nil)
+	resp, _ = http.DefaultClient.Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", resp.StatusCode)
+	}
+
+	// Verify deleted
+	resp, _ = http.Get(ts.URL + "/api/projects/" + projectID)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", resp.StatusCode)
+	}
+}
+
+func TestProjectEpicsAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create project
+	resp, _ := http.Post(ts.URL+"/api/projects", "application/json",
+		bytes.NewBufferString(`{"name":"My Project"}`))
+	var project map[string]any
+	json.NewDecoder(resp.Body).Decode(&project)
+	resp.Body.Close()
+	projectID := project["id"].(string)
+
+	// Create epic under project
+	epicBody, _ := json.Marshal(map[string]any{
+		"title":      "User Auth Epic",
+		"task_type":  "epic",
+		"project_id": projectID,
+	})
+	resp, _ = http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(epicBody))
+	var epic map[string]any
+	json.NewDecoder(resp.Body).Decode(&epic)
+	resp.Body.Close()
+	epicID := epic["id"].(string)
+
+	// Create stories under epic
+	for _, title := range []string{"Login flow", "Password reset"} {
+		storyBody, _ := json.Marshal(map[string]any{
+			"title":      title,
+			"task_type":  "story",
+			"parent_id":  epicID,
+			"project_id": projectID,
+			"criteria":   []string{"All tests pass", "Code reviewed"},
+		})
+		r, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(storyBody))
+		r.Body.Close()
+	}
+
+	// Get project epics
+	resp, _ = http.Get(ts.URL + "/api/projects/" + projectID + "/epics")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var epics []map[string]any
+	json.NewDecoder(resp.Body).Decode(&epics)
+	if len(epics) != 1 {
+		t.Fatalf("expected 1 epic, got %d", len(epics))
+	}
+	if epics[0]["title"] != "User Auth Epic" {
+		t.Errorf("expected User Auth Epic, got %v", epics[0]["title"])
+	}
+	progress := epics[0]["progress"].(map[string]any)
+	if progress["total"].(float64) != 2 {
+		t.Errorf("expected 2 total subtasks, got %v", progress["total"])
+	}
+}
+
+func TestProjectMissingName(t *testing.T) {
+	_, ts := setup(t)
+	resp, _ := http.Post(ts.URL+"/api/projects", "application/json",
+		bytes.NewBufferString(`{"description":"no name"}`))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestTaskTypeFilterAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create tasks of different types
+	for _, tt := range []string{"epic", "story", "task"} {
+		body, _ := json.Marshal(map[string]string{"title": tt + " item", "task_type": tt})
+		r, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+		r.Body.Close()
+	}
+
+	// Filter by type
+	resp, _ := http.Get(ts.URL + "/api/tasks?task_type=epic")
+	defer resp.Body.Close()
+	var tasks []map[string]any
+	json.NewDecoder(resp.Body).Decode(&tasks)
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 epic, got %d", len(tasks))
+	}
+	if tasks[0]["task_type"] != "epic" {
+		t.Errorf("expected epic type, got %v", tasks[0]["task_type"])
+	}
+}
+
 func TestMethodNotAllowed(t *testing.T) {
 	_, ts := setup(t)
 

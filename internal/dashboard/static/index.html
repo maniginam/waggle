@@ -60,13 +60,7 @@ body {
   top: 0;
   z-index: 100;
 }
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
+.header-left { display: flex; align-items: center; gap: 16px; }
 .logo {
   font-family: var(--font-sans);
   font-size: 1.4rem;
@@ -76,79 +70,47 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
 }
-
 .logo-hex {
-  width: 28px;
-  height: 28px;
+  width: 28px; height: 28px;
   background: var(--amber);
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-
 .logo-hex-inner {
-  width: 20px;
-  height: 20px;
+  width: 20px; height: 20px;
   background: var(--bg-surface);
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
 }
-
-.header-stats {
-  display: flex;
-  gap: 20px;
-  font-size: 0.85rem;
-}
-
-.header-stat {
-  color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.header-stat .val {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
+.header-stats { display: flex; gap: 20px; font-size: 0.85rem; }
+.header-stat { color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.header-stat .val { color: var(--text-primary); font-weight: 600; }
 .pulse-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  width: 7px; height: 7px; border-radius: 50%;
   background: var(--green);
   animation: pulse 2s ease-in-out infinite;
 }
-
 @keyframes pulse {
   0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52,211,153,0.4); }
   50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(52,211,153,0); }
 }
+.header-right { display: flex; align-items: center; gap: 12px; }
 
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* ── PROJECT SELECTOR ── */
+.project-selector {
+  display: flex; align-items: center; gap: 8px;
 }
-
-.sse-status {
-  font-size: 0.75rem;
-  color: var(--text-dim);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.project-select {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem;
+  padding: 6px 10px; outline: none; cursor: pointer;
+  transition: border-color 0.15s;
 }
-
-.sse-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-dim);
-  transition: background 0.3s;
-}
-
+.project-select:focus { border-color: var(--amber-dim); }
+.project-select option { background: var(--bg-surface); color: var(--text-primary); }
+.sse-status { font-size: 0.75rem; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.sse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; }
 .sse-dot.connected { background: var(--green); }
 .sse-dot.error { background: var(--red); }
 
@@ -161,359 +123,111 @@ body {
 }
 
 /* ── STATS BAR ── */
-.stats-bar {
-  display: flex;
-  gap: 1px;
-  background: var(--border-subtle);
-  border-bottom: 1px solid var(--border);
-}
-
-.stat-cell {
-  flex: 1;
-  background: var(--bg-surface);
-  padding: 14px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.stat-cell .label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: var(--text-dim);
-}
-
-.stat-cell .value {
-  font-size: 1.6rem;
-  font-weight: 700;
-  font-family: var(--font-sans);
-  color: var(--text-primary);
-}
-
+.stats-bar { display: flex; gap: 1px; background: var(--border-subtle); border-bottom: 1px solid var(--border); }
+.stat-cell { flex: 1; background: var(--bg-surface); padding: 14px 20px; display: flex; flex-direction: column; gap: 4px; }
+.stat-cell .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); }
+.stat-cell .value { font-size: 1.6rem; font-weight: 700; font-family: var(--font-sans); color: var(--text-primary); }
 .stat-cell .value.amber { color: var(--amber); }
 .stat-cell .value.green { color: var(--green); }
 .stat-cell .value.blue { color: var(--blue); }
-
-.stat-bar-visual {
-  display: flex;
-  gap: 2px;
-  margin-top: 6px;
-  height: 3px;
-}
-
-.stat-bar-segment {
-  border-radius: 1px;
-  transition: width 0.5s ease;
-}
+.stat-bar-visual { display: flex; gap: 2px; margin-top: 6px; height: 3px; }
+.stat-bar-segment { border-radius: 1px; transition: width 0.5s ease; }
 
 /* ── MAIN CONTENT ── */
-.main {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  overflow: hidden;
-}
+.main { display: grid; grid-template-columns: 1fr 280px; overflow: hidden; }
 
 /* ── KANBAN BOARD ── */
-.board {
-  display: flex;
-  gap: 1px;
-  background: var(--border-subtle);
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.column {
-  flex: 1;
-  min-width: 200px;
-  background: var(--bg-deep);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
+.board { display: flex; gap: 1px; background: var(--border-subtle); overflow-x: auto; overflow-y: hidden; }
+.column { flex: 1; min-width: 200px; background: var(--bg-deep); display: flex; flex-direction: column; overflow: hidden; }
 .column-header {
-  padding: 12px 14px;
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
+  padding: 12px 14px; background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
 }
-
-.column-title {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.column-count {
-  font-size: 0.7rem;
-  background: var(--bg-elevated);
-  color: var(--text-dim);
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-weight: 500;
-}
-
-.column-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
+.column-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-secondary); font-weight: 600; }
+.column-count { font-size: 0.7rem; background: var(--bg-elevated); color: var(--text-dim); padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.column-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .column-body::-webkit-scrollbar { width: 4px; }
 .column-body::-webkit-scrollbar-track { background: transparent; }
 .column-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 /* ── TASK CARD ── */
 .card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  cursor: default;
+  background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--radius);
+  padding: 10px 12px; cursor: pointer;
   transition: background 0.15s, border-color 0.15s, transform 0.15s;
   position: relative;
 }
-
-.card:hover {
-  background: var(--bg-card-hover);
-  border-color: var(--border);
-  transform: translateY(-1px);
-}
-
-.card-id {
-  font-size: 0.65rem;
-  color: var(--text-dim);
-  margin-bottom: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.card-title {
-  font-size: 0.85rem;
-  font-family: var(--font-sans);
-  font-weight: 500;
-  color: var(--text-primary);
-  line-height: 1.3;
-  margin-bottom: 8px;
-}
-
-.card-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.priority-badge {
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 600;
-}
-
+.card:hover { background: var(--bg-card-hover); border-color: var(--border); transform: translateY(-1px); }
+.card.selected { border-color: var(--amber); background: var(--amber-glow); }
+.card-id { font-size: 0.65rem; color: var(--text-dim); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }
+.card-title { font-size: 0.85rem; font-family: var(--font-sans); font-weight: 500; color: var(--text-primary); line-height: 1.3; margin-bottom: 8px; }
+.card-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.priority-badge { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.8px; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
 .priority-critical { background: var(--red-dim); color: var(--red); }
 .priority-high { background: var(--amber-glow-strong); color: var(--amber); }
 .priority-medium { background: var(--blue-dim); color: var(--blue); }
 .priority-low { background: var(--bg-elevated); color: var(--text-dim); }
+.card-assignee { font-size: 0.7rem; color: var(--cyan); display: flex; align-items: center; gap: 4px; }
+.card-assignee::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); }
+.card-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.tag { font-size: 0.6rem; color: var(--purple); background: var(--purple-dim); padding: 1px 5px; border-radius: 3px; }
 
-.card-assignee {
-  font-size: 0.7rem;
-  color: var(--cyan);
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* ── TASK TYPE BADGES ── */
+.type-badge {
+  font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.8px;
+  padding: 1px 5px; border-radius: 3px; font-weight: 700;
 }
+.type-epic { background: var(--purple-dim); color: var(--purple); }
+.type-story { background: var(--cyan-dim); color: var(--cyan); }
+.type-issue { background: var(--red-dim); color: var(--red); }
+.type-task { background: var(--bg-elevated); color: var(--text-dim); }
 
-.card-assignee::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--cyan);
-}
-
-.card-tags {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.tag {
-  font-size: 0.6rem;
-  color: var(--purple);
-  background: var(--purple-dim);
-  padding: 1px 5px;
-  border-radius: 3px;
-}
-
-/* ── CARD NEW ANIMATION ── */
-.card.new {
-  animation: cardSlideIn 0.3s ease-out;
-}
-
+.card.new { animation: cardSlideIn 0.3s ease-out; }
 @keyframes cardSlideIn {
   from { opacity: 0; transform: translateY(-8px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* ── SIDEBAR ── */
-.sidebar {
-  background: var(--bg-surface);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.sidebar-section {
-  border-bottom: 1px solid var(--border);
-}
-
-.sidebar-title {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: var(--text-dim);
-  padding: 12px 16px 8px;
-  font-weight: 600;
-}
-
-.agent-list {
-  padding: 0 12px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
+.sidebar { background: var(--bg-surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-section { border-bottom: 1px solid var(--border); }
+.sidebar-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); padding: 12px 16px 8px; font-weight: 600; }
+.agent-list { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 4px; }
 .agent-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  transition: background 0.15s;
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: var(--radius); transition: background 0.15s; cursor: pointer;
 }
-
 .agent-row:hover { background: var(--bg-card); }
-
-.agent-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
+.agent-row.selected { background: var(--amber-glow); border: 1px solid var(--amber-dim); }
+.agent-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .agent-status-dot.connected { background: var(--green); }
 .agent-status-dot.working { background: var(--amber); animation: pulse 2s ease-in-out infinite; }
 .agent-status-dot.idle { background: var(--blue); }
 .agent-status-dot.blocked { background: var(--red); }
 .agent-status-dot.disconnected { background: var(--text-dim); }
-
 .agent-info { flex: 1; min-width: 0; }
-
-.agent-name {
-  font-size: 0.8rem;
-  font-family: var(--font-sans);
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.agent-type {
-  font-size: 0.65rem;
-  color: var(--text-dim);
-}
-
-.agent-task {
-  font-size: 0.6rem;
-  color: var(--amber-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100px;
-}
+.agent-name { font-size: 0.8rem; font-family: var(--font-sans); font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-type { font-size: 0.65rem; color: var(--text-dim); }
+.agent-task { font-size: 0.6rem; color: var(--amber-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
 
 /* ── EVENT FEED ── */
-.event-feed {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 12px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
+.event-feed { flex: 1; overflow-y: auto; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 2px; }
 .event-feed::-webkit-scrollbar { width: 4px; }
 .event-feed::-webkit-scrollbar-track { background: transparent; }
 .event-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-.event-row {
-  font-size: 0.7rem;
-  padding: 5px 8px;
-  border-radius: 3px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-  animation: eventFadeIn 0.3s ease-out;
-}
-
+.event-row { font-size: 0.7rem; padding: 5px 8px; border-radius: 3px; color: var(--text-secondary); line-height: 1.4; animation: eventFadeIn 0.3s ease-out; }
 .event-row:hover { background: var(--bg-card); }
-
 @keyframes eventFadeIn {
   from { opacity: 0; transform: translateX(8px); }
   to { opacity: 1; transform: translateX(0); }
 }
-
-.event-type {
-  color: var(--text-dim);
-  font-size: 0.6rem;
-}
-
-.event-time {
-  color: var(--text-dim);
-  font-size: 0.6rem;
-  float: right;
-}
+.event-type { color: var(--text-dim); font-size: 0.6rem; }
+.event-time { color: var(--text-dim); font-size: 0.6rem; float: right; }
 
 /* ── EMPTY STATE ── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-  color: var(--text-dim);
-  text-align: center;
-  gap: 8px;
-}
-
-.empty-hex {
-  width: 48px;
-  height: 48px;
-  background: var(--bg-elevated);
-  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-  margin-bottom: 8px;
-  opacity: 0.4;
-}
-
-.empty-state p {
-  font-size: 0.75rem;
-  max-width: 200px;
-  line-height: 1.5;
-}
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; color: var(--text-dim); text-align: center; gap: 8px; }
+.empty-hex { width: 48px; height: 48px; background: var(--bg-elevated); clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); margin-bottom: 8px; opacity: 0.4; }
+.empty-state p { font-size: 0.75rem; max-width: 200px; line-height: 1.5; }
 
 /* ── COLUMN STATUS ACCENTS ── */
 .column[data-status="backlog"] .column-header { border-left: 2px solid var(--text-dim); }
@@ -523,36 +237,193 @@ body {
 .column[data-status="done"] .column-header { border-left: 2px solid var(--green); }
 .column[data-status="blocked"] .column-header { border-left: 2px solid var(--red); }
 
+/* ── OVERLAY PANEL (task detail / chat) ── */
+.overlay-backdrop {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.5); z-index: 200;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.overlay-backdrop.open { opacity: 1; pointer-events: auto; }
+
+.panel {
+  position: fixed; top: 0; right: 0; width: 520px; max-width: 90vw; height: 100%;
+  background: var(--bg-surface); border-left: 1px solid var(--border);
+  z-index: 201; transform: translateX(100%); transition: transform 0.25s ease;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.panel.open { transform: translateX(0); }
+
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.panel-header-left { display: flex; align-items: center; gap: 12px; }
+.panel-close {
+  width: 28px; height: 28px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-card); color: var(--text-secondary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; transition: background 0.15s, border-color 0.15s;
+}
+.panel-close:hover { background: var(--bg-elevated); border-color: var(--text-dim); }
+.panel-title { font-family: var(--font-sans); font-weight: 600; font-size: 1rem; }
+.panel-subtitle { font-size: 0.7rem; color: var(--text-dim); }
+
+.panel-body { flex: 1; overflow-y: auto; padding: 20px; }
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── TASK DETAIL ── */
+.detail-section { margin-bottom: 20px; }
+.detail-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-dim); margin-bottom: 6px; font-weight: 600; }
+.detail-value { font-family: var(--font-sans); font-size: 0.9rem; color: var(--text-primary); line-height: 1.5; }
+.detail-row { display: flex; gap: 20px; margin-bottom: 16px; }
+.detail-field { flex: 1; }
+.detail-field .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 4px; }
+.detail-field .val { font-size: 0.85rem; color: var(--text-primary); }
+
+.detail-deps { display: flex; flex-direction: column; gap: 4px; }
+.dep-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.8rem; padding: 6px 10px;
+  background: var(--bg-card); border-radius: var(--radius);
+  cursor: pointer; transition: background 0.15s;
+}
+.dep-row:hover { background: var(--bg-card-hover); }
+.dep-status { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dep-status.done { background: var(--green); }
+.dep-status.in_progress { background: var(--amber); }
+.dep-status.ready { background: var(--blue); }
+.dep-status.blocked { background: var(--red); }
+.dep-status.backlog { background: var(--text-dim); }
+.dep-status.review { background: var(--purple); }
+.dep-title { font-family: var(--font-sans); color: var(--text-secondary); flex: 1; }
+.dep-id { font-size: 0.65rem; color: var(--text-dim); }
+
+/* ── COMMENTS ── */
+.comment-list { display: flex; flex-direction: column; gap: 8px; }
+.comment {
+  background: var(--bg-card); border-radius: var(--radius); padding: 10px 12px;
+  border-left: 2px solid var(--border);
+}
+.comment-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.comment-author { font-size: 0.75rem; color: var(--cyan); font-weight: 500; }
+.comment-time { font-size: 0.6rem; color: var(--text-dim); }
+.comment-body { font-size: 0.8rem; font-family: var(--font-sans); color: var(--text-secondary); line-height: 1.5; }
+
+.comment-form { display: flex; gap: 8px; margin-top: 12px; }
+.comment-input {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 12px; color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem;
+  outline: none; transition: border-color 0.15s;
+}
+.comment-input:focus { border-color: var(--amber-dim); }
+.comment-input::placeholder { color: var(--text-dim); }
+
+.btn {
+  background: var(--amber); color: var(--bg-deep); border: none; border-radius: var(--radius);
+  padding: 8px 14px; font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600;
+  cursor: pointer; transition: background 0.15s, transform 0.1s; white-space: nowrap;
+}
+.btn:hover { background: #ffb820; }
+.btn:active { transform: scale(0.97); }
+.btn-ghost {
+  background: transparent; color: var(--text-secondary); border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--bg-card); color: var(--text-primary); border-color: var(--text-dim); }
+
+/* ── CHAT PANEL ── */
+.chat-messages { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 20px; overflow-y: auto; }
+.chat-messages::-webkit-scrollbar { width: 4px; }
+.chat-messages::-webkit-scrollbar-track { background: transparent; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.chat-msg {
+  max-width: 85%; padding: 10px 14px; border-radius: 12px;
+  font-size: 0.8rem; font-family: var(--font-sans); line-height: 1.5;
+  animation: chatMsgIn 0.2s ease-out;
+}
+@keyframes chatMsgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.chat-msg.from-me {
+  align-self: flex-end;
+  background: var(--amber-glow-strong); color: var(--text-primary);
+  border-bottom-right-radius: 4px;
+}
+.chat-msg.from-them {
+  align-self: flex-start;
+  background: var(--bg-card); color: var(--text-secondary);
+  border-bottom-left-radius: 4px;
+}
+.chat-msg-meta { font-size: 0.6rem; color: var(--text-dim); margin-bottom: 2px; }
+
+.chat-input-bar {
+  display: flex; gap: 8px; padding: 12px 20px;
+  border-top: 1px solid var(--border); flex-shrink: 0;
+  background: var(--bg-surface);
+}
+.chat-input {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px;
+  padding: 10px 16px; color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem;
+  outline: none; transition: border-color 0.15s;
+}
+.chat-input:focus { border-color: var(--amber-dim); }
+.chat-input::placeholder { color: var(--text-dim); }
+.chat-send {
+  width: 38px; height: 38px; border-radius: 50%; background: var(--amber);
+  border: none; color: var(--bg-deep); cursor: pointer; display: flex;
+  align-items: center; justify-content: center; font-size: 1.1rem;
+  transition: background 0.15s, transform 0.1s; flex-shrink: 0;
+}
+.chat-send:hover { background: #ffb820; }
+.chat-send:active { transform: scale(0.93); }
+
+/* ── PANEL TABS ── */
+.panel-tabs {
+  display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  background: var(--bg-surface);
+}
+.panel-tab {
+  flex: 1; padding: 10px; text-align: center; font-size: 0.7rem;
+  text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim);
+  cursor: pointer; transition: color 0.15s, border-color 0.15s;
+  border-bottom: 2px solid transparent;
+}
+.panel-tab:hover { color: var(--text-secondary); }
+.panel-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
   .main { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .board { min-height: 70vh; }
+  .panel { width: 100vw; max-width: 100vw; }
 }
 
-/* ── HONEYCOMB BACKGROUND PATTERN ── */
+/* ── HONEYCOMB BACKGROUND ── */
 .layout::before {
   content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  opacity: 0.015;
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; opacity: 0.015;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100'%3E%3Cpath d='M28 66L0 50L0 16L28 0L56 16L56 50L28 66' fill='none' stroke='%23f0a500' stroke-width='1'/%3E%3Cpath d='M28 100L0 84L0 50L28 34L56 50L56 84L28 100' fill='none' stroke='%23f0a500' stroke-width='1'/%3E%3C/svg%3E");
   z-index: 0;
 }
-
 .layout > * { position: relative; z-index: 1; }
 </style>
 </head>
 <body>
 <div class="header">
   <div class="header-left">
-    <div class="logo">
+    <div class="logo" onclick="closePanel()">
       <div class="logo-hex"><div class="logo-hex-inner"></div></div>
       waggle
+    </div>
+    <div class="project-selector">
+      <select class="project-select" id="project-select" onchange="onProjectChange()">
+        <option value="">All Projects</option>
+      </select>
     </div>
     <div class="header-stats" id="header-stats"></div>
   </div>
@@ -581,6 +452,23 @@ body {
   </div>
 </div>
 
+<!-- Overlay backdrop -->
+<div class="overlay-backdrop" id="overlay" onclick="closePanel()"></div>
+
+<!-- Slide-out panel -->
+<div class="panel" id="panel">
+  <div class="panel-header">
+    <div class="panel-header-left">
+      <div>
+        <div class="panel-title" id="panel-title"></div>
+        <div class="panel-subtitle" id="panel-subtitle"></div>
+      </div>
+    </div>
+    <button class="panel-close" onclick="closePanel()">&times;</button>
+  </div>
+  <div id="panel-content"></div>
+</div>
+
 <script>
 const STATUSES = ['backlog','ready','in_progress','review','blocked','done'];
 const STATUS_LABELS = {backlog:'Backlog',ready:'Ready',in_progress:'In Progress',review:'Review',blocked:'Blocked',done:'Done'};
@@ -589,17 +477,21 @@ const PRIORITY_ORDER = {critical:0,high:1,medium:2,low:3};
 let tasks = [];
 let agents = [];
 let stats = {};
+let projects = [];
+let selectedProject = '';
+let currentPanel = null; // {type:'task',id:'...'} or {type:'chat',agent:'...'}
 
-// ── RENDER ──
+// ── BOARD RENDER ──
 
 function renderBoard() {
   const board = document.getElementById('board');
   board.innerHTML = '';
+  const filteredTasks = selectedProject ? tasks.filter(t => t.project_id === selectedProject) : tasks;
   for (const status of STATUSES) {
     const col = document.createElement('div');
     col.className = 'column';
     col.dataset.status = status;
-    const colTasks = tasks.filter(t => t.status === status)
+    const colTasks = filteredTasks.filter(t => t.status === status)
       .sort((a,b) => (PRIORITY_ORDER[a.priority]||4) - (PRIORITY_ORDER[b.priority]||4));
     col.innerHTML = `
       <div class="column-header">
@@ -607,20 +499,28 @@ function renderBoard() {
         <span class="column-count">${colTasks.length}</span>
       </div>
       <div class="column-body">
-        ${colTasks.length === 0 ? `<div class="empty-state"><div class="empty-hex"></div></div>` :
+        ${colTasks.length === 0 ? '<div class="empty-state"><div class="empty-hex"></div></div>' :
           colTasks.map(t => renderCard(t)).join('')}
       </div>
     `;
     board.appendChild(col);
   }
+  // Attach click handlers
+  board.querySelectorAll('.card').forEach(card => {
+    card.addEventListener('click', () => openTaskPanel(card.dataset.id));
+  });
 }
 
 function renderCard(t) {
   const tags = (t.tags||[]).map(tag => `<span class="tag">${esc(tag)}</span>`).join('');
+  const sel = currentPanel && currentPanel.type === 'task' && currentPanel.id === t.id ? ' selected' : '';
+  const taskType = t.task_type || 'task';
+  const showType = taskType !== 'task';
+  const proj = t.project_id ? projects.find(p => p.id === t.project_id) : null;
   return `
-    <div class="card" data-id="${t.id}">
+    <div class="card${sel}" data-id="${t.id}">
       <div class="card-id">
-        <span>${t.id}</span>
+        <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${t.id}</span>
         ${t.estimate ? `<span>${esc(t.estimate)}</span>` : ''}
       </div>
       <div class="card-title">${esc(t.title)}</div>
@@ -628,6 +528,7 @@ function renderCard(t) {
         <span class="priority-badge priority-${t.priority}">${t.priority}</span>
         ${t.assignee ? `<span class="card-assignee">${esc(t.assignee)}</span>` : ''}
         ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+        ${proj ? `<span class="tag" style="background:var(--amber-glow);color:var(--amber)">${esc(proj.name)}</span>` : ''}
       </div>
     </div>
   `;
@@ -639,16 +540,21 @@ function renderAgents() {
     el.innerHTML = '<div class="empty-state"><p>No agents registered</p></div>';
     return;
   }
-  el.innerHTML = agents.map(a => `
-    <div class="agent-row">
+  el.innerHTML = agents.map(a => {
+    const sel = currentPanel && currentPanel.type === 'chat' && currentPanel.agent === a.name ? ' selected' : '';
+    return `
+    <div class="agent-row${sel}" data-agent="${esc(a.name)}">
       <div class="agent-status-dot ${a.status}"></div>
       <div class="agent-info">
         <div class="agent-name">${esc(a.name)}</div>
         <div class="agent-type">${esc(a.type)}</div>
       </div>
       ${a.current_task ? `<div class="agent-task">${esc(a.current_task)}</div>` : ''}
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.agent-row').forEach(row => {
+    row.addEventListener('click', () => openChatPanel(row.dataset.agent));
+  });
 }
 
 function renderStats() {
@@ -659,6 +565,7 @@ function renderStats() {
   const inProg = byStatus.in_progress || 0;
   const done = byStatus.done || 0;
   const blocked = byStatus.blocked || 0;
+  const total = s.total_tasks || 1;
 
   document.getElementById('header-stats').innerHTML = `
     <div class="header-stat"><span class="val">${s.total_tasks}</span> tasks</div>
@@ -666,39 +573,30 @@ function renderStats() {
     <div class="header-stat"><div class="pulse-dot"></div> live</div>
   `;
 
-  const total = s.total_tasks || 1;
   document.getElementById('stats-bar').innerHTML = `
     <div class="stat-cell">
       <div class="label">Ready</div>
       <div class="value blue">${ready}</div>
-      <div class="stat-bar-visual">
-        <div class="stat-bar-segment" style="width:100%;background:var(--blue);opacity:${ready?0.6:0.1}"></div>
-      </div>
+      <div class="stat-bar-visual"><div class="stat-bar-segment" style="width:100%;background:var(--blue);opacity:${ready?0.6:0.1}"></div></div>
     </div>
     <div class="stat-cell">
       <div class="label">In Progress</div>
       <div class="value amber">${inProg}</div>
-      <div class="stat-bar-visual">
-        <div class="stat-bar-segment" style="width:100%;background:var(--amber);opacity:${inProg?0.6:0.1}"></div>
-      </div>
+      <div class="stat-bar-visual"><div class="stat-bar-segment" style="width:100%;background:var(--amber);opacity:${inProg?0.6:0.1}"></div></div>
     </div>
     <div class="stat-cell">
       <div class="label">Blocked</div>
       <div class="value" style="color:var(--red)">${blocked}</div>
-      <div class="stat-bar-visual">
-        <div class="stat-bar-segment" style="width:100%;background:var(--red);opacity:${blocked?0.6:0.1}"></div>
-      </div>
+      <div class="stat-bar-visual"><div class="stat-bar-segment" style="width:100%;background:var(--red);opacity:${blocked?0.6:0.1}"></div></div>
     </div>
     <div class="stat-cell">
       <div class="label">Done</div>
       <div class="value green">${done}</div>
-      <div class="stat-bar-visual">
-        <div class="stat-bar-segment" style="width:${Math.round(done/total*100)}%;background:var(--green);opacity:0.6"></div>
-      </div>
+      <div class="stat-bar-visual"><div class="stat-bar-segment" style="width:${Math.round(done/total*100)}%;background:var(--green);opacity:0.6"></div></div>
     </div>
     <div class="stat-cell">
       <div class="label">Completion</div>
-      <div class="value">${total > 0 ? Math.round(done/total*100) : 0}<span style="font-size:0.8rem;color:var(--text-dim)">%</span></div>
+      <div class="value">${Math.round(done/total*100)}<span style="font-size:0.8rem;color:var(--text-dim)">%</span></div>
       <div class="stat-bar-visual">
         <div class="stat-bar-segment" style="width:${Math.round(done/total*100)}%;background:var(--amber)"></div>
         <div class="stat-bar-segment" style="flex:1;background:var(--bg-elevated)"></div>
@@ -718,22 +616,245 @@ function addEvent(evt) {
   if (evt.task_id) detail += (detail ? ' ' : '') + evt.task_id;
   row.innerHTML = `<span class="event-time">${time}</span><span class="event-type">${typeLabel}</span> ${esc(detail)}`;
   feed.insertBefore(row, feed.firstChild);
-  // Keep max 50 events
   while (feed.children.length > 50) feed.removeChild(feed.lastChild);
 }
+
+// ── TASK DETAIL PANEL ──
+
+async function openTaskPanel(taskId) {
+  currentPanel = {type:'task', id:taskId};
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  const taskType = task.task_type || 'task';
+  const proj = task.project_id ? projects.find(p => p.id === task.project_id) : null;
+  document.getElementById('panel-title').textContent = task.title;
+  document.getElementById('panel-subtitle').textContent = `${taskType} · ${task.id} · ${task.status} · ${task.priority}${proj ? ' · ' + proj.name : ''}`;
+
+  // Fetch comments, deps, history, subtasks in parallel
+  const [comments, deps, history, subtaskData] = await Promise.all([
+    fetch(`/api/tasks/${taskId}/comments`).then(r => r.json()).catch(() => []),
+    fetch(`/api/tasks/${taskId}/deps`).then(r => r.json()).catch(() => ({depends_on:[],blocking:[]})),
+    fetch(`/api/tasks/${taskId}/history`).then(r => r.json()).catch(() => []),
+    fetch(`/api/tasks/${taskId}/subtasks`).then(r => r.json()).catch(() => ({subtasks:[],progress:{done:0,total:0}})),
+  ]);
+  const subtasks = subtaskData.subtasks || [];
+  const progress = subtaskData.progress || {done:0,total:0};
+
+  const content = document.getElementById('panel-content');
+  content.innerHTML = `
+    <div class="panel-tabs">
+      <div class="panel-tab active" data-tab="details">Details</div>
+      <div class="panel-tab" data-tab="comments">Comments (${comments.length})</div>
+      <div class="panel-tab" data-tab="history">History (${history.length})</div>
+    </div>
+    <div class="panel-body" id="tab-details">
+      ${task.description ? `<div class="detail-section"><div class="detail-label">Description</div><div class="detail-value">${esc(task.description)}</div></div>` : ''}
+      <div class="detail-row">
+        <div class="detail-field"><div class="label">Status</div><div class="val"><span class="priority-badge priority-${statusColor(task.status)}">${task.status}</span></div></div>
+        <div class="detail-field"><div class="label">Priority</div><div class="val"><span class="priority-badge priority-${task.priority}">${task.priority}</span></div></div>
+        <div class="detail-field"><div class="label">Assignee</div><div class="val">${task.assignee ? esc(task.assignee) : '<span style="color:var(--text-dim)">unassigned</span>'}</div></div>
+      </div>
+      ${task.estimate || task.deadline ? `<div class="detail-row">
+        ${task.estimate ? `<div class="detail-field"><div class="label">Estimate</div><div class="val">${esc(task.estimate)}</div></div>` : ''}
+        ${task.deadline ? `<div class="detail-field"><div class="label">Deadline</div><div class="val">${esc(task.deadline)}</div></div>` : ''}
+      </div>` : ''}
+      ${(task.tags||[]).length ? `<div class="detail-section"><div class="detail-label">Tags</div><div class="card-tags">${(task.tags||[]).map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</div></div>` : ''}
+      ${(task.criteria||[]).length ? `<div class="detail-section"><div class="detail-label">Acceptance Criteria</div>${(task.criteria||[]).map(c => `<div style="color:var(--text-secondary);font-size:0.8rem;padding:3px 0">&#x2022; ${esc(c)}</div>`).join('')}</div>` : ''}
+      ${(deps.depends_on||[]).length ? `<div class="detail-section"><div class="detail-label">Depends On</div><div class="detail-deps">${(deps.depends_on||[]).map(d => depRow(d)).join('')}</div></div>` : ''}
+      ${(deps.blocking||[]).length ? `<div class="detail-section"><div class="detail-label">Blocking</div><div class="detail-deps">${(deps.blocking||[]).map(d => depRow(d)).join('')}</div></div>` : ''}
+      ${proj ? `<div class="detail-section"><div class="detail-label">Project</div><div class="detail-value" style="color:var(--amber)">${esc(proj.name)}</div>${proj.description ? `<div style="color:var(--text-dim);font-size:0.8rem;margin-top:4px">${esc(proj.description)}</div>` : ''}</div>` : ''}
+      ${task.parent_id ? `<div class="detail-section"><div class="detail-label">Parent</div><div class="detail-deps">${depRow(tasks.find(t=>t.id===task.parent_id)||{id:task.parent_id,title:'(unknown)',status:'backlog'})}</div></div>` : ''}
+      ${subtasks.length ? `<div class="detail-section"><div class="detail-label">Children <span style="color:var(--green);font-size:0.65rem">${progress.done}/${progress.total} done</span></div><div class="detail-deps">${subtasks.map(d => depRow(d)).join('')}</div></div>` : ''}
+    </div>
+    <div class="panel-body" id="tab-comments" style="display:none">
+      <div class="comment-list">
+        ${comments.length === 0 ? '<div class="empty-state"><p>No comments yet</p></div>' :
+          comments.map(c => `
+            <div class="comment">
+              <div class="comment-header">
+                <span class="comment-author">${esc(c.author)}</span>
+                <span class="comment-time">${new Date(c.created_at).toLocaleString()}</span>
+              </div>
+              <div class="comment-body">${esc(c.body)}</div>
+            </div>
+          `).join('')}
+      </div>
+      <div class="comment-form">
+        <input class="comment-input" id="comment-input" placeholder="Add a comment..." onkeydown="if(event.key==='Enter')addComment()">
+        <button class="btn" onclick="addComment()">Post</button>
+      </div>
+    </div>
+    <div class="panel-body" id="tab-history" style="display:none">
+      ${history.length === 0 ? '<div class="empty-state"><p>No history</p></div>' :
+        history.map(h => `
+          <div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:0.8rem">
+            <span style="color:var(--text-dim);font-size:0.65rem;float:right">${new Date(h.timestamp).toLocaleString()}</span>
+            <span style="color:var(--amber)">${(h.type||'').replace(/_/g,' ')}</span>
+            ${h.agent_id ? `<span style="color:var(--cyan)"> ${esc(h.agent_id)}</span>` : ''}
+          </div>
+        `).join('')}
+    </div>
+  `;
+
+  // Tab switching
+  content.querySelectorAll('.panel-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      content.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      ['details','comments','history'].forEach(name => {
+        const el = document.getElementById('tab-' + name);
+        if (el) el.style.display = tab.dataset.tab === name ? '' : 'none';
+      });
+    });
+  });
+
+  // Dep row clicks
+  content.querySelectorAll('.dep-row').forEach(row => {
+    row.addEventListener('click', () => openTaskPanel(row.dataset.id));
+  });
+
+  overlay.classList.add('open');
+  panel.classList.add('open');
+  renderBoard();
+  renderAgents();
+}
+
+function depRow(d) {
+  return `<div class="dep-row" data-id="${d.id}"><div class="dep-status ${d.status}"></div><span class="dep-id">${d.id}</span><span class="dep-title">${esc(d.title)}</span></div>`;
+}
+
+function statusColor(status) {
+  const map = {ready:'medium',in_progress:'high',done:'low',blocked:'critical',review:'medium',backlog:'low'};
+  return map[status] || 'low';
+}
+
+async function addComment() {
+  if (!currentPanel || currentPanel.type !== 'task') return;
+  const input = document.getElementById('comment-input');
+  const body = input.value.trim();
+  if (!body) return;
+  input.value = '';
+  await fetch(`/api/tasks/${currentPanel.id}/comments`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({author: 'dashboard', body}),
+  });
+  openTaskPanel(currentPanel.id);
+}
+
+// ── CHAT PANEL ──
+
+async function openChatPanel(agentName) {
+  currentPanel = {type:'chat', agent:agentName};
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+  const agent = agents.find(a => a.name === agentName);
+
+  document.getElementById('panel-title').textContent = agentName;
+  document.getElementById('panel-subtitle').textContent = agent ? `${agent.type} · ${agent.status}` : '';
+
+  const content = document.getElementById('panel-content');
+  content.innerHTML = `
+    <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-input-bar">
+      <input class="chat-input" id="chat-input" placeholder="Message ${esc(agentName)}..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="chat-send" onclick="sendChat()">&#9654;</button>
+    </div>
+  `;
+
+  await loadChatMessages(agentName);
+
+  overlay.classList.add('open');
+  panel.classList.add('open');
+  renderBoard();
+  renderAgents();
+}
+
+async function loadChatMessages(agentName) {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+
+  // Load messages sent TO this agent (from dashboard) and FROM this agent
+  const [toAgent, fromAgent] = await Promise.all([
+    fetch(`/api/messages?to=${encodeURIComponent(agentName)}&limit=50`).then(r => r.json()).catch(() => []),
+    fetch(`/api/messages?to=dashboard&limit=50`).then(r => r.json()).catch(() => []),
+  ]);
+
+  // Merge, filter, and sort by time
+  const allMsgs = [
+    ...toAgent.filter(m => m.from === 'dashboard').map(m => ({...m, dir: 'from-me'})),
+    ...toAgent.filter(m => m.from === agentName).map(m => ({...m, dir: 'from-them'})),
+    ...fromAgent.filter(m => m.from === agentName).map(m => ({...m, dir: 'from-them'})),
+  ];
+  // Deduplicate by ID
+  const seen = new Set();
+  const unique = allMsgs.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+  unique.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+
+  if (unique.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="flex:1;display:flex"><p>No messages yet. Send a message to start a conversation.</p></div>';
+    return;
+  }
+
+  container.innerHTML = unique.map(m => `
+    <div class="chat-msg ${m.dir}">
+      <div class="chat-msg-meta">${m.dir === 'from-me' ? 'you' : esc(m.from)} · ${new Date(m.created_at).toLocaleTimeString()}</div>
+      ${esc(m.body)}
+    </div>
+  `).join('');
+
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendChat() {
+  if (!currentPanel || currentPanel.type !== 'chat') return;
+  const input = document.getElementById('chat-input');
+  const body = input.value.trim();
+  if (!body) return;
+  input.value = '';
+
+  await fetch('/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from: 'dashboard', to: currentPanel.agent, body}),
+  });
+
+  await loadChatMessages(currentPanel.agent);
+}
+
+// ── PANEL MANAGEMENT ──
+
+function closePanel() {
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('panel').classList.remove('open');
+  currentPanel = null;
+  renderBoard();
+  renderAgents();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePanel();
+});
 
 // ── DATA FETCH ──
 
 async function fetchAll() {
   try {
-    const [tasksRes, agentsRes, statsRes] = await Promise.all([
+    const [tasksRes, agentsRes, statsRes, projectsRes] = await Promise.all([
       fetch('/api/tasks'),
       fetch('/api/agents'),
       fetch('/api/stats'),
+      fetch('/api/projects'),
     ]);
     tasks = await tasksRes.json();
     agents = await agentsRes.json();
     stats = await statsRes.json();
+    projects = await projectsRes.json();
+    renderProjectSelector();
     renderBoard();
     renderAgents();
     renderStats();
@@ -742,27 +863,37 @@ async function fetchAll() {
   }
 }
 
+function renderProjectSelector() {
+  const select = document.getElementById('project-select');
+  const current = select.value;
+  const opts = ['<option value="">All Projects</option>'];
+  for (const p of projects) {
+    opts.push(`<option value="${p.id}"${p.id === current ? ' selected' : ''}>${esc(p.name)}</option>`);
+  }
+  select.innerHTML = opts.join('');
+}
+
+function onProjectChange() {
+  selectedProject = document.getElementById('project-select').value;
+  renderBoard();
+}
+
 // ── SSE ──
 
 function connectSSE() {
   const dot = document.getElementById('sse-dot');
   const label = document.getElementById('sse-label');
   const evtSource = new EventSource('/api/events');
-
-  evtSource.onopen = () => {
-    dot.className = 'sse-dot connected';
-    label.textContent = 'live';
-  };
-
+  evtSource.onopen = () => { dot.className = 'sse-dot connected'; label.textContent = 'live'; };
   evtSource.onmessage = (e) => {
     try {
       const evt = JSON.parse(e.data);
       addEvent(evt);
-      // Refresh data on any event
       fetchAll();
+      // Refresh chat if open
+      if (currentPanel && currentPanel.type === 'chat') loadChatMessages(currentPanel.agent);
     } catch(err) {}
   };
-
   evtSource.onerror = () => {
     dot.className = 'sse-dot error';
     label.textContent = 'reconnecting';
@@ -784,8 +915,6 @@ function esc(s) {
 
 fetchAll();
 connectSSE();
-
-// Periodic refresh as backup
 setInterval(fetchAll, 15000);
 </script>
 </body>

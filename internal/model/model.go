@@ -63,6 +63,8 @@ type Task struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 	ParentID    string     `json:"parent_id,omitempty"`
 	DependsOn   []string   `json:"depends_on,omitempty"`
+	TaskType    TaskType   `json:"task_type,omitempty"`
+	ProjectID   string     `json:"project_id,omitempty"`
 }
 
 type Agent struct {
@@ -97,6 +99,31 @@ type Event struct {
 	TaskID    string    `json:"task_id,omitempty"`
 	Payload   any       `json:"payload,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
+}
+
+type TaskType string
+
+const (
+	TaskTypeTask  TaskType = "task"
+	TaskTypeEpic  TaskType = "epic"
+	TaskTypeStory TaskType = "story"
+	TaskTypeIssue TaskType = "issue"
+)
+
+func (t TaskType) Valid() bool {
+	switch t {
+	case TaskTypeTask, TaskTypeEpic, TaskTypeStory, TaskTypeIssue:
+		return true
+	}
+	return false
+}
+
+type Project struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type Comment struct {

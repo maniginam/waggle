@@ -38,7 +38,7 @@ Connect Claude Code to a running Waggle server:
 waggle connect    # generates .mcp.json in current directory
 ```
 
-This exposes 20 tools including: `waggle_register_agent`, `waggle_briefing`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_get_next_task`, `waggle_claim_task`, `waggle_complete_task`, `waggle_task_deps`, `waggle_task_history`, `waggle_list_subtasks`, `waggle_add_comment`, `waggle_send_message`, `waggle_read_messages`, and more.
+This exposes 25 tools including: `waggle_register_agent`, `waggle_briefing`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_get_next_task`, `waggle_claim_task`, `waggle_complete_task`, `waggle_task_deps`, `waggle_task_history`, `waggle_list_subtasks`, `waggle_add_comment`, `waggle_send_message`, `waggle_read_messages`, `waggle_create_project`, `waggle_list_projects`, `waggle_show_project`, `waggle_update_project`, `waggle_delete_project`, and more.
 
 ## SMART Tasks
 
@@ -83,7 +83,7 @@ waggle reset                     Wipe database
 
 ```
 POST   /api/tasks                Create task
-GET    /api/tasks                List tasks (?status=&assignee=&priority=&tag=&q=)
+GET    /api/tasks                List tasks (?status=&assignee=&priority=&tag=&q=&project_id=&task_type=)
 GET    /api/tasks/:id            Get task
 PATCH  /api/tasks/:id            Update task
 DELETE /api/tasks/:id            Delete task (rejects if in_progress)
@@ -95,6 +95,12 @@ POST   /api/tasks/:id/comments  Add comment (author, body)
 GET    /api/tasks/:id/history   Task event history
 GET    /api/tasks/:id/subtasks  Subtasks with progress (done/total)
 GET    /api/tasks/:id/deps      Dependency graph (depends_on + blocking)
+POST   /api/projects             Create project (name, description)
+GET    /api/projects             List projects
+GET    /api/projects/:id         Get project
+PATCH  /api/projects/:id         Update project
+DELETE /api/projects/:id         Delete project
+GET    /api/projects/:id/epics  List epics with progress
 POST   /api/agents/register      Register agent
 GET    /api/agents               List agents
 GET    /api/agents/:id           Get agent

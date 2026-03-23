@@ -125,6 +125,8 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"deadline":    prop("string", "Deadline in RFC3339 format"),
 				"parent_id":   prop("string", "Parent task ID for subtasks"),
 				"depends_on":  propArray("string", "IDs of tasks this depends on"),
+				"task_type":   propEnum("string", []string{"task", "epic", "story", "issue"}, "Task type (default: task)"),
+				"project_id":  prop("string", "Project ID this task belongs to"),
 			},
 			"required": []string{"title"},
 		}),
@@ -135,9 +137,11 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"assignee": prop("string", "Filter by assignee name"),
 				"tag":      prop("string", "Filter by tag"),
 				"priority": propEnum("string", []string{"critical", "high", "medium", "low"}, "Filter by priority"),
-				"q":        prop("string", "Search title and description"),
-				"sort":     propEnum("string", []string{"priority", "deadline", "updated", "title", "status"}, "Sort field"),
-				"order":    propEnum("string", []string{"asc", "desc"}, "Sort direction"),
+				"q":          prop("string", "Search title and description"),
+				"sort":       propEnum("string", []string{"priority", "deadline", "updated", "title", "status"}, "Sort field"),
+				"order":      propEnum("string", []string{"asc", "desc"}, "Sort direction"),
+				"task_type":  propEnum("string", []string{"task", "epic", "story", "issue"}, "Filter by task type"),
+				"project_id": prop("string", "Filter by project ID"),
 			},
 		}),
 		toolDef("waggle_show_task", "Show details of a specific task.", map[string]any{
@@ -245,6 +249,37 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"from":  prop("string", "Filter by sender"),
 			},
 		}),
+		toolDef("waggle_create_project", "Create a new project to organize epics and stories.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":        prop("string", "Project name"),
+				"description": prop("string", "Project description"),
+			},
+			"required": []string{"name"},
+		}),
+		toolDef("waggle_list_projects", "List all projects.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}),
+		toolDef("waggle_show_project", "Show project details including its epics.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": prop("string", "Project ID")},
+			"required":   []string{"id"},
+		}),
+		toolDef("waggle_update_project", "Update a project.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":          prop("string", "Project ID"),
+				"name":        prop("string", "New name"),
+				"description": prop("string", "New description"),
+			},
+			"required": []string{"id"},
+		}),
+		toolDef("waggle_delete_project", "Delete a project.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": prop("string", "Project ID")},
+			"required":   []string{"id"},
+		}),
 	}
 
 	a.sendResult(req.ID, map[string]any{"tools": tools})
@@ -314,7 +349,7 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 
 	case "waggle_list_tasks":
 		params := []string{}
-		for _, key := range []string{"status", "assignee", "tag", "priority", "q", "sort", "order"} {
+		for _, key := range []string{"status", "assignee", "tag", "priority", "q", "sort", "order", "task_type", "project_id"} {
 			if v, ok := args[key].(string); ok && v != "" {
 				params = append(params, key+"="+v)
 			}
@@ -534,6 +569,48 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			url += fmt.Sprintf("&limit=%d", int(limit))
 		}
 		return a.get(url)
+
+	case "waggle_create_project":
+		return a.postJSON("/api/projects", args)
+
+	case "waggle_list_projects":
+		return a.get("/api/projects")
+
+	case "waggle_show_project":
+		id, _ := args["id"].(string)
+		if id == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		// Return project + its epics
+		project, err := a.get("/api/projects/" + id)
+		if err != nil {
+			return nil, err
+		}
+		epics, _ := a.get("/api/projects/" + id + "/epics")
+		return map[string]any{
+			"project": project,
+			"epics":   epics,
+		}, nil
+
+	case "waggle_update_project":
+		id, _ := args["id"].(string)
+		if id == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		updates := map[string]any{}
+		for k, v := range args {
+			if k != "id" {
+				updates[k] = v
+			}
+		}
+		return a.patchJSON("/api/projects/"+id, updates)
+
+	case "waggle_delete_project":
+		id, _ := args["id"].(string)
+		if id == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		return a.deleteJSON("/api/projects/" + id)
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
