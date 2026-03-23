@@ -390,7 +390,9 @@ body {
 .card-assignee { font-size: 0.7rem; color: var(--cyan); display: flex; align-items: center; gap: 4px; }
 .card-assignee::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); }
 .card-tags { display: flex; gap: 4px; flex-wrap: wrap; }
-.tag { font-size: 0.6rem; color: var(--purple); background: var(--purple-dim); padding: 1px 5px; border-radius: 3px; }
+.tag { font-size: 0.6rem; color: var(--purple); background: var(--purple-dim); padding: 1px 5px; border-radius: 3px; transition: all 0.15s; }
+.tag.tag-removable { cursor: pointer; }
+.tag.tag-removable:hover { background: var(--red-dim); color: var(--red); }
 
 /* ── PROJECT BADGE ON CARDS ── */
 .project-badge {
@@ -517,6 +519,15 @@ body {
 .detail-field { flex: 1; }
 .detail-field .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 4px; }
 .detail-field .val { font-size: 0.85rem; color: var(--text-primary); }
+
+.edit-hint {
+  font-size: 0.6rem; color: var(--text-dim); cursor: pointer;
+  font-weight: 400; text-transform: none; letter-spacing: 0;
+  margin-left: 6px; transition: color 0.15s;
+}
+.edit-hint:hover { color: var(--amber); }
+.editable-val { cursor: pointer; transition: color 0.15s; }
+.editable-val:hover { color: var(--amber); }
 
 .detail-deps { display: flex; flex-direction: column; gap: 4px; }
 .dep-row {
@@ -1577,7 +1588,7 @@ async function openTaskPanel(taskId, defaultTab) {
 
   const taskType = task.task_type || 'task';
   const proj = task.project_id ? projects.find(p => p.id === task.project_id) : null;
-  document.getElementById('panel-title').textContent = task.title;
+  document.getElementById('panel-title').innerHTML = `<span class="editable-val" onclick="editTitle('${esc(taskId)}')" title="Click to edit">${esc(task.title)}</span>`;
   document.getElementById('panel-subtitle').textContent = `${taskType} · ${task.id} · ${task.status} · ${task.priority}${proj ? ' · ' + proj.name : ''}`;
 
   // Fetch comments, deps, history, subtasks in parallel
@@ -1598,7 +1609,17 @@ async function openTaskPanel(taskId, defaultTab) {
       <div class="panel-tab${defaultTab==='history'?' active':''}" data-tab="history">History (${history.length})</div>
     </div>
     <div class="panel-body" id="tab-details"${defaultTab!=='details'?' style="display:none"':''}>
-      ${task.description ? `<div class="detail-section"><div class="detail-label">Description</div><div class="detail-value">${esc(task.description)}</div></div>` : ''}
+      <div class="detail-section">
+        <div class="detail-label">Description <span class="edit-hint" onclick="editDescription('${esc(taskId)}')">${task.description ? 'edit' : 'add'}</span></div>
+        <div class="detail-value" id="desc-display">${task.description ? esc(task.description) : '<span style="color:var(--text-dim);cursor:pointer" onclick="editDescription(\''+esc(taskId)+'\')">Click to add description...</span>'}</div>
+        <div id="desc-edit" style="display:none">
+          <textarea class="form-input" id="desc-textarea" style="width:100%;min-height:80px;font-size:0.8rem">${esc(task.description||'')}</textarea>
+          <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
+            <button class="btn-ghost btn-sm" onclick="cancelEditDescription()">Cancel</button>
+            <button class="btn btn-sm" onclick="saveDescription('${esc(taskId)}')">Save</button>
+          </div>
+        </div>
+      </div>
       <div class="detail-row">
         <div class="detail-field"><div class="label">Status</div><div class="val"><span class="priority-badge priority-${statusColor(task.status)}">${task.status}</span></div></div>
         <div class="detail-field"><div class="label">Priority</div><div class="val"><span class="priority-badge priority-${task.priority}">${task.priority}</span></div></div>
@@ -1608,7 +1629,13 @@ async function openTaskPanel(taskId, defaultTab) {
         ${task.estimate ? `<div class="detail-field"><div class="label">Estimate</div><div class="val">${esc(task.estimate)}</div></div>` : ''}
         ${task.deadline ? `<div class="detail-field"><div class="label">Deadline</div><div class="val">${esc(task.deadline)}</div></div>` : ''}
       </div>` : ''}
-      ${(task.tags||[]).length ? `<div class="detail-section"><div class="detail-label">Tags</div><div class="card-tags">${(task.tags||[]).map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</div></div>` : ''}
+      <div class="detail-section">
+        <div class="detail-label">Tags <span class="edit-hint" onclick="addTag('${esc(taskId)}')">+ add</span></div>
+        <div class="card-tags">
+          ${(task.tags||[]).map(t => `<span class="tag tag-removable" onclick="removeTag('${esc(taskId)}','${esc(t)}')">${esc(t)} &times;</span>`).join(' ')}
+          ${(task.tags||[]).length === 0 ? '<span style="color:var(--text-dim);font-size:0.75rem;cursor:pointer" onclick="addTag(\''+esc(taskId)+'\')">No tags — click + to add</span>' : ''}
+        </div>
+      </div>
       ${(task.criteria||[]).length ? `<div class="detail-section"><div class="detail-label">Acceptance Criteria</div>${(task.criteria||[]).map(c => `<div style="color:var(--text-secondary);font-size:0.8rem;padding:3px 0">&#x2022; ${esc(c)}</div>`).join('')}</div>` : ''}
       ${(deps.depends_on||[]).length ? `<div class="detail-section"><div class="detail-label">Depends On</div><div class="detail-deps">${(deps.depends_on||[]).map(d => depRow(d)).join('')}</div></div>` : ''}
       ${(deps.blocking||[]).length ? `<div class="detail-section"><div class="detail-label">Blocking</div><div class="detail-deps">${(deps.blocking||[]).map(d => depRow(d)).join('')}</div></div>` : ''}
@@ -2635,6 +2662,84 @@ async function saveProject(taskId) {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({project_id: val}),
+  });
+  await fetchAll();
+  openTaskPanel(taskId);
+}
+
+async function editTitle(taskId) {
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const titleEl = document.getElementById('panel-title');
+  titleEl.innerHTML = `<input class="form-input" id="title-input" value="${esc(task.title)}" style="font-family:var(--font-sans);font-weight:600;font-size:1rem;width:100%">`;
+  const input = document.getElementById('title-input');
+  input.focus();
+  input.select();
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      const val = input.value.trim();
+      if (val && val !== task.title) {
+        await fetch(`/api/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: val}),
+        });
+        await fetchAll();
+      }
+      openTaskPanel(taskId);
+    }
+    if (e.key === 'Escape') openTaskPanel(taskId);
+  });
+  input.addEventListener('blur', () => openTaskPanel(taskId));
+}
+
+function editDescription(taskId) {
+  document.getElementById('desc-display').style.display = 'none';
+  document.getElementById('desc-edit').style.display = '';
+  const ta = document.getElementById('desc-textarea');
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+function cancelEditDescription() {
+  document.getElementById('desc-display').style.display = '';
+  document.getElementById('desc-edit').style.display = 'none';
+}
+
+async function addTag(taskId) {
+  const tag = prompt('Tag name:');
+  if (!tag || !tag.trim()) return;
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const newTags = [...(task.tags || []), tag.trim()];
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({tags: newTags}),
+  });
+  await fetchAll();
+  openTaskPanel(taskId);
+}
+
+async function removeTag(taskId, tag) {
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const newTags = (task.tags || []).filter(t => t !== tag);
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({tags: newTags}),
+  });
+  await fetchAll();
+  openTaskPanel(taskId);
+}
+
+async function saveDescription(taskId) {
+  const val = document.getElementById('desc-textarea').value;
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({description: val}),
   });
   await fetchAll();
   openTaskPanel(taskId);
