@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -514,17 +515,20 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 
 		// Agent info
 		if a.agentName != "" {
-			if agent, err := a.get("/api/agents/" + a.agentName); err == nil {
+			encodedName := url.PathEscape(a.agentName)
+			queryName := url.QueryEscape(a.agentName)
+
+			if agent, err := a.get("/api/agents/" + encodedName); err == nil {
 				briefing["you"] = agent
 			}
 
 			// Unread messages
-			if msgs, err := a.get("/api/messages?to=" + a.agentName + "&limit=10"); err == nil {
+			if msgs, err := a.get("/api/messages?to=" + queryName + "&limit=10"); err == nil {
 				briefing["messages"] = msgs
 			}
 
 			// Your assigned tasks
-			if myTasks, err := a.get("/api/tasks?assignee=" + a.agentName); err == nil {
+			if myTasks, err := a.get("/api/tasks?assignee=" + queryName); err == nil {
 				briefing["your_tasks"] = myTasks
 			}
 		}

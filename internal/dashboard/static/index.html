@@ -1107,10 +1107,10 @@ function renderCard(t, childrenByParent, tasksById) {
   const tooltip = t.description ? `<div class="card-tooltip">${esc(t.description)}</div>` : '';
 
   return `
-    <div class="card${sel}" data-id="${t.id}">
+    <div class="card${sel}" data-id="${esc(t.id)}">
       ${claimBtn}
       <div class="card-id">
-        <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${t.id}</span>
+        <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${esc(t.id)}</span>
         ${projBadge}
       </div>
       <div class="card-title">${esc(t.title)}</div>
@@ -2240,12 +2240,17 @@ async function quickClaim(taskId) {
 }
 
 async function doClaimTask(taskId, agentName) {
-  await fetch(`/api/tasks/${taskId}`, {
+  const resp = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({assignee: agentName, status: 'in_progress'}),
   });
-  showToast(`Assigned to ${agentName}`, 'var(--cyan)');
+  if (resp.ok) {
+    showToast(`Assigned to ${agentName}`, 'var(--cyan)');
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast('Error: ' + (err.error?.message || 'assign failed'), 'var(--red)');
+  }
   await fetchAll();
 }
 
