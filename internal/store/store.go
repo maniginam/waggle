@@ -150,6 +150,7 @@ func (s *Store) migrate() error {
 	for _, col := range []struct{ table, name, def string }{
 		{"tasks", "task_type", "TEXT DEFAULT 'task'"},
 		{"tasks", "project_id", "TEXT DEFAULT ''"},
+		{"agents", "project_id", "TEXT DEFAULT ''"},
 	} {
 		var count int
 		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
@@ -485,23 +486,25 @@ func (s *Store) CompleteTask(taskID string) error {
 
 // --- Agents ---
 
-func (s *Store) RegisterAgent(name, agentType string) (*model.Agent, error) {
+func (s *Store) RegisterAgent(name, agentType, projectID string) (*model.Agent, error) {
 	now := time.Now().UTC()
 	a := &model.Agent{
 		ID:          id.New(),
 		Name:        name,
 		Type:        agentType,
 		Status:      model.AgentConnected,
+		ProjectID:   projectID,
 		ConnectedAt: now,
 		LastSeen:    now,
 	}
 
-	_, err := s.db.Exec(`INSERT INTO agents (id, name, type, status, current_task, connected_at, last_seen)
-		VALUES (?, ?, ?, ?, '', ?, ?)
-		ON CONFLICT(name) DO UPDATE SET status = 'connected', last_seen = ?, connected_at = ?`,
-		a.ID, a.Name, a.Type, string(a.Status),
+	_, err := s.db.Exec(`INSERT INTO agents (id, name, type, status, current_task, project_id, connected_at, last_seen)
+		VALUES (?, ?, ?, ?, '', ?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET status = 'connected', last_seen = ?, connected_at = ?, project_id = CASE WHEN ? != '' THEN ? ELSE agents.project_id END`,
+		a.ID, a.Name, a.Type, string(a.Status), a.ProjectID,
 		now.Format(time.RFC3339), now.Format(time.RFC3339),
-		now.Format(time.RFC3339), now.Format(time.RFC3339))
+		now.Format(time.RFC3339), now.Format(time.RFC3339),
+		projectID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -509,17 +512,17 @@ func (s *Store) RegisterAgent(name, agentType string) (*model.Agent, error) {
 }
 
 func (s *Store) GetAgent(id string) (*model.Agent, error) {
-	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, connected_at, last_seen FROM agents WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, connected_at, last_seen FROM agents WHERE id = ?`, id)
 	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByName(name string) (*model.Agent, error) {
-	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, connected_at, last_seen FROM agents WHERE name = ?`, name)
+	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, connected_at, last_seen FROM agents WHERE name = ?`, name)
 	return scanAgent(row)
 }
 
 func (s *Store) ListAgents(statusFilter string) ([]*model.Agent, error) {
-	query := `SELECT id, name, type, status, current_task, connected_at, last_seen FROM agents`
+	query := `SELECT id, name, type, status, current_task, project_id, connected_at, last_seen FROM agents`
 	var args []any
 	if statusFilter != "" {
 		query += " WHERE status = ?"
@@ -548,6 +551,12 @@ func (s *Store) UpdateAgentStatus(name string, status model.AgentStatus, current
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.Exec("UPDATE agents SET status = ?, current_task = ?, last_seen = ? WHERE name = ?",
 		string(status), currentTask, now, name)
+	return err
+}
+
+func (s *Store) UpdateAgentProject(name, projectID string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec("UPDATE agents SET project_id = ?, last_seen = ? WHERE name = ?", projectID, now, name)
 	return err
 }
 
@@ -746,7 +755,7 @@ func scanTaskRows(rows *sql.Rows) (*model.Task, error) {
 func scanAgent(row scanner) (*model.Agent, error) {
 	var a model.Agent
 	var connStr, seenStr string
-	err := row.Scan(&a.ID, &a.Name, &a.Type, &a.Status, &a.CurrentTask, &connStr, &seenStr)
+	err := row.Scan(&a.ID, &a.Name, &a.Type, &a.Status, &a.CurrentTask, &a.ProjectID, &connStr, &seenStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}

@@ -394,8 +394,9 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 	// POST /api/agents/register
 	if name == "register" && r.Method == http.MethodPost {
 		var req struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
+			Name      string `json:"name"`
+			Type      string `json:"type"`
+			ProjectID string `json:"project_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
@@ -408,7 +409,7 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		if req.Type == "" {
 			req.Type = "custom"
 		}
-		agent, err := a.store.RegisterAgent(req.Name, req.Type)
+		agent, err := a.store.RegisterAgent(req.Name, req.Type, req.ProjectID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "register_failed", err.Error())
 			return
@@ -435,6 +436,23 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		a.store.RecordEvent(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
 		a.eventHub.Publish(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+		return
+	}
+
+	// POST /api/agents/:name/project
+	if subAction == "project" && r.Method == http.MethodPost {
+		var req struct {
+			ProjectID string `json:"project_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if err := a.store.UpdateAgentProject(name, req.ProjectID); err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 		return
 	}

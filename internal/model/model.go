@@ -73,6 +73,7 @@ type Agent struct {
 	Type        string      `json:"type"`
 	Status      AgentStatus `json:"status"`
 	CurrentTask string      `json:"current_task,omitempty"`
+	ProjectID   string      `json:"project_id,omitempty"`
 	ConnectedAt time.Time   `json:"connected_at"`
 	LastSeen    time.Time   `json:"last_seen"`
 }
