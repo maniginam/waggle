@@ -312,6 +312,22 @@ body {
 }
 .overview-agent-card:hover { background: var(--bg-card-hover); border-color: var(--border); }
 
+/* ── OVERVIEW ALERTS ── */
+.overview-alerts {
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: 8px; overflow: hidden; margin-bottom: 4px;
+}
+.overview-alert {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; font-size: 0.75rem; background: var(--bg-surface);
+  cursor: pointer; transition: background 0.15s;
+}
+.overview-alert:hover { background: var(--bg-card-hover); }
+.alert-overdue { border-left: 3px solid var(--red); }
+.alert-blocked { border-left: 3px solid var(--red); }
+.alert-stale { border-left: 3px solid var(--amber); cursor: default; }
+
 /* ── OVERVIEW ACTIVITY ── */
 .overview-activity {
   display: flex; flex-direction: column; gap: 1px;
@@ -419,6 +435,16 @@ body {
 .type-story { background: var(--cyan-dim); color: var(--cyan); }
 .type-issue { background: var(--red-dim); color: var(--red); }
 .type-task { background: var(--bg-elevated); color: var(--text-dim); }
+
+/* ── DEADLINE INDICATORS ── */
+.card-deadline {
+  font-size: 0.6rem; padding: 1px 5px; border-radius: 3px; font-weight: 600;
+  font-family: var(--font-mono);
+}
+.card-deadline.overdue { background: var(--red-dim); color: var(--red); }
+.card-deadline.urgent { background: var(--amber-glow-strong); color: var(--amber); }
+.card-deadline.soon { background: var(--bg-elevated); color: var(--text-dim); }
+.card.card-overdue { border-left: 2px solid var(--red); }
 
 .card.new { animation: cardSlideIn 0.3s ease-out; }
 @keyframes cardSlideIn {
@@ -1375,8 +1401,25 @@ function renderCard(t, childrenByParent, tasksById) {
   // Tooltip with description
   const tooltip = t.description ? `<div class="card-tooltip">${esc(t.description)}</div>` : '';
 
+  // Deadline indicator
+  let deadlineHtml = '';
+  let overdueClass = '';
+  if (t.deadline && t.status !== 'done') {
+    const dl = new Date(t.deadline);
+    const now = new Date();
+    const daysLeft = Math.ceil((dl - now) / 86400000);
+    if (daysLeft < 0) {
+      deadlineHtml = `<span class="card-deadline overdue">${Math.abs(daysLeft)}d overdue</span>`;
+      overdueClass = ' card-overdue';
+    } else if (daysLeft <= 2) {
+      deadlineHtml = `<span class="card-deadline urgent">${daysLeft === 0 ? 'today' : daysLeft + 'd left'}</span>`;
+    } else if (daysLeft <= 7) {
+      deadlineHtml = `<span class="card-deadline soon">${daysLeft}d left</span>`;
+    }
+  }
+
   return `
-    <div class="card${sel}" data-id="${esc(t.id)}">
+    <div class="card${sel}${overdueClass}" data-id="${esc(t.id)}">
       ${claimBtn}
       <div class="card-id">
         <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${esc(t.id)}</span>
@@ -1386,6 +1429,7 @@ function renderCard(t, childrenByParent, tasksById) {
       <div class="card-meta">
         <span class="priority-badge priority-${t.priority}">${t.priority}</span>
         ${t.assignee ? `<span class="card-assignee">${esc(t.assignee)}</span>` : ''}
+        ${deadlineHtml}
         ${tags ? `<div class="card-tags">${tags}</div>` : ''}
       </div>
       ${progressHtml}
@@ -1654,7 +1698,19 @@ async function openTaskPanel(taskId, defaultTab) {
       </div>
       ${task.estimate || task.deadline ? `<div class="detail-row">
         ${task.estimate ? `<div class="detail-field"><div class="label">Estimate</div><div class="val">${esc(task.estimate)}</div></div>` : ''}
-        ${task.deadline ? `<div class="detail-field"><div class="label">Deadline</div><div class="val">${esc(task.deadline)}</div></div>` : ''}
+        ${task.deadline ? (() => {
+          const dl = new Date(task.deadline);
+          const now = new Date();
+          const daysLeft = Math.ceil((dl - now) / 86400000);
+          const dateStr = dl.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+          let urgency = '';
+          if (task.status !== 'done') {
+            if (daysLeft < 0) urgency = `<span style="color:var(--red);font-weight:600"> (${Math.abs(daysLeft)}d overdue)</span>`;
+            else if (daysLeft <= 2) urgency = `<span style="color:var(--amber);font-weight:600"> (${daysLeft === 0 ? 'today!' : daysLeft + 'd left'})</span>`;
+            else if (daysLeft <= 7) urgency = `<span style="color:var(--text-dim)"> (${daysLeft}d left)</span>`;
+          }
+          return `<div class="detail-field"><div class="label">Deadline</div><div class="val">${dateStr}${urgency}</div></div>`;
+        })() : ''}
       </div>` : ''}
       <div class="detail-section">
         <div class="detail-label">Tags <span class="edit-hint" onclick="addTag('${esc(taskId)}')">+ add</span></div>
@@ -1690,6 +1746,7 @@ async function openTaskPanel(taskId, defaultTab) {
         ).join('')}
       </div>
       <div class="action-bar" style="border-top:none;padding-top:8px">
+        <button class="btn-sm" onclick="duplicateTask('${taskId}')">Duplicate</button>
         <button class="btn-sm danger" onclick="deleteTask('${taskId}')">Delete task</button>
       </div>
     </div>
@@ -2051,6 +2108,34 @@ async function updateTaskPriority(taskId, newPriority) {
   });
   await fetchAll();
   openTaskPanel(taskId);
+}
+
+async function duplicateTask(taskId) {
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const clone = {
+    title: task.title + ' (copy)',
+    description: task.description || '',
+    status: 'backlog',
+    priority: task.priority,
+    task_type: task.task_type || 'task',
+    tags: task.tags || [],
+    criteria: task.criteria || [],
+  };
+  if (task.project_id) clone.project_id = task.project_id;
+  if (task.parent_id) clone.parent_id = task.parent_id;
+  if (task.estimate) clone.estimate = task.estimate;
+  const resp = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(clone),
+  });
+  if (resp.ok) {
+    const created = await resp.json();
+    showToast('Task duplicated', 'var(--green)');
+    await fetchAll();
+    openTaskPanel(created.id);
+  }
 }
 
 async function deleteTask(taskId) {
@@ -2461,6 +2546,27 @@ function renderOverview() {
       </div>
     </div>
 
+    ${(() => {
+      const now = new Date();
+      const overdue = tasks.filter(t => t.deadline && t.status !== 'done' && new Date(t.deadline) < now);
+      const blocked = tasks.filter(t => t.status === 'blocked');
+      const staleAgents = agents.filter(a => a.status !== 'disconnected' && agentIsStale(a));
+      if (overdue.length === 0 && blocked.length === 0 && staleAgents.length === 0) return '';
+      return `<div class="overview-alerts">
+        ${overdue.map(t => `<div class="overview-alert alert-overdue" data-task-id="${esc(t.id)}">
+          <span style="color:var(--red);font-weight:600">OVERDUE</span> ${esc(t.title)}
+          <span style="color:var(--text-dim);margin-left:auto;font-size:0.65rem">${Math.abs(Math.ceil((new Date(t.deadline) - now) / 86400000))}d overdue</span>
+        </div>`).join('')}
+        ${blocked.map(t => `<div class="overview-alert alert-blocked" data-task-id="${esc(t.id)}">
+          <span style="color:var(--red)">BLOCKED</span> ${esc(t.title)}
+          ${t.assignee ? `<span style="color:var(--cyan);margin-left:auto;font-size:0.65rem">${esc(t.assignee)}</span>` : ''}
+        </div>`).join('')}
+        ${staleAgents.map(a => `<div class="overview-alert alert-stale">
+          <span style="color:var(--amber)">STALE</span> ${esc(a.name)} — no activity for ${timeSince(new Date(a.last_seen))}
+        </div>`).join('')}
+      </div>`;
+    })()}
+
     <div>
       <div class="overview-section-title">Projects</div>
       <div class="overview-grid">${projectCards || '<div class="empty-state"><div class="empty-hex"></div><p>No projects yet. Create one to organize your work.</p></div>'}</div>
@@ -2483,6 +2589,12 @@ function renderOverview() {
   });
   el.querySelectorAll('.overview-agent-card').forEach(card => {
     card.addEventListener('click', () => openAgentPanel(null, card.dataset.agentName));
+  });
+  el.querySelectorAll('.overview-alert[data-task-id]').forEach(row => {
+    row.addEventListener('click', () => {
+      const t = tasks.find(x => x.id === row.dataset.taskId);
+      if (t) openDetailPanel(null, t);
+    });
   });
 
   // Fetch recent events
