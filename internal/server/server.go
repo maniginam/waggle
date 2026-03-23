@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/maniginam/waggle/internal/api"
+	"github.com/maniginam/waggle/internal/dashboard"
 	"github.com/maniginam/waggle/internal/event"
 	"github.com/maniginam/waggle/internal/model"
 	"github.com/maniginam/waggle/internal/store"
@@ -53,6 +54,9 @@ func New(cfg Config) (*Server, error) {
 
 	// Mount WebSocket
 	mux.Handle("/ws", wsHub.Handler())
+
+	// Dashboard
+	mux.Handle("/", dashboard.Handler())
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
