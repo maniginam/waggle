@@ -127,7 +127,7 @@ body {
 .layout {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
   height: calc(100vh - 49px);
 }
 
@@ -663,6 +663,49 @@ select.form-input { cursor: pointer; }
 }
 .editable-val:hover { background: var(--bg-elevated); }
 
+/* ── TOKEN USAGE ── */
+.usage-bar {
+  display: flex; gap: 1px; background: var(--border-subtle);
+  border-bottom: 1px solid var(--border);
+}
+.usage-cell {
+  background: var(--bg-surface); padding: 10px 16px;
+  display: flex; align-items: center; gap: 12px;
+}
+.usage-cell .usage-icon {
+  font-size: 1.2rem; opacity: 0.6;
+}
+.usage-cell .usage-info {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.usage-cell .usage-label {
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1.2px;
+  color: var(--text-dim); font-weight: 600;
+}
+.usage-cell .usage-value {
+  font-size: 1.1rem; font-weight: 700; font-family: var(--font-sans);
+}
+.usage-cell .usage-value.cost { color: var(--green); }
+.usage-cell .usage-value.tokens { color: var(--text-primary); }
+
+.usage-agent-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+  border-radius: var(--radius); font-size: 0.75rem;
+  transition: background 0.15s;
+}
+.usage-agent-row:hover { background: var(--bg-card); }
+.usage-agent-name { flex: 1; color: var(--text-secondary); font-family: var(--font-sans); }
+.usage-agent-cost { color: var(--green); font-weight: 600; font-family: var(--font-mono); }
+.usage-agent-tokens { color: var(--text-dim); font-size: 0.65rem; }
+.usage-agent-bar {
+  width: 60px; height: 4px; background: var(--bg-elevated); border-radius: 2px;
+  overflow: hidden;
+}
+.usage-agent-bar-fill {
+  height: 100%; background: var(--green); border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
   .main { grid-template-columns: 1fr; }
@@ -709,6 +752,7 @@ select.form-input { cursor: pointer; }
 
 <div class="layout">
   <div class="stats-bar" id="stats-bar"></div>
+  <div class="usage-bar" id="usage-bar"></div>
   <div class="filter-bar" id="filter-bar"></div>
   <div class="main">
     <div class="board" id="board"></div>
@@ -764,6 +808,7 @@ let draggedTaskId = null;
 let filterPriority = '';
 let filterAssignee = '';
 let filterType = '';
+let usageData = null;
 
 // ── BOARD RENDER ──
 
@@ -964,9 +1009,11 @@ function renderStats() {
 
   const taskCount = selectedProject ? scopedTasks.length : s.total_tasks;
   const scopeLabel = selectedProject ? (selectedProject === 'none' ? 'unassigned' : (projects.find(p=>p.id===selectedProject)||{}).name || '') : '';
+  const costStr = usageData && usageData.total && usageData.total.cost_usd > 0 ? `<div class="header-stat"><span class="val" style="color:var(--green)">$${usageData.total.cost_usd.toFixed(2)}</span> spent</div>` : '';
   document.getElementById('header-stats').innerHTML = `
     <div class="header-stat"><span class="val">${taskCount}</span> tasks${scopeLabel ? ` <span style="color:var(--amber);font-size:0.7rem">${esc(scopeLabel)}</span>` : ''}</div>
     <div class="header-stat"><span class="val">${s.total_agents}</span> agents</div>
+    ${costStr}
     <div class="header-stat"><div class="pulse-dot"></div> live</div>
   `;
 
@@ -1000,6 +1047,63 @@ function renderStats() {
       </div>
     </div>
   `;
+}
+
+function renderUsage() {
+  const bar = document.getElementById('usage-bar');
+  if (!usageData || !usageData.total) {
+    bar.innerHTML = '';
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = '';
+  const total = usageData.total;
+  const byAgent = usageData.by_agent || [];
+  const maxCost = byAgent.length > 0 ? Math.max(...byAgent.map(a => a.cost_usd)) : 1;
+
+  bar.innerHTML = `
+    <div class="usage-cell" style="flex:0 0 auto">
+      <div class="usage-info">
+        <div class="usage-label">Total Cost</div>
+        <div class="usage-value cost">$${total.cost_usd.toFixed(2)}</div>
+      </div>
+    </div>
+    <div class="usage-cell" style="flex:0 0 auto">
+      <div class="usage-info">
+        <div class="usage-label">Input Tokens</div>
+        <div class="usage-value tokens">${fmtTokens(total.input_tokens)}</div>
+      </div>
+    </div>
+    <div class="usage-cell" style="flex:0 0 auto">
+      <div class="usage-info">
+        <div class="usage-label">Output Tokens</div>
+        <div class="usage-value tokens">${fmtTokens(total.output_tokens)}</div>
+      </div>
+    </div>
+    <div class="usage-cell" style="flex:1;overflow-x:auto">
+      <div style="display:flex;gap:8px;flex-wrap:nowrap;width:100%">
+        ${byAgent.map(a => `
+          <div class="usage-agent-row" style="flex:0 0 auto;min-width:140px">
+            <div style="flex:1;min-width:0">
+              <div class="usage-agent-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.agent_name)}</div>
+              <div class="usage-agent-tokens">${fmtTokens(a.total_tokens)} tok</div>
+            </div>
+            <div style="text-align:right">
+              <div class="usage-agent-cost">$${a.cost_usd.toFixed(2)}</div>
+              <div class="usage-agent-bar"><div class="usage-agent-bar-fill" style="width:${Math.round(a.cost_usd/maxCost*100)}%"></div></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function fmtTokens(n) {
+  if (!n) return '0';
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1) + 'K';
+  return n.toString();
 }
 
 function addEvent(evt) {
@@ -1638,21 +1742,24 @@ function closePanel() {
 
 async function fetchAll() {
   try {
-    const [tasksRes, agentsRes, statsRes, projectsRes] = await Promise.all([
+    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes] = await Promise.all([
       fetch('/api/tasks'),
       fetch('/api/agents'),
       fetch('/api/stats'),
       fetch('/api/projects'),
+      fetch('/api/usage'),
     ]);
     tasks = await tasksRes.json();
     agents = await agentsRes.json();
     stats = await statsRes.json();
     projects = await projectsRes.json();
+    usageData = await usageRes.json();
     renderProjectTabs();
     renderFilterBar();
     renderBoard();
     renderAgents();
     renderStats();
+    renderUsage();
   } catch(e) {
     console.error('fetch error:', e);
   }

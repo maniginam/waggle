@@ -142,3 +142,47 @@ type Message struct {
 	Read      bool      `json:"read"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+type TokenUsage struct {
+	ID           string    `json:"id"`
+	AgentName    string    `json:"agent_name"`
+	Model        string    `json:"model"`
+	InputTokens  int64     `json:"input_tokens"`
+	OutputTokens int64     `json:"output_tokens"`
+	TotalTokens  int64     `json:"total_tokens"`
+	CostUSD      float64   `json:"cost_usd"`
+	TaskID       string    `json:"task_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type TokenSummary struct {
+	AgentName    string  `json:"agent_name"`
+	Model        string  `json:"model,omitempty"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	TotalTokens  int64   `json:"total_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+	Reports      int     `json:"reports"`
+}
+
+// CostPerMillion defines token pricing per model (USD per million tokens)
+var ModelPricing = map[string][2]float64{
+	"claude-opus-4-6":          {15.0, 75.0},
+	"claude-sonnet-4-6":        {3.0, 15.0},
+	"claude-haiku-4-5-20251001": {0.25, 1.25},
+	// Aliases
+	"opus":   {15.0, 75.0},
+	"sonnet": {3.0, 15.0},
+	"haiku":  {0.25, 1.25},
+}
+
+func CalculateCost(model string, inputTokens, outputTokens int64) float64 {
+	pricing, ok := ModelPricing[model]
+	if !ok {
+		// Default to sonnet pricing
+		pricing = ModelPricing["sonnet"]
+	}
+	inputCost := float64(inputTokens) / 1_000_000.0 * pricing[0]
+	outputCost := float64(outputTokens) / 1_000_000.0 * pricing[1]
+	return inputCost + outputCost
+}

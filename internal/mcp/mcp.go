@@ -280,6 +280,20 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			"properties": map[string]any{"id": prop("string", "Project ID")},
 			"required":   []string{"id"},
 		}),
+		toolDef("waggle_report_usage", "Report token usage for this agent. Call periodically to track costs.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"model":         prop("string", "Model name (e.g. 'claude-opus-4-6', 'claude-sonnet-4-6')"),
+				"input_tokens":  map[string]any{"type": "integer", "description": "Number of input tokens consumed"},
+				"output_tokens": map[string]any{"type": "integer", "description": "Number of output tokens consumed"},
+				"task_id":       prop("string", "Task ID this usage is associated with"),
+			},
+			"required": []string{"input_tokens", "output_tokens"},
+		}),
+		toolDef("waggle_get_usage", "Get token usage summary. Shows total cost and per-agent breakdown.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}),
 	}
 
 	a.sendResult(req.ID, map[string]any{"tools": tools})
@@ -611,6 +625,31 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("id is required")
 		}
 		return a.deleteJSON("/api/projects/" + id)
+
+	case "waggle_report_usage":
+		agentName := a.agentName
+		if agentName == "" {
+			agentName = "unknown"
+		}
+		payload := map[string]any{
+			"agent_name": agentName,
+		}
+		if m, ok := args["model"].(string); ok {
+			payload["model"] = m
+		}
+		if v, ok := args["input_tokens"].(float64); ok {
+			payload["input_tokens"] = int64(v)
+		}
+		if v, ok := args["output_tokens"].(float64); ok {
+			payload["output_tokens"] = int64(v)
+		}
+		if v, ok := args["task_id"].(string); ok {
+			payload["task_id"] = v
+		}
+		return a.postJSON("/api/usage", payload)
+
+	case "waggle_get_usage":
+		return a.get("/api/usage")
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
