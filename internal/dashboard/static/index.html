@@ -999,6 +999,12 @@ function renderBoard() {
     board.appendChild(col);
   }
   // Attach click handlers
+  board.querySelectorAll('.card-quick-claim[data-claim-id]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      quickClaim(btn.dataset.claimId);
+    });
+  });
   board.querySelectorAll('.card').forEach(card => {
     card.addEventListener('click', (e) => {
       if (card.classList.contains('dragging')) return;
@@ -1083,7 +1089,7 @@ function renderCard(t) {
 
   // Quick claim button (only if unassigned and agents exist)
   const claimBtn = !t.assignee && agents.length > 0 && t.status !== 'done'
-    ? `<button class="card-quick-claim" onclick="event.stopPropagation();quickClaim('${t.id}')" title="Assign to agent">claim</button>` : '';
+    ? `<button class="card-quick-claim" data-claim-id="${esc(t.id)}" title="Assign to agent">claim</button>` : '';
 
   // Tooltip with description
   const tooltip = t.description ? `<div class="card-tooltip">${esc(t.description)}</div>` : '';
@@ -2210,7 +2216,10 @@ async function quickClaim(taskId) {
   const choice = prompt('Assign to which agent?\n\n' + names.map((n,i) => `${i+1}. ${n}`).join('\n') + '\n\nEnter name or number:');
   if (!choice) return;
   const name = /^\d+$/.test(choice.trim()) ? names[parseInt(choice.trim()) - 1] : choice.trim();
-  if (!name) return;
+  if (!name || !names.includes(name)) {
+    showToast('Unknown agent: ' + (name || '(empty)'), 'var(--red)');
+    return;
+  }
   await doClaimTask(taskId, name);
 }
 
