@@ -154,6 +154,14 @@ body {
 }
 .column-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-secondary); font-weight: 600; }
 .column-count { font-size: 0.7rem; background: var(--bg-elevated); color: var(--text-dim); padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.column-add {
+  width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border);
+  background: none; color: var(--text-dim); font-size: 0.9rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  opacity: 0; transition: all 0.15s; flex-shrink: 0;
+}
+.column-header:hover .column-add { opacity: 1; }
+.column-add:hover { background: var(--amber); color: var(--bg-deep); border-color: var(--amber); }
 .column-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .column-body::-webkit-scrollbar { width: 4px; }
 .column-body::-webkit-scrollbar-track { background: transparent; }
@@ -989,6 +997,7 @@ function renderBoard() {
       <div class="column-header" ${isCollapsed ? `onclick="toggleColumn('${status}')"` : ''}>
         <span class="column-title">${STATUS_LABELS[status]}</span>
         <span class="column-count">${colTasks.length}</span>
+        <button class="column-add" data-add-status="${status}" title="New task in ${STATUS_LABELS[status]}">+</button>
         ${collapseBtn}
       </div>
       <div class="column-body" data-status="${status}">
@@ -998,6 +1007,13 @@ function renderBoard() {
     `;
     board.appendChild(col);
   }
+  // Column add buttons
+  board.querySelectorAll('.column-add[data-add-status]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      quickCreateTask(btn.dataset.addStatus);
+    });
+  });
   // Attach click handlers
   board.querySelectorAll('.card-quick-claim[data-claim-id]').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -2006,7 +2022,11 @@ function connectSSE() {
         const detail = evt.task_id ? ` (${evt.task_id})` : (evt.agent_id ? ` — ${evt.agent_id}` : '');
         showToast(label + detail, toastColors[evt.type]);
       }
-      // Refresh chat if open
+      // Refresh chat if agent panel is open with messages tab visible
+      if (currentPanel && currentPanel.type === 'agent') {
+        const msgTab = document.getElementById('agent-tab-messages');
+        if (msgTab && msgTab.style.display !== 'none') loadChatMessages(currentPanel.agent);
+      }
       if (currentPanel && currentPanel.type === 'chat') loadChatMessages(currentPanel.agent);
     } catch(err) {}
   };
@@ -2231,6 +2251,27 @@ async function doClaimTask(taskId, agentName) {
   });
   showToast(`Assigned to ${agentName}`, 'var(--cyan)');
   await fetchAll();
+}
+
+// ── QUICK CREATE TASK ──
+
+async function quickCreateTask(status) {
+  const title = prompt('Task title:');
+  if (!title || !title.trim()) return;
+  const task = {title: title.trim(), status};
+  if (selectedProject && selectedProject !== 'none') task.project_id = selectedProject;
+  const resp = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(task),
+  });
+  if (resp.ok) {
+    showToast('Task created', 'var(--green)');
+    await fetchAll();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast('Error: ' + (err.error?.message || 'failed'), 'var(--red)');
+  }
 }
 
 // ── COLUMN COLLAPSE ──
