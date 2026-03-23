@@ -484,6 +484,107 @@ func TestStats(t *testing.T) {
 	}
 }
 
+func TestProjectCRUD(t *testing.T) {
+	s := tempStore(t)
+
+	// Create
+	p := &model.Project{Name: "Waggle", Description: "Agent orchestration"}
+	if err := s.CreateProject(p); err != nil {
+		t.Fatal(err)
+	}
+	if p.ID == "" {
+		t.Error("expected project ID to be set")
+	}
+
+	// Get
+	got, err := s.GetProject(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Waggle" {
+		t.Errorf("expected Waggle, got %s", got.Name)
+	}
+
+	// List
+	s.CreateProject(&model.Project{Name: "Other"})
+	projects, err := s.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 {
+		t.Errorf("expected 2 projects, got %d", len(projects))
+	}
+
+	// Update
+	updated, err := s.UpdateProject(p.ID, map[string]any{"name": "Waggle v2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "Waggle v2" {
+		t.Errorf("expected Waggle v2, got %s", updated.Name)
+	}
+
+	// Delete
+	if err := s.DeleteProject(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.GetProject(p.ID)
+	if err != ErrNotFound {
+		t.Error("expected not found after delete")
+	}
+}
+
+func TestTaskTypeAndProject(t *testing.T) {
+	s := tempStore(t)
+
+	// Create project
+	p := &model.Project{Name: "Auth System"}
+	s.CreateProject(p)
+
+	// Create epic under project
+	epic := &model.Task{Title: "User Authentication", TaskType: model.TaskTypeEpic, ProjectID: p.ID}
+	s.CreateTask(epic)
+	if epic.TaskType != model.TaskTypeEpic {
+		t.Errorf("expected epic, got %s", epic.TaskType)
+	}
+
+	// Create story under epic
+	story := &model.Task{
+		Title:    "Login flow",
+		TaskType: model.TaskTypeStory,
+		ParentID: epic.ID,
+		ProjectID: p.ID,
+		Criteria: []string{"User can log in with email/password", "Error shown on invalid credentials"},
+	}
+	s.CreateTask(story)
+
+	// Filter by project
+	tasks, _ := s.ListTasks(map[string]string{"project_id": p.ID})
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks in project, got %d", len(tasks))
+	}
+
+	// Filter by task type
+	epics, _ := s.ListTasks(map[string]string{"task_type": "epic", "project_id": p.ID})
+	if len(epics) != 1 {
+		t.Errorf("expected 1 epic, got %d", len(epics))
+	}
+
+	// Subtasks of epic
+	subtasks, _ := s.ListSubtasks(epic.ID)
+	if len(subtasks) != 1 || subtasks[0].Title != "Login flow" {
+		t.Error("expected story as subtask of epic")
+	}
+
+	// Task defaults to "task" type
+	plain := &model.Task{Title: "Random task"}
+	s.CreateTask(plain)
+	got, _ := s.GetTask(plain.ID)
+	if got.TaskType != model.TaskTypeTask {
+		t.Errorf("expected task type 'task', got %s", got.TaskType)
+	}
+}
+
 func TestBroadcastMessage(t *testing.T) {
 	s := tempStore(t)
 	msg := &model.Message{From: "agent-1", To: "", Body: "broadcast"}

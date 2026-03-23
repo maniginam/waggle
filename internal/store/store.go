@@ -71,7 +71,9 @@ func (s *Store) migrate() error {
 			created_at  TEXT NOT NULL,
 			updated_at  TEXT NOT NULL,
 			parent_id   TEXT DEFAULT '',
-			depends_on  TEXT DEFAULT '[]'
+			depends_on  TEXT DEFAULT '[]',
+			task_type   TEXT DEFAULT 'task',
+			project_id  TEXT DEFAULT ''
 		);
 
 		CREATE TABLE IF NOT EXISTS agents (
@@ -111,6 +113,14 @@ func (s *Store) migrate() error {
 			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 		);
 
+		CREATE TABLE IF NOT EXISTS projects (
+			id          TEXT PRIMARY KEY,
+			name        TEXT NOT NULL,
+			description TEXT DEFAULT '',
+			created_at  TEXT NOT NULL,
+			updated_at  TEXT NOT NULL
+		);
+
 		CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
 		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 		CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
@@ -118,6 +128,24 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 		CREATE INDEX IF NOT EXISTS idx_messages_to ON messages("to");
 	`)
+	if err != nil {
+		return err
+	}
+
+	// Add columns to existing tables (safe to re-run — ALTER TABLE IF NOT EXISTS column not supported in SQLite, so we check)
+	for _, col := range []struct{ table, name, def string }{
+		{"tasks", "task_type", "TEXT DEFAULT 'task'"},
+		{"tasks", "project_id", "TEXT DEFAULT ''"},
+	} {
+		var count int
+		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
+		if count == 0 {
+			s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", col.table, col.name, col.def))
+		}
+	}
+
+	// Create indexes that depend on migrated columns (must run after ALTER TABLE)
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
 	return err
 }
 
@@ -136,6 +164,9 @@ func (s *Store) CreateTask(t *model.Task) error {
 	if t.Priority == "" {
 		t.Priority = model.PriorityMedium
 	}
+	if t.TaskType == "" {
+		t.TaskType = model.TaskTypeTask
+	}
 
 	if len(t.DependsOn) > 0 {
 		if err := s.checkCycleDeps(t.ID, t.DependsOn); err != nil {
@@ -151,22 +182,22 @@ func (s *Store) CreateTask(t *model.Task) error {
 		deadline = t.Deadline.Format(time.RFC3339)
 	}
 
-	_, err := s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Title, t.Description, string(criteria), string(t.Status), string(t.Priority),
 		t.Assignee, string(tags), t.Estimate, deadline,
 		t.CreatedAt.Format(time.RFC3339), t.UpdatedAt.Format(time.RFC3339),
-		t.ParentID, string(dependsOn))
+		t.ParentID, string(dependsOn), string(t.TaskType), t.ProjectID)
 	return err
 }
 
 func (s *Store) GetTask(id string) (*model.Task, error) {
-	row := s.db.QueryRow(`SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on FROM tasks WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id FROM tasks WHERE id = ?`, id)
 	return scanTask(row)
 }
 
 func (s *Store) ListTasks(filters map[string]string) ([]*model.Task, error) {
-	query := `SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on FROM tasks`
+	query := `SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id FROM tasks`
 	var conditions []string
 	var args []any
 
@@ -188,6 +219,14 @@ func (s *Store) ListTasks(filters map[string]string) ([]*model.Task, error) {
 	}
 	if v, ok := filters["parent_id"]; ok {
 		conditions = append(conditions, "parent_id = ?")
+		args = append(args, v)
+	}
+	if v, ok := filters["project_id"]; ok {
+		conditions = append(conditions, "project_id = ?")
+		args = append(args, v)
+	}
+	if v, ok := filters["task_type"]; ok {
+		conditions = append(conditions, "task_type = ?")
 		args = append(args, v)
 	}
 	if v, ok := filters["q"]; ok {
@@ -290,6 +329,12 @@ func (s *Store) UpdateTask(id string, updates map[string]any) (*model.Task, erro
 			b, _ := json.Marshal(v)
 			sets = append(sets, "depends_on = ?")
 			args = append(args, string(b))
+		case "task_type":
+			sets = append(sets, "task_type = ?")
+			args = append(args, v)
+		case "project_id":
+			sets = append(sets, "project_id = ?")
+			args = append(args, v)
 		}
 	}
 
@@ -659,7 +704,7 @@ func scanTask(row scanner) (*model.Task, error) {
 	err := row.Scan(&t.ID, &t.Title, &t.Description, &criteriaJSON,
 		&t.Status, &t.Priority, &t.Assignee, &tagsJSON,
 		&t.Estimate, &deadlineStr, &createdStr, &updatedStr,
-		&t.ParentID, &dependsOnJSON)
+		&t.ParentID, &dependsOnJSON, &t.TaskType, &t.ProjectID)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -772,6 +817,95 @@ func (s *Store) ListComments(taskID string) ([]*model.Comment, error) {
 		comments = append(comments, &c)
 	}
 	return comments, nil
+}
+
+// --- Projects ---
+
+func (s *Store) CreateProject(p *model.Project) error {
+	if p.ID == "" {
+		p.ID = id.New()
+	}
+	now := time.Now().UTC()
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	_, err := s.db.Exec(`INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) GetProject(id string) (*model.Project, error) {
+	var p model.Project
+	var createdStr, updatedStr string
+	err := s.db.QueryRow(`SELECT id, name, description, created_at, updated_at FROM projects WHERE id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.Description, &createdStr, &updatedStr)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+	return &p, nil
+}
+
+func (s *Store) ListProjects() ([]*model.Project, error) {
+	rows, err := s.db.Query(`SELECT id, name, description, created_at, updated_at FROM projects ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projects []*model.Project
+	for rows.Next() {
+		var p model.Project
+		var createdStr, updatedStr string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &createdStr, &updatedStr); err != nil {
+			return nil, err
+		}
+		p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+		projects = append(projects, &p)
+	}
+	return projects, rows.Err()
+}
+
+func (s *Store) UpdateProject(id string, updates map[string]any) (*model.Project, error) {
+	_, err := s.GetProject(id)
+	if err != nil {
+		return nil, err
+	}
+	var sets []string
+	var args []any
+	for k, v := range updates {
+		switch k {
+		case "name":
+			sets = append(sets, "name = ?")
+			args = append(args, v)
+		case "description":
+			sets = append(sets, "description = ?")
+			args = append(args, v)
+		}
+	}
+	if len(sets) == 0 {
+		return s.GetProject(id)
+	}
+	sets = append(sets, "updated_at = ?")
+	args = append(args, time.Now().UTC().Format(time.RFC3339))
+	args = append(args, id)
+	_, err = s.db.Exec("UPDATE projects SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetProject(id)
+}
+
+func (s *Store) DeleteProject(id string) error {
+	_, err := s.GetProject(id)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec("DELETE FROM projects WHERE id = ?", id)
+	return err
 }
 
 // --- Stats ---

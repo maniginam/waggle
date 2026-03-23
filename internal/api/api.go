@@ -24,6 +24,8 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/tasks", a.handleTasks)
 	mux.HandleFunc("/api/tasks/", a.handleTask)
+	mux.HandleFunc("/api/projects", a.handleProjects)
+	mux.HandleFunc("/api/projects/", a.handleProject)
 	mux.HandleFunc("/api/agents", a.handleAgents)
 	mux.HandleFunc("/api/agents/", a.handleAgent)
 	mux.HandleFunc("/api/events", a.handleEvents)
@@ -36,7 +38,7 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		filters := map[string]string{}
-		for _, key := range []string{"status", "assignee", "priority", "tag", "parent_id", "q", "sort", "order"} {
+		for _, key := range []string{"status", "assignee", "priority", "tag", "parent_id", "project_id", "task_type", "q", "sort", "order"} {
 			if v := r.URL.Query().Get(key); v != "" {
 				filters[key] = v
 			}
@@ -558,6 +560,139 @@ func (a *API) handleSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (a *API) handleProjects(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		projects, err := a.store.ListProjects()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		if projects == nil {
+			projects = []*model.Project{}
+		}
+		writeJSON(w, http.StatusOK, projects)
+
+	case http.MethodPost:
+		var p model.Project
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if p.Name == "" {
+			writeError(w, http.StatusBadRequest, "missing_name", "name is required")
+			return
+		}
+		if err := a.store.CreateProject(&p); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, p)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleProject(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing_id", "project ID required")
+		return
+	}
+
+	// Handle /api/projects/:id/epics
+	parts := strings.SplitN(id, "/", 2)
+	id = parts[0]
+	subAction := ""
+	if len(parts) > 1 {
+		subAction = parts[1]
+	}
+
+	if subAction == "epics" {
+		a.handleProjectEpics(w, r, id)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		project, err := a.store.GetProject(id)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "project_not_found", "Project "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "get_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, project)
+
+	case http.MethodPatch:
+		var updates map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		project, err := a.store.UpdateProject(id, updates)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "project_not_found", "Project "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, project)
+
+	case http.MethodDelete:
+		if err := a.store.DeleteProject(id); err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "project_not_found", "Project "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleProjectEpics(w http.ResponseWriter, r *http.Request, projectID string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	tasks, err := a.store.ListTasks(map[string]string{
+		"project_id": projectID,
+		"task_type":  "epic",
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+		return
+	}
+	if tasks == nil {
+		tasks = []*model.Task{}
+	}
+
+	// Enrich each epic with subtask progress
+	type epicWithProgress struct {
+		*model.Task
+		Progress map[string]int `json:"progress"`
+	}
+	var result []epicWithProgress
+	for _, t := range tasks {
+		done, total, _ := a.store.SubtaskProgress(t.ID)
+		result = append(result, epicWithProgress{
+			Task:     t,
+			Progress: map[string]int{"done": done, "total": total},
+		})
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
