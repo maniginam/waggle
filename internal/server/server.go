@@ -65,11 +65,12 @@ func New(cfg Config) (*Server, error) {
 	})
 
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      cors(mux),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:        fmt.Sprintf(":%d", cfg.Port),
+		Handler:     cors(mux),
+		ReadTimeout: 15 * time.Second,
+		// No WriteTimeout — SSE and WebSocket connections are long-lived.
+		// Individual handlers can enforce their own deadlines.
+		IdleTimeout: 120 * time.Second,
 	}
 
 	return &Server{

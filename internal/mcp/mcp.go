@@ -522,6 +522,11 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			if msgs, err := a.get("/api/messages?to=" + a.agentName + "&limit=10"); err == nil {
 				briefing["messages"] = msgs
 			}
+
+			// Your assigned tasks
+			if myTasks, err := a.get("/api/tasks?assignee=" + a.agentName); err == nil {
+				briefing["your_tasks"] = myTasks
+			}
 		}
 
 		// Stats
@@ -537,6 +542,11 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		// Active agents
 		if agents, err := a.get("/api/agents"); err == nil {
 			briefing["team"] = agents
+		}
+
+		// Token usage summary
+		if usage, err := a.get("/api/usage"); err == nil {
+			briefing["usage"] = usage
 		}
 
 		return briefing, nil
