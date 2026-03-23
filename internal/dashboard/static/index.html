@@ -127,7 +127,7 @@ body {
 .layout {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   height: calc(100vh - 49px);
 }
 
@@ -180,6 +180,22 @@ body {
 .card-assignee::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); }
 .card-tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag { font-size: 0.6rem; color: var(--purple); background: var(--purple-dim); padding: 1px 5px; border-radius: 3px; }
+
+/* ── PROJECT BADGE ON CARDS ── */
+.project-badge {
+  font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.6px;
+  padding: 1px 6px; border-radius: 3px; font-weight: 600;
+  white-space: nowrap;
+}
+.project-badge.assigned {
+  background: var(--amber-glow-strong); color: var(--amber);
+  border: 1px solid rgba(240,165,0,0.2);
+}
+.project-badge.unassigned {
+  background: transparent; color: var(--text-dim);
+  border: 1px dashed var(--border);
+  font-style: italic; font-weight: 400;
+}
 
 /* ── TASK TYPE BADGES ── */
 .type-badge {
@@ -436,6 +452,86 @@ select.form-input { cursor: pointer; }
 .form-row .form-group { flex: 1; }
 .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 
+/* ── FILTER BAR ── */
+.filter-bar {
+  display: flex; align-items: center; gap: 6px; padding: 6px 16px;
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.filter-group {
+  display: flex; align-items: center; gap: 4px;
+}
+.filter-label {
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-dim); margin-right: 2px; font-weight: 600;
+}
+.filter-chip {
+  font-size: 0.65rem; padding: 3px 8px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-dim); cursor: pointer; font-family: var(--font-mono);
+  transition: all 0.15s; white-space: nowrap;
+}
+.filter-chip:hover { color: var(--text-secondary); border-color: var(--text-dim); background: var(--bg-elevated); }
+.filter-chip.active { background: var(--amber-glow); border-color: var(--amber-dim); color: var(--amber); font-weight: 600; }
+.filter-divider { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
+.filter-clear {
+  font-size: 0.6rem; color: var(--text-dim); cursor: pointer;
+  padding: 3px 6px; border-radius: 3px; transition: color 0.15s;
+  border: none; background: none; font-family: var(--font-mono);
+}
+.filter-clear:hover { color: var(--red); }
+
+/* ── TOAST NOTIFICATIONS ── */
+.toast-container {
+  position: fixed; bottom: 20px; right: 20px; z-index: 300;
+  display: flex; flex-direction: column-reverse; gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 16px;
+  font-size: 0.75rem; font-family: var(--font-mono);
+  color: var(--text-secondary); pointer-events: auto;
+  animation: toastIn 0.3s ease-out, toastOut 0.3s ease-in 3.7s forwards;
+  display: flex; align-items: center; gap: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  max-width: 340px;
+}
+.toast-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes toastOut {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(40px); }
+}
+
+/* ── SEARCH BAR ── */
+.search-bar {
+  position: relative; display: flex; align-items: center;
+}
+.search-input {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+  padding: 5px 12px 5px 28px; color: var(--text-primary); font-family: var(--font-mono);
+  font-size: 0.75rem; outline: none; width: 180px; transition: all 0.2s;
+}
+.search-input:focus { border-color: var(--amber-dim); width: 260px; background: var(--bg-elevated); }
+.search-input::placeholder { color: var(--text-dim); }
+.search-icon {
+  position: absolute; left: 9px; color: var(--text-dim); font-size: 0.7rem;
+  pointer-events: none;
+}
+.search-kbd {
+  position: absolute; right: 8px; font-size: 0.55rem; color: var(--text-dim);
+  background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px;
+  border: 1px solid var(--border); pointer-events: none;
+  transition: opacity 0.15s;
+}
+.search-input:focus ~ .search-kbd { opacity: 0; }
+
 /* ── TOOLBAR ── */
 .toolbar {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
@@ -451,6 +547,34 @@ select.form-input { cursor: pointer; }
 }
 .add-btn:hover { background: #ffb820; }
 .add-btn:active { transform: scale(0.93); }
+
+/* ── DRAG AND DROP ── */
+.card.dragging { opacity: 0.4; transform: scale(0.95); }
+.column-body.drag-over {
+  background: var(--amber-glow); border: 1px dashed var(--amber-dim);
+  border-radius: var(--radius); transition: background 0.15s;
+}
+.drop-indicator {
+  height: 3px; background: var(--amber); border-radius: 2px;
+  margin: 2px 0; opacity: 0; transition: opacity 0.15s;
+}
+.drop-indicator.visible { opacity: 1; }
+
+/* ── INLINE EDIT ── */
+.inline-edit {
+  display: flex; align-items: center; gap: 6px;
+}
+.inline-edit-input {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 8px; color: var(--text-primary); font-family: var(--font-mono);
+  font-size: 0.8rem; outline: none; width: 140px;
+}
+.inline-edit-input:focus { border-color: var(--amber-dim); }
+.editable-val {
+  cursor: pointer; padding: 2px 4px; border-radius: 3px;
+  transition: background 0.15s;
+}
+.editable-val:hover { background: var(--bg-elevated); }
 
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
@@ -482,7 +606,12 @@ select.form-input { cursor: pointer; }
     <div class="header-stats" id="header-stats"></div>
   </div>
   <div class="header-right">
-    <button class="add-btn" onclick="openCreatePanel('task')" title="New task">+</button>
+    <div class="search-bar">
+      <span class="search-icon">&#x1F50D;</span>
+      <input class="search-input" id="search-input" placeholder="Search tasks..." oninput="onSearch(this.value)" onkeydown="if(event.key==='Escape'){this.blur();this.value='';onSearch('')}">
+      <span class="search-kbd">/</span>
+    </div>
+    <button class="add-btn" onclick="openCreatePanel('task')" title="New task (n)">+</button>
     <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')" title="New project">+ Project</button>
     <div class="sse-status">
       <div class="sse-dot" id="sse-dot"></div>
@@ -493,6 +622,7 @@ select.form-input { cursor: pointer; }
 
 <div class="layout">
   <div class="stats-bar" id="stats-bar"></div>
+  <div class="filter-bar" id="filter-bar"></div>
   <div class="main">
     <div class="board" id="board"></div>
     <div class="sidebar">
@@ -507,6 +637,9 @@ select.form-input { cursor: pointer; }
     </div>
   </div>
 </div>
+
+<!-- Toast notifications -->
+<div class="toast-container" id="toast-container"></div>
 
 <!-- Overlay backdrop -->
 <div class="overlay-backdrop" id="overlay" onclick="closePanel()"></div>
@@ -536,14 +669,37 @@ let stats = {};
 let projects = [];
 let selectedProject = '';
 let currentPanel = null; // {type:'task',id:'...'} or {type:'chat',agent:'...'}
+let searchQuery = '';
+let draggedTaskId = null;
+let filterPriority = '';
+let filterAssignee = '';
+let filterType = '';
 
 // ── BOARD RENDER ──
 
 function renderBoard() {
   const board = document.getElementById('board');
   board.innerHTML = '';
-  const filteredTasks = selectedProject === 'none' ? tasks.filter(t => !t.project_id) :
+  let filteredTasks = selectedProject === 'none' ? tasks.filter(t => !t.project_id) :
     selectedProject ? tasks.filter(t => t.project_id === selectedProject) : tasks;
+  // Apply search filter
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    filteredTasks = filteredTasks.filter(t =>
+      (t.title||'').toLowerCase().includes(q) ||
+      (t.id||'').toLowerCase().includes(q) ||
+      (t.assignee||'').toLowerCase().includes(q) ||
+      (t.tags||[]).some(tag => tag.toLowerCase().includes(q)) ||
+      (t.description||'').toLowerCase().includes(q)
+    );
+  }
+  // Apply filters
+  if (filterPriority) filteredTasks = filteredTasks.filter(t => t.priority === filterPriority);
+  if (filterAssignee) {
+    if (filterAssignee === '_none') filteredTasks = filteredTasks.filter(t => !t.assignee);
+    else filteredTasks = filteredTasks.filter(t => t.assignee === filterAssignee);
+  }
+  if (filterType) filteredTasks = filteredTasks.filter(t => (t.task_type||'task') === filterType);
   for (const status of STATUSES) {
     const col = document.createElement('div');
     col.className = 'column';
@@ -555,7 +711,7 @@ function renderBoard() {
         <span class="column-title">${STATUS_LABELS[status]}</span>
         <span class="column-count">${colTasks.length}</span>
       </div>
-      <div class="column-body">
+      <div class="column-body" data-status="${status}">
         ${colTasks.length === 0 ? '<div class="empty-state"><div class="empty-hex"></div></div>' :
           colTasks.map(t => renderCard(t)).join('')}
       </div>
@@ -564,7 +720,55 @@ function renderBoard() {
   }
   // Attach click handlers
   board.querySelectorAll('.card').forEach(card => {
-    card.addEventListener('click', () => openTaskPanel(card.dataset.id));
+    card.addEventListener('click', (e) => {
+      if (card.classList.contains('dragging')) return;
+      openTaskPanel(card.dataset.id);
+    });
+    // Drag and drop
+    card.setAttribute('draggable', 'true');
+    card.addEventListener('dragstart', (e) => {
+      draggedTaskId = card.dataset.id;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.id);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      draggedTaskId = null;
+      board.querySelectorAll('.column-body').forEach(cb => cb.classList.remove('drag-over'));
+    });
+  });
+  // Drop targets on column bodies
+  board.querySelectorAll('.column-body').forEach(colBody => {
+    colBody.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      colBody.classList.add('drag-over');
+    });
+    colBody.addEventListener('dragleave', (e) => {
+      if (!colBody.contains(e.relatedTarget)) {
+        colBody.classList.remove('drag-over');
+      }
+    });
+    colBody.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      colBody.classList.remove('drag-over');
+      const taskId = e.dataTransfer.getData('text/plain');
+      const newStatus = colBody.dataset.status;
+      if (!taskId || !newStatus) return;
+      const task = tasks.find(t => t.id === taskId);
+      if (task && task.status !== newStatus) {
+        await fetch(`/api/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({status: newStatus}),
+        });
+        await fetchAll();
+        if (currentPanel && currentPanel.type === 'task' && currentPanel.id === taskId) {
+          openTaskPanel(taskId);
+        }
+      }
+    });
   });
 }
 
@@ -574,18 +778,20 @@ function renderCard(t) {
   const taskType = t.task_type || 'task';
   const showType = taskType !== 'task';
   const proj = t.project_id ? projects.find(p => p.id === t.project_id) : null;
+  const projBadge = proj
+    ? `<span class="project-badge assigned">${esc(proj.name)}</span>`
+    : (projects.length > 0 ? `<span class="project-badge unassigned">no project</span>` : '');
   return `
     <div class="card${sel}" data-id="${t.id}">
       <div class="card-id">
         <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${t.id}</span>
-        ${t.estimate ? `<span>${esc(t.estimate)}</span>` : ''}
+        ${projBadge}
       </div>
       <div class="card-title">${esc(t.title)}</div>
       <div class="card-meta">
         <span class="priority-badge priority-${t.priority}">${t.priority}</span>
         ${t.assignee ? `<span class="card-assignee">${esc(t.assignee)}</span>` : ''}
         ${tags ? `<div class="card-tags">${tags}</div>` : ''}
-        ${proj ? `<span class="tag" style="background:var(--amber-glow);color:var(--amber)">${esc(proj.name)}</span>` : ''}
       </div>
     </div>
   `;
@@ -617,15 +823,30 @@ function renderAgents() {
 function renderStats() {
   const s = stats;
   if (!s.total_tasks && s.total_tasks !== 0) return;
-  const byStatus = s.tasks_by_status || {};
-  const ready = byStatus.ready || 0;
-  const inProg = byStatus.in_progress || 0;
-  const done = byStatus.done || 0;
-  const blocked = byStatus.blocked || 0;
-  const total = s.total_tasks || 1;
 
+  // Compute project-scoped stats if a project is selected
+  let ready, inProg, done, blocked, total;
+  const scopedTasks = selectedProject === 'none' ? tasks.filter(t => !t.project_id) :
+    selectedProject ? tasks.filter(t => t.project_id === selectedProject) : tasks;
+  if (selectedProject) {
+    ready = scopedTasks.filter(t => t.status === 'ready').length;
+    inProg = scopedTasks.filter(t => t.status === 'in_progress').length;
+    done = scopedTasks.filter(t => t.status === 'done').length;
+    blocked = scopedTasks.filter(t => t.status === 'blocked').length;
+    total = scopedTasks.length || 1;
+  } else {
+    const byStatus = s.tasks_by_status || {};
+    ready = byStatus.ready || 0;
+    inProg = byStatus.in_progress || 0;
+    done = byStatus.done || 0;
+    blocked = byStatus.blocked || 0;
+    total = s.total_tasks || 1;
+  }
+
+  const taskCount = selectedProject ? scopedTasks.length : s.total_tasks;
+  const scopeLabel = selectedProject ? (selectedProject === 'none' ? 'unassigned' : (projects.find(p=>p.id===selectedProject)||{}).name || '') : '';
   document.getElementById('header-stats').innerHTML = `
-    <div class="header-stat"><span class="val">${s.total_tasks}</span> tasks</div>
+    <div class="header-stat"><span class="val">${taskCount}</span> tasks${scopeLabel ? ` <span style="color:var(--amber);font-size:0.7rem">${esc(scopeLabel)}</span>` : ''}</div>
     <div class="header-stat"><span class="val">${s.total_agents}</span> agents</div>
     <div class="header-stat"><div class="pulse-dot"></div> live</div>
   `;
@@ -668,10 +889,21 @@ function addEvent(evt) {
   row.className = 'event-row';
   const time = evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
   const typeLabel = (evt.type||'event').replace(/_/g,' ');
+  const typeColors = {
+    task_created:'var(--green)',task_completed:'var(--green)',task_claimed:'var(--amber)',
+    task_updated:'var(--blue)',task_deleted:'var(--red)',task_unclaimed:'var(--text-dim)',
+    agent_registered:'var(--cyan)',agent_disconnected:'var(--red)',message_sent:'var(--purple)',
+  };
+  const dotColor = typeColors[evt.type] || 'var(--text-dim)';
   let detail = '';
-  if (evt.agent_id) detail += evt.agent_id;
-  if (evt.task_id) detail += (detail ? ' ' : '') + evt.task_id;
-  row.innerHTML = `<span class="event-time">${time}</span><span class="event-type">${typeLabel}</span> ${esc(detail)}`;
+  if (evt.agent_id) detail += `<span style="color:var(--cyan)">${esc(evt.agent_id)}</span>`;
+  if (evt.task_id) detail += (detail ? ' ' : '') + `<span style="color:var(--text-secondary)">${esc(evt.task_id)}</span>`;
+  row.innerHTML = `<span class="event-time">${time}</span><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${dotColor};margin-right:4px;vertical-align:middle"></span><span class="event-type">${typeLabel}</span> ${detail}`;
+  // Make task events clickable
+  if (evt.task_id) {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => openTaskPanel(evt.task_id));
+  }
   feed.insertBefore(row, feed.firstChild);
   while (feed.children.length > 50) feed.removeChild(feed.lastChild);
 }
@@ -714,7 +946,7 @@ async function openTaskPanel(taskId, defaultTab) {
       <div class="detail-row">
         <div class="detail-field"><div class="label">Status</div><div class="val"><span class="priority-badge priority-${statusColor(task.status)}">${task.status}</span></div></div>
         <div class="detail-field"><div class="label">Priority</div><div class="val"><span class="priority-badge priority-${task.priority}">${task.priority}</span></div></div>
-        <div class="detail-field"><div class="label">Assignee</div><div class="val">${task.assignee ? esc(task.assignee) : '<span style="color:var(--text-dim)">unassigned</span>'}</div></div>
+        <div class="detail-field"><div class="label">Assignee</div><div class="val"><span class="editable-val" onclick="editAssignee('${taskId}','${task.assignee||''}')" title="Click to edit">${task.assignee ? esc(task.assignee) : '<span style="color:var(--text-dim)">unassigned (click)</span>'}</span></div></div>
       </div>
       ${task.estimate || task.deadline ? `<div class="detail-row">
         ${task.estimate ? `<div class="detail-field"><div class="label">Estimate</div><div class="val">${esc(task.estimate)}</div></div>` : ''}
@@ -724,7 +956,15 @@ async function openTaskPanel(taskId, defaultTab) {
       ${(task.criteria||[]).length ? `<div class="detail-section"><div class="detail-label">Acceptance Criteria</div>${(task.criteria||[]).map(c => `<div style="color:var(--text-secondary);font-size:0.8rem;padding:3px 0">&#x2022; ${esc(c)}</div>`).join('')}</div>` : ''}
       ${(deps.depends_on||[]).length ? `<div class="detail-section"><div class="detail-label">Depends On</div><div class="detail-deps">${(deps.depends_on||[]).map(d => depRow(d)).join('')}</div></div>` : ''}
       ${(deps.blocking||[]).length ? `<div class="detail-section"><div class="detail-label">Blocking</div><div class="detail-deps">${(deps.blocking||[]).map(d => depRow(d)).join('')}</div></div>` : ''}
-      ${proj ? `<div class="detail-section"><div class="detail-label">Project</div><div class="detail-value" style="color:var(--amber)">${esc(proj.name)}</div>${proj.description ? `<div style="color:var(--text-dim);font-size:0.8rem;margin-top:4px">${esc(proj.description)}</div>` : ''}</div>` : ''}
+      <div class="detail-section">
+        <div class="detail-label">Project</div>
+        <div class="detail-value">
+          <span class="editable-val" onclick="editProject('${taskId}','${task.project_id||''}')" title="Click to change project">
+            ${proj ? `<span style="color:var(--amber)">${esc(proj.name)}</span>` : '<span style="color:var(--text-dim)">No project (click to assign)</span>'}
+          </span>
+          ${proj && proj.description ? `<div style="color:var(--text-dim);font-size:0.8rem;margin-top:4px">${esc(proj.description)}</div>` : ''}
+        </div>
+      </div>
       ${task.parent_id ? `<div class="detail-section"><div class="detail-label">Parent</div><div class="detail-deps">${depRow(tasks.find(t=>t.id===task.parent_id)||{id:task.parent_id,title:'(unknown)',status:'backlog'})}</div></div>` : ''}
       ${subtasks.length ? `<div class="detail-section"><div class="detail-label">Children <span style="color:var(--green);font-size:0.65rem">${progress.done}/${progress.total} done</span></div><div class="detail-deps">${subtasks.map(d => depRow(d)).join('')}</div></div>` : ''}
       <div class="action-bar">
@@ -1115,10 +1355,6 @@ function closePanel() {
   renderAgents();
 }
 
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closePanel();
-});
-
 // ── DATA FETCH ──
 
 async function fetchAll() {
@@ -1134,6 +1370,7 @@ async function fetchAll() {
     stats = await statsRes.json();
     projects = await projectsRes.json();
     renderProjectTabs();
+    renderFilterBar();
     renderBoard();
     renderAgents();
     renderStats();
@@ -1181,6 +1418,22 @@ function connectSSE() {
       const evt = JSON.parse(e.data);
       addEvent(evt);
       fetchAll();
+      // Toast notification
+      const toastColors = {
+        task_created:'var(--green)',task_completed:'var(--green)',task_claimed:'var(--amber)',
+        task_updated:'var(--blue)',task_deleted:'var(--red)',agent_registered:'var(--cyan)',
+        agent_disconnected:'var(--red)',message_sent:'var(--purple)',
+      };
+      const toastMsgs = {
+        task_created:'Task created',task_completed:'Task completed',task_claimed:'Task claimed',
+        task_updated:'Task updated',task_deleted:'Task deleted',agent_registered:'Agent connected',
+        agent_disconnected:'Agent disconnected',message_sent:'Message sent',
+      };
+      const label = toastMsgs[evt.type];
+      if (label) {
+        const detail = evt.task_id ? ` (${evt.task_id})` : (evt.agent_id ? ` — ${evt.agent_id}` : '');
+        showToast(label + detail, toastColors[evt.type]);
+      }
       // Refresh chat if open
       if (currentPanel && currentPanel.type === 'chat') loadChatMessages(currentPanel.agent);
     } catch(err) {}
@@ -1192,6 +1445,169 @@ function connectSSE() {
     setTimeout(connectSSE, 3000);
   };
 }
+
+// ── FILTER BAR ──
+
+function renderFilterBar() {
+  const bar = document.getElementById('filter-bar');
+  const hasFilters = filterPriority || filterAssignee || filterType;
+
+  // Get unique assignees from tasks
+  const assignees = [...new Set(tasks.map(t => t.assignee).filter(Boolean))].sort();
+  // Get unique types
+  const types = [...new Set(tasks.map(t => t.task_type || 'task'))].sort();
+
+  bar.innerHTML = `
+    <div class="filter-group">
+      <span class="filter-label">Priority</span>
+      ${['critical','high','medium','low'].map(p =>
+        `<button class="filter-chip${filterPriority===p?' active':''}" onclick="toggleFilter('priority','${p}')">${p}</button>`
+      ).join('')}
+    </div>
+    <div class="filter-divider"></div>
+    <div class="filter-group">
+      <span class="filter-label">Type</span>
+      ${types.map(t =>
+        `<button class="filter-chip${filterType===t?' active':''}" onclick="toggleFilter('type','${t}')">${t}</button>`
+      ).join('')}
+    </div>
+    ${assignees.length > 0 ? `
+      <div class="filter-divider"></div>
+      <div class="filter-group">
+        <span class="filter-label">Assignee</span>
+        <button class="filter-chip${filterAssignee==='_none'?' active':''}" onclick="toggleFilter('assignee','_none')">unassigned</button>
+        ${assignees.map(a =>
+          `<button class="filter-chip${filterAssignee===a?' active':''}" onclick="toggleFilter('assignee','${esc(a)}')">${esc(a)}</button>`
+        ).join('')}
+      </div>
+    ` : ''}
+    ${hasFilters ? `<div class="filter-divider"></div><button class="filter-clear" onclick="clearFilters()">clear filters</button>` : ''}
+  `;
+}
+
+function toggleFilter(type, val) {
+  if (type === 'priority') filterPriority = filterPriority === val ? '' : val;
+  else if (type === 'assignee') filterAssignee = filterAssignee === val ? '' : val;
+  else if (type === 'type') filterType = filterType === val ? '' : val;
+  renderFilterBar();
+  renderBoard();
+}
+
+function clearFilters() {
+  filterPriority = '';
+  filterAssignee = '';
+  filterType = '';
+  renderFilterBar();
+  renderBoard();
+}
+
+// ── TOAST NOTIFICATIONS ──
+
+function showToast(message, color) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = `<div class="toast-dot" style="background:${color||'var(--text-dim)'}"></div>${esc(message)}`;
+  container.appendChild(toast);
+  setTimeout(() => { if (toast.parentElement) toast.remove(); }, 4000);
+}
+
+// ── SEARCH ──
+
+function onSearch(query) {
+  searchQuery = query;
+  renderBoard();
+}
+
+// ── INLINE ASSIGNEE EDIT ──
+
+function editAssignee(taskId, current) {
+  const agentNames = agents.map(a => a.name);
+  const options = ['<option value="">Unassigned</option>',
+    ...agentNames.map(n => `<option value="${esc(n)}"${n===current?' selected':''}>${esc(n)}</option>`),
+  ].join('');
+  const hasAgents = agentNames.length > 0;
+
+  // Replace the editable span with an inline form
+  event.stopPropagation();
+  const span = event.target.closest('.editable-val');
+  if (!span) return;
+  const parent = span.parentElement;
+  parent.innerHTML = `<div class="inline-edit">
+    ${hasAgents ? `<select class="inline-edit-input" id="assignee-select">${options}</select>` :
+      `<input class="inline-edit-input" id="assignee-input" value="${esc(current)}" placeholder="agent name">`}
+    <button class="btn-sm" onclick="saveAssignee('${taskId}')">Save</button>
+    <button class="btn-sm" onclick="openTaskPanel('${taskId}')">Cancel</button>
+  </div>`;
+  const el = document.getElementById('assignee-select') || document.getElementById('assignee-input');
+  if (el) { el.focus(); el.addEventListener('keydown', e => { if(e.key==='Enter') saveAssignee(taskId); if(e.key==='Escape') openTaskPanel(taskId); }); }
+}
+
+function editProject(taskId, current) {
+  event.stopPropagation();
+  const span = event.target.closest('.editable-val');
+  if (!span) return;
+  const parent = span.parentElement;
+  const options = ['<option value="">No project</option>',
+    ...projects.map(p => `<option value="${p.id}"${p.id===current?' selected':''}>${esc(p.name)}</option>`),
+  ].join('');
+  parent.innerHTML = `<div class="inline-edit">
+    <select class="inline-edit-input" id="project-select">${options}</select>
+    <button class="btn-sm" onclick="saveProject('${taskId}')">Save</button>
+    <button class="btn-sm" onclick="openTaskPanel('${taskId}')">Cancel</button>
+  </div>`;
+  const el = document.getElementById('project-select');
+  if (el) { el.focus(); el.addEventListener('keydown', e => { if(e.key==='Enter') saveProject(taskId); if(e.key==='Escape') openTaskPanel(taskId); }); }
+}
+
+async function saveProject(taskId) {
+  const sel = document.getElementById('project-select');
+  const val = sel ? sel.value : '';
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({project_id: val}),
+  });
+  await fetchAll();
+  openTaskPanel(taskId);
+}
+
+async function saveAssignee(taskId) {
+  const sel = document.getElementById('assignee-select');
+  const inp = document.getElementById('assignee-input');
+  const val = sel ? sel.value : (inp ? inp.value.trim() : '');
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({assignee: val}),
+  });
+  await fetchAll();
+  openTaskPanel(taskId);
+}
+
+// ── KEYBOARD SHORTCUTS ──
+
+document.addEventListener('keydown', e => {
+  // Don't trigger shortcuts when typing in inputs
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+  if (e.key === 'Escape') { closePanel(); return; }
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    document.getElementById('search-input').focus();
+    return;
+  }
+  if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    openCreatePanel('task');
+    return;
+  }
+  if (e.key === 'p' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    openCreatePanel('project');
+    return;
+  }
+});
 
 // ── UTILS ──
 
