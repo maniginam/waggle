@@ -729,6 +729,27 @@ select.form-input { cursor: pointer; }
 }
 .filter-clear:hover { color: var(--red); }
 
+/* ── BOARD PROGRESS BAR ── */
+.board-progress {
+  padding: 4px 16px 6px;
+  background: var(--bg-surface);
+}
+.board-progress-bar {
+  display: flex; height: 6px; border-radius: 3px; overflow: hidden;
+  background: var(--bg-card); gap: 1px;
+}
+.board-progress-segment {
+  height: 100%; transition: width 0.4s ease;
+}
+.board-progress-labels {
+  display: flex; gap: 12px; margin-top: 4px; font-size: 0.6rem;
+  font-family: var(--font-mono); color: var(--text-dim);
+}
+.board-progress-label { display: flex; align-items: center; gap: 4px; }
+.board-progress-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+
 /* ── TOAST NOTIFICATIONS ── */
 .toast-container {
   position: fixed; bottom: 20px; right: 20px; z-index: 300;
@@ -1171,6 +1192,7 @@ select.form-input { cursor: pointer; }
         <div class="stats-bar" id="stats-bar"></div>
         <div class="usage-bar" id="usage-bar"></div>
         <div class="filter-bar" id="filter-bar"></div>
+        <div class="board-progress" id="board-progress"></div>
         <div class="main">
           <div class="board" id="board"></div>
           <div class="sidebar">
@@ -1240,10 +1262,34 @@ let filterType = '';
 let usageData = null;
 let collapsedColumns = new Set(JSON.parse(localStorage.getItem('waggle_collapsed') || '[]'));
 let navCollapsed = localStorage.getItem('waggle_nav_collapsed') === 'true';
+let boardSort = localStorage.getItem('waggle_sort') || 'priority'; // priority, deadline, newest, oldest
+
+// ── BOARD PROGRESS ──
+
+const STATUS_COLORS = {backlog:'var(--text-dim)',ready:'var(--blue)',in_progress:'var(--amber)',review:'var(--purple)',blocked:'var(--red)',done:'var(--green)'};
+
+function renderBoardProgress() {
+  const el = document.getElementById('board-progress');
+  if (!el) return;
+  let ft = selectedProject === 'none' ? tasks.filter(t => !t.project_id) :
+    selectedProject ? tasks.filter(t => t.project_id === selectedProject) : tasks;
+  const total = ft.length || 1;
+  const counts = {};
+  STATUSES.forEach(s => counts[s] = ft.filter(t => t.status === s).length);
+  el.innerHTML = `
+    <div class="board-progress-bar">
+      ${STATUSES.map(s => counts[s] > 0 ? `<div class="board-progress-segment" style="width:${(counts[s]/total*100).toFixed(1)}%;background:${STATUS_COLORS[s]}"></div>` : '').join('')}
+    </div>
+    <div class="board-progress-labels">
+      ${STATUSES.filter(s => counts[s] > 0).map(s => `<span class="board-progress-label"><span class="board-progress-dot" style="background:${STATUS_COLORS[s]}"></span>${counts[s]} ${STATUS_LABELS[s].toLowerCase()}</span>`).join('')}
+    </div>
+  `;
+}
 
 // ── BOARD RENDER ──
 
 function renderBoard() {
+  renderBoardProgress();
   const board = document.getElementById('board');
   board.innerHTML = '';
   let filteredTasks = selectedProject === 'none' ? tasks.filter(t => !t.project_id) :
@@ -1281,7 +1327,16 @@ function renderBoard() {
     col.className = 'column';
     col.dataset.status = status;
     const colTasks = filteredTasks.filter(t => t.status === status)
-      .sort((a,b) => (PRIORITY_ORDER[a.priority]||4) - (PRIORITY_ORDER[b.priority]||4));
+      .sort((a,b) => {
+        if (boardSort === 'deadline') {
+          const da = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+          const db = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+          return da - db || (PRIORITY_ORDER[a.priority]||4) - (PRIORITY_ORDER[b.priority]||4);
+        }
+        if (boardSort === 'newest') return new Date(b.created_at||0) - new Date(a.created_at||0);
+        if (boardSort === 'oldest') return new Date(a.created_at||0) - new Date(b.created_at||0);
+        return (PRIORITY_ORDER[a.priority]||4) - (PRIORITY_ORDER[b.priority]||4);
+      });
     const isCollapsed = collapsedColumns.has(status);
     if (isCollapsed) col.classList.add('collapsed');
     const collapseBtn = `<button class="column-collapse-btn" onclick="event.stopPropagation();toggleColumn('${status}')">${isCollapsed ? '\u25B6' : '\u25C0'}</button>`;
@@ -2716,6 +2771,13 @@ function renderFilterBar() {
       </div>
     ` : ''}
     ${hasFilters ? `<div class="filter-divider"></div><button class="filter-clear" onclick="clearFilters()">clear filters</button>` : ''}
+    <div class="filter-divider"></div>
+    <div class="filter-group">
+      <span class="filter-label">Sort</span>
+      ${['priority','deadline','newest','oldest'].map(s =>
+        `<button class="filter-chip${boardSort===s?' active':''}" onclick="setSort('${s}')">${s}</button>`
+      ).join('')}
+    </div>
   `;
 }
 
@@ -2731,6 +2793,13 @@ function clearFilters() {
   filterPriority = '';
   filterAssignee = '';
   filterType = '';
+  renderFilterBar();
+  renderBoard();
+}
+
+function setSort(s) {
+  boardSort = s;
+  localStorage.setItem('waggle_sort', s);
   renderFilterBar();
   renderBoard();
 }
