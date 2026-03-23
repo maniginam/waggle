@@ -114,6 +114,12 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 	case "comments":
 		a.handleTaskComments(w, r, id)
 		return
+	case "history":
+		a.handleTaskHistory(w, r, id)
+		return
+	case "subtasks":
+		a.handleSubtasks(w, r, id)
+		return
 	}
 
 	switch r.Method {
@@ -288,6 +294,43 @@ func (a *API) handleTaskComments(w http.ResponseWriter, r *http.Request, taskID 
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (a *API) handleTaskHistory(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	events, err := a.store.ListTaskEvents(taskID, 50)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+		return
+	}
+	if events == nil {
+		events = []*model.Event{}
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
+func (a *API) handleSubtasks(w http.ResponseWriter, r *http.Request, parentID string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	tasks, err := a.store.ListSubtasks(parentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+		return
+	}
+	if tasks == nil {
+		tasks = []*model.Task{}
+	}
+
+	done, total, _ := a.store.SubtaskProgress(parentID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"subtasks": tasks,
+		"progress": map[string]int{"done": done, "total": total},
+	})
 }
 
 func (a *API) handleAgents(w http.ResponseWriter, r *http.Request) {

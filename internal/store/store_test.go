@@ -327,6 +327,46 @@ func TestSearchTasks(t *testing.T) {
 	}
 }
 
+func TestTaskEvents(t *testing.T) {
+	s := tempStore(t)
+	task := &model.Task{Title: "History task"}
+	s.CreateTask(task)
+
+	s.RecordEvent(&model.Event{Type: model.EventTaskCreated, TaskID: task.ID})
+	s.RecordEvent(&model.Event{Type: model.EventTaskClaimed, TaskID: task.ID, AgentID: "agent-1"})
+	s.RecordEvent(&model.Event{Type: model.EventAgentJoined, AgentID: "agent-1"}) // unrelated
+
+	events, err := s.ListTaskEvents(task.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Errorf("expected 2 task events, got %d", len(events))
+	}
+}
+
+func TestSubtaskProgress(t *testing.T) {
+	s := tempStore(t)
+	parent := &model.Task{Title: "Parent epic"}
+	s.CreateTask(parent)
+
+	for _, status := range []model.TaskStatus{model.TaskDone, model.TaskDone, model.TaskInProgress, model.TaskReady} {
+		child := &model.Task{Title: "Child", ParentID: parent.ID, Status: status}
+		s.CreateTask(child)
+	}
+
+	done, total, err := s.SubtaskProgress(parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 4 {
+		t.Errorf("expected 4 total, got %d", total)
+	}
+	if done != 2 {
+		t.Errorf("expected 2 done, got %d", done)
+	}
+}
+
 func TestComments(t *testing.T) {
 	s := tempStore(t)
 	task := &model.Task{Title: "Commentable task"}

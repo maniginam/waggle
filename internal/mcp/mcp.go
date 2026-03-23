@@ -182,6 +182,16 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"tag": prop("string", "Optional tag filter"),
 			},
 		}),
+		toolDef("waggle_task_history", "View the event log for a specific task.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": prop("string", "Task ID")},
+			"required":   []string{"id"},
+		}),
+		toolDef("waggle_list_subtasks", "List subtasks and progress for a parent task.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": prop("string", "Parent task ID")},
+			"required":   []string{"id"},
+		}),
 		toolDef("waggle_add_comment", "Add a comment/note to a task.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -350,6 +360,20 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("id is required")
 		}
 		return a.postJSON("/api/tasks/"+id+"/complete", nil)
+
+	case "waggle_task_history":
+		taskID, _ := args["id"].(string)
+		if taskID == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		return a.get("/api/tasks/" + taskID + "/history")
+
+	case "waggle_list_subtasks":
+		taskID, _ := args["id"].(string)
+		if taskID == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		return a.get("/api/tasks/" + taskID + "/subtasks")
 
 	case "waggle_add_comment":
 		taskID, _ := args["id"].(string)

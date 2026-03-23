@@ -456,6 +456,66 @@ func TestMessagesMissingFields(t *testing.T) {
 	}
 }
 
+func TestTaskHistoryAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create and claim a task to generate events
+	body, _ := json.Marshal(map[string]string{"title": "History test", "status": "ready"})
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	// Get history
+	resp, _ = http.Get(ts.URL + "/api/tasks/" + taskID + "/history")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var events []map[string]any
+	json.NewDecoder(resp.Body).Decode(&events)
+	// Should have at least the task_created event
+	if len(events) < 1 {
+		t.Errorf("expected at least 1 event, got %d", len(events))
+	}
+}
+
+func TestSubtasksAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create parent
+	body, _ := json.Marshal(map[string]string{"title": "Parent"})
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var parent map[string]any
+	json.NewDecoder(resp.Body).Decode(&parent)
+	resp.Body.Close()
+	parentID := parent["id"].(string)
+
+	// Create subtasks
+	for _, s := range []string{"done", "ready"} {
+		sub, _ := json.Marshal(map[string]string{"title": "Sub " + s, "parent_id": parentID, "status": s})
+		r, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(sub))
+		r.Body.Close()
+	}
+
+	resp, _ = http.Get(ts.URL + "/api/tasks/" + parentID + "/subtasks")
+	defer resp.Body.Close()
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+	subtasks := result["subtasks"].([]any)
+	if len(subtasks) != 2 {
+		t.Errorf("expected 2 subtasks, got %d", len(subtasks))
+	}
+	progress := result["progress"].(map[string]any)
+	if progress["done"].(float64) != 1 {
+		t.Errorf("expected 1 done, got %v", progress["done"])
+	}
+	if progress["total"].(float64) != 2 {
+		t.Errorf("expected 2 total, got %v", progress["total"])
+	}
+}
+
 func TestCommentsAPI(t *testing.T) {
 	_, ts := setup(t)
 
