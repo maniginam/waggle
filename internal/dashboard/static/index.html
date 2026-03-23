@@ -560,6 +560,93 @@ select.form-input { cursor: pointer; }
 }
 .drop-indicator.visible { opacity: 1; }
 
+/* ── AGENT COMMAND CENTER ── */
+.agent-row .agent-actions {
+  display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s;
+}
+.agent-row:hover .agent-actions { opacity: 1; }
+.poke-btn {
+  font-size: 0.55rem; padding: 2px 6px; border-radius: 3px;
+  background: var(--red-dim); color: var(--red); border: 1px solid transparent;
+  cursor: pointer; font-family: var(--font-mono); font-weight: 600;
+  transition: all 0.15s;
+}
+.poke-btn:hover { border-color: var(--red); background: rgba(248,113,113,0.25); }
+.msg-btn {
+  font-size: 0.55rem; padding: 2px 6px; border-radius: 3px;
+  background: var(--cyan-dim); color: var(--cyan); border: 1px solid transparent;
+  cursor: pointer; font-family: var(--font-mono); font-weight: 600;
+  transition: all 0.15s;
+}
+.msg-btn:hover { border-color: var(--cyan); }
+
+.agent-stale { position: relative; }
+.agent-stale::after {
+  content: 'STALE'; position: absolute; top: 4px; right: 4px;
+  font-size: 0.5rem; background: var(--red-dim); color: var(--red);
+  padding: 1px 4px; border-radius: 2px; font-weight: 700;
+  letter-spacing: 0.5px; animation: pulse 2s ease-in-out infinite;
+}
+
+.agent-detail-panel { padding: 20px; }
+.agent-detail-section { margin-bottom: 16px; }
+.agent-detail-row { display: flex; gap: 16px; margin-bottom: 12px; }
+.agent-detail-field { flex: 1; }
+.agent-detail-field .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 4px; }
+.agent-detail-field .val { font-size: 0.85rem; color: var(--text-primary); }
+
+.prompt-box {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0; margin-top: 12px; overflow: hidden;
+}
+.prompt-box-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; background: var(--bg-elevated); border-bottom: 1px solid var(--border);
+}
+.prompt-box-header .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); font-weight: 600; }
+.prompt-textarea {
+  width: 100%; min-height: 80px; background: var(--bg-card);
+  border: none; padding: 10px 12px; color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 0.8rem; outline: none;
+  resize: vertical;
+}
+.prompt-textarea::placeholder { color: var(--text-dim); }
+.prompt-actions {
+  display: flex; gap: 6px; justify-content: flex-end;
+  padding: 8px 12px; border-top: 1px solid var(--border);
+}
+
+.quick-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.quick-action {
+  font-size: 0.65rem; padding: 4px 10px; border-radius: 12px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-secondary); cursor: pointer; font-family: var(--font-mono);
+  transition: all 0.15s;
+}
+.quick-action:hover { background: var(--bg-elevated); border-color: var(--text-dim); color: var(--text-primary); }
+.quick-action.poke { background: var(--red-dim); color: var(--red); border-color: transparent; }
+.quick-action.poke:hover { border-color: var(--red); }
+
+/* ── BROADCAST BAR ── */
+.broadcast-bar {
+  display: flex; gap: 8px; padding: 8px 12px;
+  border-top: 1px solid var(--border); background: var(--bg-surface);
+}
+.broadcast-input {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 6px 14px; color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 0.75rem; outline: none;
+}
+.broadcast-input:focus { border-color: var(--amber-dim); }
+.broadcast-input::placeholder { color: var(--text-dim); }
+.broadcast-send {
+  padding: 6px 12px; background: var(--amber); color: var(--bg-deep);
+  border: none; border-radius: 12px; font-family: var(--font-mono);
+  font-size: 0.65rem; font-weight: 600; cursor: pointer;
+  transition: background 0.15s;
+}
+.broadcast-send:hover { background: #ffb820; }
+
 /* ── INLINE EDIT ── */
 .inline-edit {
   display: flex; align-items: center; gap: 6px;
@@ -627,7 +714,10 @@ select.form-input { cursor: pointer; }
     <div class="board" id="board"></div>
     <div class="sidebar">
       <div class="sidebar-section">
-        <div class="sidebar-title">Agents</div>
+        <div class="sidebar-title" style="display:flex;align-items:center;justify-content:space-between">
+          Agents
+          <button class="msg-btn" onclick="openBroadcastPanel()" style="opacity:1">broadcast</button>
+        </div>
         <div class="agent-list" id="agent-list"></div>
       </div>
       <div class="sidebar-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
@@ -797,27 +887,56 @@ function renderCard(t) {
   `;
 }
 
+function agentIsStale(a) {
+  if (a.status === 'disconnected') return false;
+  const lastSeen = new Date(a.last_seen);
+  const ageMs = Date.now() - lastSeen.getTime();
+  return ageMs > 3 * 60 * 1000; // stale if no activity for 3+ minutes
+}
+
 function renderAgents() {
   const el = document.getElementById('agent-list');
   if (agents.length === 0) {
-    el.innerHTML = '<div class="empty-state"><p>No agents registered</p></div>';
+    el.innerHTML = '<div class="empty-state"><p>No agents connected</p></div>';
     return;
   }
-  el.innerHTML = agents.map(a => {
-    const sel = currentPanel && currentPanel.type === 'chat' && currentPanel.agent === a.name ? ' selected' : '';
+  // Sort: alpha first, then leaders, then others; disconnected last
+  const sorted = [...agents].sort((a, b) => {
+    const rank = t => t.type === 'alpha' ? 0 : t.type === 'leader' ? 1 : t.status === 'disconnected' ? 9 : 2;
+    return rank(a) - rank(b);
+  });
+  el.innerHTML = sorted.map(a => {
+    const sel = currentPanel && currentPanel.type === 'agent' && currentPanel.agent === a.name ? ' selected' : '';
+    const stale = agentIsStale(a);
+    const roleColor = {alpha:'var(--amber)',leader:'var(--purple)',subagent:'var(--cyan)',custom:'var(--text-dim)'}[a.type] || 'var(--text-dim)';
+    const lastSeenStr = a.last_seen ? timeSince(new Date(a.last_seen)) : '';
     return `
-    <div class="agent-row${sel}" data-agent="${esc(a.name)}">
+    <div class="agent-row${sel}${stale ? ' agent-stale' : ''}" data-agent="${esc(a.name)}">
       <div class="agent-status-dot ${a.status}"></div>
       <div class="agent-info">
-        <div class="agent-name">${esc(a.name)}</div>
-        <div class="agent-type">${esc(a.type)}</div>
+        <div class="agent-name">${esc(a.name)} <span style="font-size:0.55rem;color:${roleColor};font-weight:700;text-transform:uppercase;letter-spacing:0.5px">${a.type}</span></div>
+        <div class="agent-type" style="color:var(--text-dim)">${a.current_task ? esc(a.current_task) : lastSeenStr}</div>
       </div>
-      ${a.current_task ? `<div class="agent-task">${esc(a.current_task)}</div>` : ''}
+      <div class="agent-actions">
+        ${stale ? `<button class="poke-btn" onclick="pokeAgent(event,'${esc(a.name)}')">poke</button>` : ''}
+        <button class="msg-btn" onclick="openAgentPanel(event,'${esc(a.name)}')">&#9993;</button>
+      </div>
     </div>`;
   }).join('');
   el.querySelectorAll('.agent-row').forEach(row => {
-    row.addEventListener('click', () => openChatPanel(row.dataset.agent));
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      openAgentPanel(e, row.dataset.agent);
+    });
   });
+}
+
+function timeSince(date) {
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs/60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs/3600)}h ago`;
+  return `${Math.floor(secs/86400)}d ago`;
 }
 
 function renderStats() {
@@ -1059,33 +1178,193 @@ async function addComment() {
   openTaskPanel(currentPanel.id, 'comments');
 }
 
-// ── CHAT PANEL ──
+// ── AGENT PANEL ──
 
-async function openChatPanel(agentName) {
-  currentPanel = {type:'chat', agent:agentName};
+async function openAgentPanel(evtOrNull, agentName) {
+  if (evtOrNull && evtOrNull.stopPropagation) evtOrNull.stopPropagation();
+  currentPanel = {type:'agent', agent:agentName};
   const panel = document.getElementById('panel');
   const overlay = document.getElementById('overlay');
   const agent = agents.find(a => a.name === agentName);
 
-  document.getElementById('panel-title').textContent = agentName;
-  document.getElementById('panel-subtitle').textContent = agent ? `${agent.type} · ${agent.status}` : '';
+  const roleColor = agent ? ({alpha:'var(--amber)',leader:'var(--purple)',subagent:'var(--cyan)',custom:'var(--text-dim)'}[agent.type] || 'var(--text-dim)') : 'var(--text-dim)';
+  const stale = agent && agentIsStale(agent);
+
+  document.getElementById('panel-title').innerHTML = `${esc(agentName)} <span style="font-size:0.65rem;color:${roleColor};font-weight:700;text-transform:uppercase">${agent ? agent.type : ''}</span>`;
+  document.getElementById('panel-subtitle').textContent = agent ? `${agent.status}${agent.current_task ? ' · ' + agent.current_task : ''}${stale ? ' · STALE' : ''}` : '';
 
   const content = document.getElementById('panel-content');
   content.innerHTML = `
-    <div class="chat-messages" id="chat-messages"></div>
-    <div class="chat-input-bar">
-      <input class="chat-input" id="chat-input" placeholder="Message ${esc(agentName)}..." onkeydown="if(event.key==='Enter')sendChat()">
-      <button class="chat-send" onclick="sendChat()">&#9654;</button>
+    <div class="panel-tabs">
+      <div class="panel-tab active" data-tab="prompt">Prompt</div>
+      <div class="panel-tab" data-tab="messages">Messages</div>
+    </div>
+    <div id="agent-tab-prompt">
+      <div class="agent-detail-panel">
+        ${agent ? `
+        <div class="agent-detail-row">
+          <div class="agent-detail-field"><div class="label">Status</div><div class="val"><span class="agent-status-dot ${agent.status}" style="display:inline-block;margin-right:6px"></span>${agent.status}</div></div>
+          <div class="agent-detail-field"><div class="label">Last Seen</div><div class="val">${agent.last_seen ? timeSince(new Date(agent.last_seen)) : 'unknown'}</div></div>
+        </div>
+        ${agent.current_task ? `<div class="agent-detail-row"><div class="agent-detail-field"><div class="label">Current Task</div><div class="val" style="color:var(--amber)">${esc(agent.current_task)}</div></div></div>` : ''}
+        ` : ''}
+        ${stale ? `<div style="background:var(--red-dim);border:1px solid var(--red);border-radius:var(--radius);padding:8px 12px;font-size:0.75rem;color:var(--red);margin-bottom:12px">
+          Agent appears stalled. Use "Poke" to send a check-in request.
+        </div>` : ''}
+        <div class="detail-label" style="margin-bottom:6px">Quick Actions</div>
+        <div class="quick-actions">
+          <button class="quick-action poke" onclick="pokeAgent(null,'${esc(agentName)}')">&#9888; Poke (check in)</button>
+          <button class="quick-action" onclick="fillPrompt('What is your current status and what are you working on?')">Status report</button>
+          <button class="quick-action" onclick="fillPrompt('Please check waggle for your next task and start working on it.')">Get next task</button>
+          <button class="quick-action" onclick="fillPrompt('Please provide a summary of what you have completed so far.')">Progress summary</button>
+          <button class="quick-action" onclick="fillPrompt('You appear to be stalled. Please check in and confirm your current state, or abandon your current task and pick up a new one.')">Unstall</button>
+          <button class="quick-action" onclick="fillPrompt('Please run all tests and report back on what passes and what fails.')">Run tests</button>
+        </div>
+        <div class="prompt-box" style="margin-top:12px">
+          <div class="prompt-box-header">
+            <span class="label">Send Instruction</span>
+            <span style="font-size:0.6rem;color:var(--text-dim)">agent reads via MCP</span>
+          </div>
+          <textarea class="prompt-textarea" id="agent-prompt" placeholder="Type an instruction or question for ${esc(agentName)}..."></textarea>
+          <div class="prompt-actions">
+            <button class="btn-ghost btn-sm" onclick="document.getElementById('agent-prompt').value=''">Clear</button>
+            <button class="btn" onclick="sendAgentPrompt('${esc(agentName)}')">Send &#9654;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="agent-tab-messages" style="display:none;flex:1;display:none;flex-direction:column;height:100%">
+      <div class="chat-messages" id="chat-messages" style="flex:1"></div>
+      <div class="chat-input-bar">
+        <input class="chat-input" id="chat-input" placeholder="Message ${esc(agentName)}..." onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="chat-send" onclick="sendChat()">&#9654;</button>
+      </div>
     </div>
   `;
 
-  await loadChatMessages(agentName);
+  // Tab switching
+  content.querySelectorAll('.panel-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      content.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const promptTab = document.getElementById('agent-tab-prompt');
+      const msgTab = document.getElementById('agent-tab-messages');
+      if (tab.dataset.tab === 'prompt') {
+        promptTab.style.display = ''; msgTab.style.display = 'none';
+      } else {
+        promptTab.style.display = 'none'; msgTab.style.display = 'flex'; msgTab.style.flexDirection = 'column';
+        loadChatMessages(agentName);
+      }
+    });
+  });
 
   overlay.classList.add('open');
   panel.classList.add('open');
   renderBoard();
   renderAgents();
 }
+
+function fillPrompt(text) {
+  const ta = document.getElementById('agent-prompt');
+  if (ta) { ta.value = text; ta.focus(); }
+}
+
+async function sendAgentPrompt(agentName) {
+  const ta = document.getElementById('agent-prompt');
+  const body = ta ? ta.value.trim() : '';
+  if (!body) return;
+  ta.value = '';
+  await fetch('/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from: 'user', to: agentName, body}),
+  });
+  showToast(`Instruction sent to ${agentName}`, 'var(--amber)');
+}
+
+async function pokeAgent(evtOrNull, agentName) {
+  if (evtOrNull && evtOrNull.stopPropagation) evtOrNull.stopPropagation();
+  await fetch('/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      from: 'user',
+      to: agentName,
+      body: '[POKE] You appear to be stalled or inactive. Please check in immediately: report your current status, what you are working on, and whether you are blocked. If blocked, describe what is blocking you.',
+    }),
+  });
+  showToast(`Poked ${agentName}`, 'var(--red)');
+  fetchAll();
+}
+
+async function openBroadcastPanel() {
+  currentPanel = {type:'broadcast'};
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+
+  document.getElementById('panel-title').textContent = 'Broadcast to All Agents';
+  document.getElementById('panel-subtitle').textContent = `${agents.filter(a=>a.status!=='disconnected').length} active agents`;
+
+  const agentList = agents.filter(a => a.status !== 'disconnected')
+    .map(a => `<span style="color:var(--cyan)">${esc(a.name)}</span>`).join(', ');
+
+  document.getElementById('panel-content').innerHTML = `
+    <div class="agent-detail-panel">
+      <div class="detail-section">
+        <div class="detail-label">Active Agents</div>
+        <div style="font-size:0.8rem;line-height:1.8">${agentList || '<span style="color:var(--text-dim)">none</span>'}</div>
+      </div>
+      <div class="detail-label" style="margin-bottom:6px">Quick Broadcasts</div>
+      <div class="quick-actions">
+        <button class="quick-action" onclick="fillBroadcast('Please check waggle for new tasks and start working on any that are ready.')">Assign tasks</button>
+        <button class="quick-action" onclick="fillBroadcast('Please provide a status update: what are you working on, what have you completed, and are you blocked on anything?')">Status report all</button>
+        <button class="quick-action poke" onclick="fillBroadcast('[POKE] All agents: check in immediately with your current status.')">Poke all</button>
+        <button class="quick-action" onclick="fillBroadcast('Please wrap up your current work, commit any changes, and report completion.')">Wrap up</button>
+        <button class="quick-action" onclick="fillBroadcast('Stand down — no new tasks. Finish what you have and report when done.')">Stand down</button>
+      </div>
+      <div class="prompt-box" style="margin-top:12px">
+        <div class="prompt-box-header">
+          <span class="label">Broadcast Message</span>
+          <span style="font-size:0.6rem;color:var(--text-dim)">sends to all active agents</span>
+        </div>
+        <textarea class="prompt-textarea" id="broadcast-prompt" placeholder="Type a message to send to all active agents..."></textarea>
+        <div class="prompt-actions">
+          <button class="btn-ghost btn-sm" onclick="document.getElementById('broadcast-prompt').value=''">Clear</button>
+          <button class="btn" onclick="sendBroadcast()">Broadcast &#9654;</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  overlay.classList.add('open');
+  panel.classList.add('open');
+}
+
+function fillBroadcast(text) {
+  const ta = document.getElementById('broadcast-prompt');
+  if (ta) { ta.value = text; ta.focus(); }
+}
+
+async function sendBroadcast() {
+  const ta = document.getElementById('broadcast-prompt');
+  const body = ta ? ta.value.trim() : '';
+  if (!body) return;
+  const active = agents.filter(a => a.status !== 'disconnected');
+  if (active.length === 0) { showToast('No active agents', 'var(--red)'); return; }
+  ta.value = '';
+  await Promise.all(active.map(a =>
+    fetch('/api/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({from: 'user', to: a.name, body}),
+    })
+  ));
+  showToast(`Broadcast sent to ${active.length} agents`, 'var(--amber)');
+  fetchAll();
+}
+
+// Keep old sendChat/loadChatMessages for messages tab
+async function openChatPanel(agentName) { openAgentPanel(null, agentName); }
 
 async function loadChatMessages(agentName) {
   const container = document.getElementById('chat-messages');

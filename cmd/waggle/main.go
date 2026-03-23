@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -72,6 +73,8 @@ func main() {
 		cmdBackup()
 	case "reset":
 		cmdReset()
+	case "tunnel":
+		cmdTunnel()
 	case "version":
 		fmt.Println("waggle v0.1.0")
 	case "help", "--help", "-h":
@@ -1197,6 +1200,87 @@ func cmdMsg(subcmd string, args []string) {
 	}
 }
 
+func cmdTunnel() {
+	port := 4740
+	for i, arg := range os.Args[2:] {
+		if arg == "--port" && i+1 < len(os.Args[2:]) {
+			fmt.Sscanf(os.Args[i+3], "%d", &port)
+		}
+	}
+
+	// Check server is running first
+	_, err := http.Get(fmt.Sprintf("http://localhost:%d/health", port))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: waggle server is not running on port %d\n", port)
+		fmt.Fprintf(os.Stderr, "Start it first with: waggle start\n")
+		os.Exit(1)
+	}
+
+	// Detect which tunnel tool is available
+	type tunnelDef struct {
+		name string
+		bin  string
+		args []string
+		hint string
+	}
+	tunnels := []tunnelDef{
+		{
+			name: "Cloudflare Tunnel",
+			bin:  "cloudflared",
+			args: []string{"tunnel", "--url", fmt.Sprintf("http://localhost:%d", port)},
+			hint: "Install: brew install cloudflared",
+		},
+		{
+			name: "ngrok",
+			bin:  "ngrok",
+			args: []string{"http", fmt.Sprintf("%d", port)},
+			hint: "Install: brew install ngrok",
+		},
+	}
+
+	var chosen *tunnelDef
+	for i := range tunnels {
+		if _, err := exec.LookPath(tunnels[i].bin); err == nil {
+			chosen = &tunnels[i]
+			break
+		}
+	}
+
+	if chosen == nil {
+		fmt.Println("No tunnel tool found. Install one of:")
+		for _, t := range tunnels {
+			fmt.Printf("  %-20s  %s\n", t.name, t.hint)
+		}
+		fmt.Println("\nThen run: waggle tunnel")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Starting %s tunnel for waggle on port %d...\n", chosen.name, port)
+	fmt.Println("Dashboard will be accessible via the public URL shown below.")
+	fmt.Println("Press Ctrl+C to stop.")
+	fmt.Println()
+
+	cmd := exec.Command(chosen.bin, chosen.args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		if cmd.Process != nil {
+			cmd.Process.Signal(syscall.SIGTERM)
+		}
+	}()
+
+	if err := cmd.Run(); err != nil {
+		if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+			fmt.Fprintf(os.Stderr, "tunnel error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+}
+
 func printUsage() {
 	fmt.Println(`waggle - AI agent orchestration
 
@@ -1206,6 +1290,7 @@ Usage:
   waggle status                    Server status + connected agents
   waggle mcp                       Start MCP stdio adapter
   waggle connect                   Generate .mcp.json for Claude Code
+  waggle tunnel [--port 4740]      Expose dashboard publicly (cloudflared or ngrok)
 
   waggle task add "title" [flags]  Create a task
     --desc "description"             Task description
