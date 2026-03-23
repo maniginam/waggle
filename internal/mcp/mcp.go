@@ -109,8 +109,9 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 		toolDef("waggle_register_agent", "Register this agent with the Waggle server. Must be called first.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"name": prop("string", "Agent name (e.g. 'backend-agent')"),
-				"type": prop("string", "Agent type (e.g. 'claude-code', 'cursor', 'aider')"),
+				"name":       prop("string", "Agent name (e.g. 'backend-agent')"),
+				"type":       prop("string", "Agent type (e.g. 'claude-code', 'cursor', 'aider')"),
+				"project_id": prop("string", "Project ID to assign this agent to (optional)"),
 			},
 			"required": []string{"name", "type"},
 		}),
@@ -346,10 +347,12 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("name and type are required")
 		}
 		a.agentName = agentName
-		// Register via REST — create agent by posting a task claim will trigger it,
-		// but we need a direct register endpoint. Use internal knowledge that
-		// RegisterAgent is called on WS connect. For REST, we'll create a simple registration.
-		body, _ := json.Marshal(map[string]string{"name": agentName, "type": agentType})
+		projectID, _ := args["project_id"].(string)
+		regPayload := map[string]string{"name": agentName, "type": agentType}
+		if projectID != "" {
+			regPayload["project_id"] = projectID
+		}
+		body, _ := json.Marshal(regPayload)
 		resp, err := http.Post(a.baseURL+"/api/agents/register", "application/json", bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("server not reachable: %w", err)

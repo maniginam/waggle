@@ -97,27 +97,6 @@ body {
 }
 .header-right { display: flex; align-items: center; gap: 12px; }
 
-/* ── PROJECT TABS ── */
-.project-tabs {
-  display: flex; align-items: center; gap: 2px;
-  background: var(--bg-card); border-radius: var(--radius);
-  padding: 2px;
-}
-.project-tab {
-  padding: 6px 14px; border-radius: 4px;
-  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500;
-  color: var(--text-dim); cursor: pointer;
-  transition: all 0.15s; border: none; background: none;
-  white-space: nowrap;
-}
-.project-tab:hover { color: var(--text-secondary); background: var(--bg-elevated); }
-.project-tab.active {
-  color: var(--bg-deep); background: var(--amber);
-  font-weight: 600;
-}
-.project-tab .tab-count {
-  font-size: 0.6rem; margin-left: 4px; opacity: 0.7;
-}
 .sse-status { font-size: 0.75rem; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
 .sse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; }
 .sse-dot.connected { background: var(--green); }
@@ -128,6 +107,17 @@ body {
   display: grid;
   grid-template-columns: 220px 1fr;
   height: calc(100vh - 49px);
+}
+#main-view {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#board-view {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── PROJECT SIDEBAR (LEFT) ── */
@@ -191,6 +181,7 @@ body {
   grid-template-columns: 1fr;
   grid-template-rows: auto auto auto 1fr;
   overflow: hidden;
+  flex: 1;
 }
 
 /* ── OVERVIEW VIEW ── */
@@ -1297,12 +1288,17 @@ function agentIsStale(a) {
 
 function renderAgents() {
   const el = document.getElementById('agent-list');
-  if (agents.length === 0) {
+  // Filter agents by project when viewing a project board
+  let filtered = agents;
+  if (currentView !== 'overview' && currentView !== 'none') {
+    filtered = agents.filter(a => a.project_id === currentView || !a.project_id || a.type === 'alpha' || a.type === 'leader');
+  }
+  if (filtered.length === 0) {
     el.innerHTML = '<div class="empty-state"><p>No agents connected</p></div>';
     return;
   }
   // Sort: alpha first, then leaders, then others; disconnected last
-  const sorted = [...agents].sort((a, b) => {
+  const sorted = [...filtered].sort((a, b) => {
     const rank = t => t.type === 'alpha' ? 0 : t.type === 'leader' ? 1 : t.status === 'disconnected' ? 9 : 2;
     return rank(a) - rank(b);
   });
@@ -1312,12 +1308,13 @@ function renderAgents() {
     const roleColor = {alpha:'var(--amber)',leader:'var(--purple)',subagent:'var(--cyan)',custom:'var(--text-dim)'}[a.type] || 'var(--text-dim)';
     const lastSeenStr = a.last_seen ? timeSince(new Date(a.last_seen)) : '';
     const taskCount = tasks.filter(t => t.assignee === a.name && t.status !== 'done').length;
+    const agentProject = a.project_id ? projects.find(p => p.id === a.project_id) : null;
     return `
     <div class="agent-row${sel}${stale ? ' agent-stale' : ''}" data-agent="${esc(a.name)}">
       <div class="agent-status-dot ${a.status}"></div>
       <div class="agent-info">
         <div class="agent-name">${esc(a.name)} <span style="font-size:0.55rem;color:${roleColor};font-weight:700;text-transform:uppercase;letter-spacing:0.5px">${a.type}</span></div>
-        <div class="agent-type" style="color:var(--text-dim)">${a.current_task ? esc(a.current_task) : lastSeenStr}</div>
+        <div class="agent-type" style="color:var(--text-dim)">${a.current_task ? esc(a.current_task) : (agentProject ? esc(agentProject.name) : lastSeenStr)}</div>
       </div>
       <span class="agent-workload${taskCount > 0 ? ' has-tasks' : ''}" title="${taskCount} assigned task${taskCount !== 1 ? 's' : ''}">${taskCount}</span>
       <div class="agent-actions">
@@ -1669,6 +1666,15 @@ async function openAgentPanel(evtOrNull, agentName) {
           <div class="agent-detail-field"><div class="label">Last Seen</div><div class="val">${agent.last_seen ? timeSince(new Date(agent.last_seen)) : 'unknown'}</div></div>
         </div>
         ${agent.current_task ? `<div class="agent-detail-row"><div class="agent-detail-field"><div class="label">Current Task</div><div class="val" style="color:var(--amber)">${esc(agent.current_task)}</div></div></div>` : ''}
+        <div class="agent-detail-row">
+          <div class="agent-detail-field">
+            <div class="label">Project Team</div>
+            <select class="form-input" style="font-size:0.8rem;padding:5px 8px" onchange="assignAgentProject('${esc(agentName)}', this.value)">
+              <option value=""${!agent.project_id ? ' selected' : ''}>No project (shared)</option>
+              ${projects.map(p => `<option value="${esc(p.id)}"${agent.project_id === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
         ` : ''}
         ${stale ? `<div style="background:var(--red-dim);border:1px solid var(--red);border-radius:var(--radius);padding:8px 12px;font-size:0.75rem;color:var(--red);margin-bottom:12px">
           Agent appears stalled. Use "Poke" to send a check-in request.
@@ -1742,6 +1748,19 @@ async function sendAgentPrompt(agentName) {
     body: JSON.stringify({from: 'user', to: agentName, body}),
   });
   showToast(`Instruction sent to ${agentName}`, 'var(--amber)');
+}
+
+async function assignAgentProject(agentName, projectId) {
+  const resp = await fetch(`/api/agents/${encodeURIComponent(agentName)}/project`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({project_id: projectId}),
+  });
+  if (resp.ok) {
+    const projectName = projectId ? projects.find(p => p.id === projectId)?.name || projectId : 'shared';
+    showToast(`${agentName} assigned to ${projectName}`, 'var(--cyan)');
+    await fetchAll();
+  }
 }
 
 async function pokeAgent(evtOrNull, agentName) {
@@ -2187,6 +2206,7 @@ function navigateTo(view) {
   }
 
   renderProjectNav();
+  renderAgents();
 }
 
 function renderOverview() {
@@ -2207,11 +2227,12 @@ function renderOverview() {
     const pReady = pTasks.filter(t => t.status === 'ready').length;
     const pTotal = pTasks.length || 1;
     const pct = Math.round(pDone / pTotal * 100);
+    const pAgents = agents.filter(a => a.project_id === p.id && a.status !== 'disconnected').length;
 
     projectCards += `
       <div class="project-card" data-project-id="${esc(p.id)}">
         <div class="project-card-accent"></div>
-        <div class="project-card-name">${esc(p.name)}</div>
+        <div class="project-card-name">${esc(p.name)}${pAgents > 0 ? ` <span style="font-size:0.6rem;color:var(--cyan)">${pAgents} agent${pAgents !== 1 ? 's' : ''}</span>` : ''}</div>
         ${p.description ? `<div class="project-card-desc">${esc(p.description)}</div>` : '<div class="project-card-desc" style="color:var(--border)">No description</div>'}
         <div class="project-card-stats">
           <div class="project-card-stat"><div class="dot" style="background:var(--amber)"></div>${pInProg} active</div>
@@ -2251,6 +2272,7 @@ function renderOverview() {
   for (const a of sortedAgents) {
     const roleColor = {alpha:'var(--amber)',leader:'var(--purple)',subagent:'var(--cyan)'}[a.type] || 'var(--text-dim)';
     const taskCount = tasks.filter(t => t.assignee === a.name && t.status !== 'done').length;
+    const ap = a.project_id ? projects.find(p => p.id === a.project_id) : null;
     agentCards += `
       <div class="overview-agent-card" data-agent-name="${esc(a.name)}">
         <div class="agent-status-dot ${a.status}"></div>
@@ -2258,7 +2280,7 @@ function renderOverview() {
           <div style="font-size:0.8rem;font-family:var(--font-sans);font-weight:500;color:var(--text-primary)">${esc(a.name)}
             <span style="font-size:0.55rem;color:${roleColor};font-weight:700;text-transform:uppercase">${a.type}</span>
           </div>
-          <div style="font-size:0.65rem;color:var(--text-dim)">${a.current_task ? esc(a.current_task) : (a.last_seen ? timeSince(new Date(a.last_seen)) : '')}</div>
+          <div style="font-size:0.65rem;color:var(--text-dim)">${a.current_task ? esc(a.current_task) : (ap ? esc(ap.name) : (a.last_seen ? timeSince(new Date(a.last_seen)) : ''))}</div>
         </div>
         ${taskCount > 0 ? `<span class="agent-workload has-tasks">${taskCount}</span>` : ''}
       </div>`;
