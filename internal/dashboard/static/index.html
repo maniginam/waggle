@@ -107,7 +107,26 @@ body {
   display: grid;
   grid-template-columns: 220px 1fr;
   height: calc(100vh - 49px);
+  transition: grid-template-columns 0.2s ease;
 }
+.app-shell.nav-collapsed {
+  grid-template-columns: 48px 1fr;
+}
+.app-shell.nav-collapsed .project-nav-name,
+.app-shell.nav-collapsed .project-nav-count,
+.app-shell.nav-collapsed .project-nav-title,
+.app-shell.nav-collapsed .project-nav-activity,
+.app-shell.nav-collapsed .project-nav-footer,
+.app-shell.nav-collapsed .column-add { display: none; }
+.app-shell.nav-collapsed .project-nav-item { justify-content: center; padding: 8px; }
+.app-shell.nav-collapsed .project-nav-header { justify-content: center; padding: 8px; }
+.nav-collapse-btn {
+  width: 24px; height: 24px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 0.7rem;
+  transition: all 0.15s; flex-shrink: 0;
+}
+.nav-collapse-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
 #main-view {
   overflow: hidden;
   display: flex;
@@ -1063,7 +1082,10 @@ select.form-input { cursor: pointer; }
   <div class="project-nav">
     <div class="project-nav-header">
       <span class="project-nav-title">Projects</span>
-      <button class="column-add" style="opacity:1" onclick="openCreatePanel('project')" title="New project">+</button>
+      <div style="display:flex;gap:4px">
+        <button class="column-add" style="opacity:1" onclick="openCreatePanel('project')" title="New project">+</button>
+        <button class="nav-collapse-btn" onclick="toggleNav()" title="Collapse sidebar">&#9664;</button>
+      </div>
     </div>
     <div class="project-nav-list" id="project-nav-list"></div>
     <div class="project-nav-footer">
@@ -1109,6 +1131,8 @@ select.form-input { cursor: pointer; }
     <div class="shortcut-row"><span class="shortcut-desc">Close panel / back to overview</span><span class="shortcut-key">esc</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Show this help</span><span class="shortcut-key">?</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Refresh data</span><span class="shortcut-key">r</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Toggle sidebar</span><span class="shortcut-key">[</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Overview / projects 1-8</span><span class="shortcut-key">1-9</span></div>
   </div>
 </div>
 
@@ -1151,6 +1175,7 @@ let filterAssignee = '';
 let filterType = '';
 let usageData = null;
 let collapsedColumns = new Set(JSON.parse(localStorage.getItem('waggle_collapsed') || '[]'));
+let navCollapsed = localStorage.getItem('waggle_nav_collapsed') === 'true';
 
 // ── BOARD RENDER ──
 
@@ -2666,6 +2691,17 @@ document.addEventListener('keydown', e => {
     showToast('Refreshed', 'var(--blue)');
     return;
   }
+  if (e.key === '[' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    toggleNav();
+    return;
+  }
+  // Number keys 1-9 to jump to projects
+  if (e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.metaKey) {
+    const idx = parseInt(e.key) - 1;
+    if (idx === 0) { navigateTo('overview'); return; }
+    if (idx - 1 < projects.length) { navigateTo(projects[idx - 1].id); return; }
+  }
 });
 
 // ── QUICK CLAIM ──
@@ -2724,6 +2760,16 @@ async function quickCreateTask(status) {
     const err = await resp.json().catch(() => ({}));
     showToast('Error: ' + (err.error?.message || 'failed'), 'var(--red)');
   }
+}
+
+// ── NAV COLLAPSE ──
+
+function toggleNav() {
+  navCollapsed = !navCollapsed;
+  localStorage.setItem('waggle_nav_collapsed', navCollapsed);
+  document.querySelector('.app-shell').classList.toggle('nav-collapsed', navCollapsed);
+  const btn = document.querySelector('.nav-collapse-btn');
+  if (btn) btn.innerHTML = navCollapsed ? '&#9654;' : '&#9664;';
 }
 
 // ── COLUMN COLLAPSE ──
@@ -2824,6 +2870,12 @@ function esc(s) {
 
 // ── INIT ──
 
+// Restore nav state
+if (navCollapsed) {
+  document.querySelector('.app-shell').classList.add('nav-collapsed');
+  const btn = document.querySelector('.nav-collapse-btn');
+  if (btn) btn.innerHTML = '&#9654;';
+}
 // Restore saved view
 if (currentView !== 'overview') {
   selectedProject = currentView === 'none' ? 'none' : currentView;
