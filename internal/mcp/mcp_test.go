@@ -435,6 +435,45 @@ func TestGetNextTaskEmpty(t *testing.T) {
 	}
 }
 
+func TestBriefing(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "brief-agent")
+
+	// Create some tasks
+	for _, body := range []string{
+		`{"title":"Ready task","status":"ready","priority":"high"}`,
+		`{"title":"Done task","status":"done"}`,
+	} {
+		resp, _ := ts.Client().Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+		resp.Body.Close()
+	}
+
+	resp := callMCP(t, adapter, "tools/call", 30, map[string]any{
+		"name":      "waggle_briefing",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("briefing failed: %v", result)
+	}
+
+	// Parse the response to verify it has the expected sections
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var briefing map[string]any
+	json.Unmarshal([]byte(text), &briefing)
+
+	if briefing["stats"] == nil {
+		t.Error("expected stats in briefing")
+	}
+	if briefing["ready_tasks"] == nil {
+		t.Error("expected ready_tasks in briefing")
+	}
+	if briefing["team"] == nil {
+		t.Error("expected team in briefing")
+	}
+}
+
 func TestCommentsViaMCP(t *testing.T) {
 	_, ts := setupMCP(t)
 	adapter := registeredAdapter(t, ts, "commenter")
