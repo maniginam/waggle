@@ -403,6 +403,55 @@ body {
 .panel-tab:hover { color: var(--text-secondary); }
 .panel-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
 
+/* ── ACTION BUTTONS ── */
+.action-bar {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-top: 16px;
+  padding-top: 16px; border-top: 1px solid var(--border);
+}
+.btn-sm {
+  padding: 5px 10px; font-size: 0.7rem; border-radius: 4px;
+  font-family: var(--font-mono); font-weight: 500; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); transition: all 0.15s;
+}
+.btn-sm:hover { background: var(--bg-elevated); color: var(--text-primary); border-color: var(--text-dim); }
+.btn-sm.active { background: var(--amber-glow); border-color: var(--amber-dim); color: var(--amber); }
+.btn-sm.danger { color: var(--red); }
+.btn-sm.danger:hover { background: var(--red-dim); border-color: var(--red); }
+
+/* ── CREATE FORM ── */
+.create-form { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
+.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-dim); font-weight: 600; }
+.form-input {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 12px; color: var(--text-primary); font-family: var(--font-mono); font-size: 0.85rem;
+  outline: none; transition: border-color 0.15s;
+}
+.form-input:focus { border-color: var(--amber-dim); }
+.form-input::placeholder { color: var(--text-dim); }
+textarea.form-input { resize: vertical; min-height: 60px; font-size: 0.8rem; }
+select.form-input { cursor: pointer; }
+.form-row { display: flex; gap: 12px; }
+.form-row .form-group { flex: 1; }
+.form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+/* ── TOOLBAR ── */
+.toolbar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+}
+.toolbar-spacer { flex: 1; }
+.add-btn {
+  width: 28px; height: 28px; border-radius: var(--radius);
+  background: var(--amber); color: var(--bg-deep); border: none;
+  font-size: 1.2rem; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: background 0.15s, transform 0.1s;
+}
+.add-btn:hover { background: #ffb820; }
+.add-btn:active { transform: scale(0.93); }
+
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
   .main { grid-template-columns: 1fr; }
@@ -433,6 +482,8 @@ body {
     <div class="header-stats" id="header-stats"></div>
   </div>
   <div class="header-right">
+    <button class="add-btn" onclick="openCreatePanel('task')" title="New task">+</button>
+    <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')" title="New project">+ Project</button>
     <div class="sse-status">
       <div class="sse-dot" id="sse-dot"></div>
       <span id="sse-label">connecting</span>
@@ -676,6 +727,21 @@ async function openTaskPanel(taskId, defaultTab) {
       ${proj ? `<div class="detail-section"><div class="detail-label">Project</div><div class="detail-value" style="color:var(--amber)">${esc(proj.name)}</div>${proj.description ? `<div style="color:var(--text-dim);font-size:0.8rem;margin-top:4px">${esc(proj.description)}</div>` : ''}</div>` : ''}
       ${task.parent_id ? `<div class="detail-section"><div class="detail-label">Parent</div><div class="detail-deps">${depRow(tasks.find(t=>t.id===task.parent_id)||{id:task.parent_id,title:'(unknown)',status:'backlog'})}</div></div>` : ''}
       ${subtasks.length ? `<div class="detail-section"><div class="detail-label">Children <span style="color:var(--green);font-size:0.65rem">${progress.done}/${progress.total} done</span></div><div class="detail-deps">${subtasks.map(d => depRow(d)).join('')}</div></div>` : ''}
+      <div class="action-bar">
+        <div class="detail-label" style="width:100%;margin-bottom:4px">Move to</div>
+        ${STATUSES.filter(s => s !== task.status).map(s =>
+          `<button class="btn-sm" onclick="updateTaskStatus('${taskId}','${s}')">${STATUS_LABELS[s]}</button>`
+        ).join('')}
+      </div>
+      <div class="action-bar" style="border-top:none;padding-top:8px">
+        <div class="detail-label" style="width:100%;margin-bottom:4px">Priority</div>
+        ${['critical','high','medium','low'].filter(p => p !== task.priority).map(p =>
+          `<button class="btn-sm" onclick="updateTaskPriority('${taskId}','${p}')"><span class="priority-badge priority-${p}" style="font-size:0.6rem">${p}</span></button>`
+        ).join('')}
+      </div>
+      <div class="action-bar" style="border-top:none;padding-top:8px">
+        <button class="btn-sm danger" onclick="deleteTask('${taskId}')">Delete task</button>
+      </div>
     </div>
     <div class="panel-body" id="tab-comments"${defaultTab!=='comments'?' style="display:none"':''}>
       <div class="comment-list">
@@ -831,6 +897,212 @@ async function sendChat() {
   });
 
   await loadChatMessages(currentPanel.agent);
+}
+
+// ── TASK ACTIONS ──
+
+async function updateTaskStatus(taskId, newStatus) {
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status: newStatus}),
+  });
+  await fetchAll();
+  openTaskPanel(taskId);
+}
+
+async function updateTaskPriority(taskId, newPriority) {
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({priority: newPriority}),
+  });
+  await fetchAll();
+  openTaskPanel(taskId);
+}
+
+async function deleteTask(taskId) {
+  if (!confirm('Delete this task?')) return;
+  const resp = await fetch(`/api/tasks/${taskId}`, {method: 'DELETE'});
+  if (resp.status === 409) {
+    alert('Cannot delete in-progress task. Unclaim it first.');
+    return;
+  }
+  closePanel();
+  await fetchAll();
+}
+
+// ── CREATE PANELS ──
+
+function openCreatePanel(type) {
+  currentPanel = {type: 'create-' + type};
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+
+  if (type === 'project') {
+    document.getElementById('panel-title').textContent = 'New Project';
+    document.getElementById('panel-subtitle').textContent = 'Create a project to organize epics and stories';
+    document.getElementById('panel-content').innerHTML = `
+      <div class="create-form">
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input class="form-input" id="create-name" placeholder="Project name" autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-input" id="create-desc" placeholder="What is this project about?"></textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn-ghost btn-sm" onclick="closePanel()">Cancel</button>
+          <button class="btn" onclick="submitCreateProject()">Create Project</button>
+        </div>
+      </div>
+    `;
+  } else {
+    document.getElementById('panel-title').textContent = 'New Task';
+    document.getElementById('panel-subtitle').textContent = 'Create a task, epic, story, or issue';
+    const projectOptions = projects.map(p => `<option value="${p.id}"${p.id === selectedProject ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+    const epicOptions = tasks.filter(t => t.task_type === 'epic').map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join('');
+    document.getElementById('panel-content').innerHTML = `
+      <div class="create-form">
+        <div class="form-group">
+          <label class="form-label">Title</label>
+          <input class="form-input" id="create-title" placeholder="Task title" autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-input" id="create-description" placeholder="Detailed description..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Type</label>
+            <select class="form-input" id="create-type" onchange="onCreateTypeChange()">
+              <option value="task">Task</option>
+              <option value="epic">Epic</option>
+              <option value="story">Story</option>
+              <option value="issue">Issue</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <select class="form-input" id="create-priority">
+              <option value="medium">Medium</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-input" id="create-status">
+              <option value="backlog">Backlog</option>
+              <option value="ready">Ready</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Project</label>
+            <select class="form-input" id="create-project">
+              <option value="">None</option>
+              ${projectOptions}
+            </select>
+          </div>
+          <div class="form-group" id="parent-group">
+            <label class="form-label">Parent (Epic)</label>
+            <select class="form-input" id="create-parent">
+              <option value="">None</option>
+              ${epicOptions}
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tags (comma-separated)</label>
+          <input class="form-input" id="create-tags" placeholder="backend, auth, api">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Acceptance Criteria (one per line)</label>
+          <textarea class="form-input" id="create-criteria" placeholder="All tests pass&#10;Code reviewed&#10;No regressions"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Estimate</label>
+            <input class="form-input" id="create-estimate" placeholder="2h, 1d">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deadline</label>
+            <input class="form-input" id="create-deadline" type="date">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-ghost btn-sm" onclick="closePanel()">Cancel</button>
+          <button class="btn" onclick="submitCreateTask()">Create</button>
+        </div>
+      </div>
+    `;
+  }
+
+  overlay.classList.add('open');
+  panel.classList.add('open');
+}
+
+function onCreateTypeChange() {
+  const type = document.getElementById('create-type').value;
+  const parentGroup = document.getElementById('parent-group');
+  // Show parent selector only for stories and issues
+  parentGroup.style.display = (type === 'story' || type === 'issue') ? '' : 'none';
+}
+
+async function submitCreateProject() {
+  const name = document.getElementById('create-name').value.trim();
+  if (!name) { alert('Name is required'); return; }
+  const desc = document.getElementById('create-desc').value.trim();
+  await fetch('/api/projects', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, description: desc}),
+  });
+  closePanel();
+  await fetchAll();
+}
+
+async function submitCreateTask() {
+  const title = document.getElementById('create-title').value.trim();
+  if (!title) { alert('Title is required'); return; }
+
+  const task = {title};
+  const desc = document.getElementById('create-description').value.trim();
+  if (desc) task.description = desc;
+  task.task_type = document.getElementById('create-type').value;
+  task.priority = document.getElementById('create-priority').value;
+  task.status = document.getElementById('create-status').value;
+  const projectId = document.getElementById('create-project').value;
+  if (projectId) task.project_id = projectId;
+  const parentId = document.getElementById('create-parent').value;
+  if (parentId) task.parent_id = parentId;
+  const tagsStr = document.getElementById('create-tags').value.trim();
+  if (tagsStr) task.tags = tagsStr.split(',').map(t => t.trim()).filter(Boolean);
+  const criteriaStr = document.getElementById('create-criteria').value.trim();
+  if (criteriaStr) task.criteria = criteriaStr.split('\n').map(c => c.trim()).filter(Boolean);
+  const estimate = document.getElementById('create-estimate').value.trim();
+  if (estimate) task.estimate = estimate;
+  const deadline = document.getElementById('create-deadline').value;
+  if (deadline) task.deadline = deadline + 'T00:00:00Z';
+
+  const resp = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(task),
+  });
+  if (resp.status >= 400) {
+    const err = await resp.json();
+    alert('Error: ' + (err.error?.message || 'Unknown error'));
+    return;
+  }
+  const created = await resp.json();
+  closePanel();
+  await fetchAll();
+  openTaskPanel(created.id);
 }
 
 // ── PANEL MANAGEMENT ──
