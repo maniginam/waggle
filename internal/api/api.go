@@ -120,6 +120,9 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 	case "subtasks":
 		a.handleSubtasks(w, r, id)
 		return
+	case "deps":
+		a.handleTaskDeps(w, r, id)
+		return
 	}
 
 	switch r.Method {
@@ -330,6 +333,32 @@ func (a *API) handleSubtasks(w http.ResponseWriter, r *http.Request, parentID st
 	writeJSON(w, http.StatusOK, map[string]any{
 		"subtasks": tasks,
 		"progress": map[string]int{"done": done, "total": total},
+	})
+}
+
+func (a *API) handleTaskDeps(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	dependsOn, blockedBy, err := a.store.TaskDeps(taskID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "task_not_found", "Task "+taskID+" not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "deps_failed", err.Error())
+		return
+	}
+	if dependsOn == nil {
+		dependsOn = []*model.Task{}
+	}
+	if blockedBy == nil {
+		blockedBy = []*model.Task{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"depends_on":  dependsOn,
+		"blocking":    blockedBy,
 	})
 }
 

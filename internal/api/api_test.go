@@ -456,6 +456,31 @@ func TestMessagesMissingFields(t *testing.T) {
 	}
 }
 
+func TestTaskDepsAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create tasks with dependency
+	body, _ := json.Marshal(map[string]string{"title": "Dep parent"})
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var parentTask map[string]any
+	json.NewDecoder(resp.Body).Decode(&parentTask)
+	resp.Body.Close()
+	parentID := parentTask["id"].(string)
+
+	body, _ = json.Marshal(map[string]any{"title": "Dep child", "depends_on": []string{parentID}})
+	resp, _ = http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp.Body.Close()
+
+	resp, _ = http.Get(ts.URL + "/api/tasks/" + parentID + "/deps")
+	defer resp.Body.Close()
+	var deps map[string]any
+	json.NewDecoder(resp.Body).Decode(&deps)
+	blocking := deps["blocking"].([]any)
+	if len(blocking) != 1 {
+		t.Errorf("expected 1 blocked task, got %d", len(blocking))
+	}
+}
+
 func TestTaskHistoryAPI(t *testing.T) {
 	_, ts := setup(t)
 

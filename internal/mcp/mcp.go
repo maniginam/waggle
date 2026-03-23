@@ -184,6 +184,11 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"tag": prop("string", "Optional tag filter"),
 			},
 		}),
+		toolDef("waggle_task_deps", "Show task dependencies: what it depends on and what it blocks.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": prop("string", "Task ID")},
+			"required":   []string{"id"},
+		}),
 		toolDef("waggle_task_history", "View the event log for a specific task.", map[string]any{
 			"type":       "object",
 			"properties": map[string]any{"id": prop("string", "Task ID")},
@@ -366,6 +371,13 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("id is required")
 		}
 		return a.postJSON("/api/tasks/"+id+"/complete", nil)
+
+	case "waggle_task_deps":
+		taskID, _ := args["id"].(string)
+		if taskID == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		return a.get("/api/tasks/" + taskID + "/deps")
 
 	case "waggle_task_history":
 		taskID, _ := args["id"].(string)

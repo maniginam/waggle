@@ -703,6 +703,46 @@ func scanAgentRows(rows *sql.Rows) (*model.Agent, error) {
 	return scanAgent(rows)
 }
 
+// TaskDeps returns dependency info: what this task depends on and what depends on it
+func (s *Store) TaskDeps(taskID string) (dependsOn []*model.Task, blockedBy []*model.Task, err error) {
+	// Get the task's own dependencies
+	task, err := s.GetTask(taskID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Fetch tasks this one depends on
+	for _, depID := range task.DependsOn {
+		if dep, err := s.GetTask(depID); err == nil {
+			dependsOn = append(dependsOn, dep)
+		}
+	}
+
+	// Find tasks that depend on this one
+	rows, err := s.db.Query("SELECT id, depends_on FROM tasks")
+	if err != nil {
+		return dependsOn, nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, depsJSON string
+		rows.Scan(&id, &depsJSON)
+		var deps []string
+		json.Unmarshal([]byte(depsJSON), &deps)
+		for _, d := range deps {
+			if d == taskID {
+				if t, err := s.GetTask(id); err == nil {
+					blockedBy = append(blockedBy, t)
+				}
+				break
+			}
+		}
+	}
+
+	return dependsOn, blockedBy, nil
+}
+
 // --- Comments ---
 
 func (s *Store) AddComment(c *model.Comment) error {
