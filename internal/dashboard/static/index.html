@@ -124,12 +124,153 @@ body {
 .sse-dot.error { background: var(--red); }
 
 /* ── LAYOUT ── */
-.layout {
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: calc(100vh - 49px);
+}
+
+/* ── PROJECT SIDEBAR (LEFT) ── */
+.project-nav {
+  background: var(--bg-surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.project-nav-header {
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.project-nav-title {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--text-dim); font-weight: 600;
+}
+.project-nav-list {
+  flex: 1; overflow-y: auto; padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.project-nav-list::-webkit-scrollbar { width: 4px; }
+.project-nav-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.project-nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: var(--radius);
+  cursor: pointer; transition: all 0.15s; border: none; background: none;
+  width: 100%; text-align: left; font-family: var(--font-mono);
+}
+.project-nav-item:hover { background: var(--bg-card); }
+.project-nav-item.active {
+  background: var(--amber-glow); border: 1px solid rgba(240,165,0,0.2);
+}
+.project-nav-item .nav-icon {
+  width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
+  background: var(--text-dim);
+}
+.project-nav-item.active .nav-icon { background: var(--amber); }
+.project-nav-item.overview-item .nav-icon {
+  background: var(--amber); clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  width: 10px; height: 10px;
+}
+.project-nav-name {
+  flex: 1; font-size: 0.8rem; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--font-sans); font-weight: 500;
+}
+.project-nav-item.active .project-nav-name { color: var(--text-primary); }
+.project-nav-count {
+  font-size: 0.6rem; background: var(--bg-elevated); color: var(--text-dim);
+  padding: 1px 6px; border-radius: 8px; font-weight: 600; flex-shrink: 0;
+}
+.project-nav-item.active .project-nav-count {
+  background: var(--amber-glow-strong); color: var(--amber);
+}
+.project-nav-footer {
+  padding: 8px; border-top: 1px solid var(--border);
+}
+
+/* ── MAIN PANEL ── */
+.main-panel {
   display: grid;
   grid-template-columns: 1fr;
   grid-template-rows: auto auto auto 1fr;
-  height: calc(100vh - 49px);
+  overflow: hidden;
 }
+
+/* ── OVERVIEW VIEW ── */
+.overview {
+  padding: 24px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 24px;
+}
+.overview-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.overview-title {
+  font-family: var(--font-sans); font-size: 1.4rem; font-weight: 700;
+  color: var(--text-primary);
+}
+.overview-subtitle {
+  font-size: 0.8rem; color: var(--text-dim);
+}
+.overview-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.project-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: 8px; padding: 16px 18px; cursor: pointer;
+  transition: all 0.2s; position: relative; overflow: hidden;
+}
+.project-card:hover {
+  background: var(--bg-card-hover); border-color: var(--border);
+  transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.project-card-name {
+  font-family: var(--font-sans); font-size: 1.05rem; font-weight: 600;
+  color: var(--text-primary); margin-bottom: 4px;
+}
+.project-card-desc {
+  font-size: 0.75rem; color: var(--text-dim); margin-bottom: 12px;
+  line-height: 1.4; max-height: 2.8em; overflow: hidden;
+}
+.project-card-stats {
+  display: flex; gap: 12px; font-size: 0.7rem;
+}
+.project-card-stat {
+  display: flex; align-items: center; gap: 4px; color: var(--text-secondary);
+}
+.project-card-stat .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+.project-card-progress {
+  margin-top: 10px; height: 4px; background: var(--bg-elevated);
+  border-radius: 2px; overflow: hidden;
+}
+.project-card-progress-fill {
+  height: 100%; border-radius: 2px; transition: width 0.5s;
+}
+.project-card-accent {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--amber); opacity: 0; transition: opacity 0.2s;
+}
+.project-card:hover .project-card-accent { opacity: 1; }
+.unassigned-card {
+  border-style: dashed; border-color: var(--border);
+}
+.unassigned-card .project-card-name { color: var(--text-dim); font-style: italic; }
+
+/* ── OVERVIEW AGENTS SECTION ── */
+.overview-section-title {
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--text-dim); font-weight: 600; margin-bottom: 8px;
+}
+.overview-agents {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.overview-agent-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 10px 12px;
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; transition: all 0.15s;
+}
+.overview-agent-card:hover { background: var(--bg-card-hover); border-color: var(--border); }
 
 /* ── STATS BAR ── */
 .stats-bar { display: flex; gap: 1px; background: var(--border-subtle); border-bottom: 1px solid var(--border); }
@@ -830,31 +971,33 @@ select.form-input { cursor: pointer; }
 
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .project-nav { display: none; }
   .main { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .board { min-height: 70vh; }
   .panel { width: 100vw; max-width: 100vw; }
+  .overview-grid { grid-template-columns: 1fr; }
 }
 
 /* ── HONEYCOMB BACKGROUND ── */
-.layout::before {
+.app-shell::before {
   content: '';
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   pointer-events: none; opacity: 0.015;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100'%3E%3Cpath d='M28 66L0 50L0 16L28 0L56 16L56 50L28 66' fill='none' stroke='%23f0a500' stroke-width='1'/%3E%3Cpath d='M28 100L0 84L0 50L28 34L56 50L56 84L28 100' fill='none' stroke='%23f0a500' stroke-width='1'/%3E%3C/svg%3E");
   z-index: 0;
 }
-.layout > * { position: relative; z-index: 1; }
+.app-shell > * { position: relative; z-index: 1; }
 </style>
 </head>
 <body>
 <div class="header">
   <div class="header-left">
-    <div class="logo" onclick="closePanel()">
+    <div class="logo" onclick="navigateTo('overview')">
       <div class="logo-hex"><div class="logo-hex-inner"></div></div>
       waggle
     </div>
-    <div class="project-tabs" id="project-tabs"></div>
     <div class="header-stats" id="header-stats"></div>
   </div>
   <div class="header-right">
@@ -872,23 +1015,41 @@ select.form-input { cursor: pointer; }
   </div>
 </div>
 
-<div class="layout">
-  <div class="stats-bar" id="stats-bar"></div>
-  <div class="usage-bar" id="usage-bar"></div>
-  <div class="filter-bar" id="filter-bar"></div>
-  <div class="main">
-    <div class="board" id="board"></div>
-    <div class="sidebar">
-      <div class="sidebar-section">
-        <div class="sidebar-title" style="display:flex;align-items:center;justify-content:space-between">
-          Agents
-          <button class="msg-btn" onclick="openBroadcastPanel()" style="opacity:1">broadcast</button>
-        </div>
-        <div class="agent-list" id="agent-list"></div>
+<div class="app-shell">
+  <!-- Left project navigation -->
+  <div class="project-nav">
+    <div class="project-nav-header">
+      <span class="project-nav-title">Projects</span>
+      <button class="column-add" style="opacity:1" onclick="openCreatePanel('project')" title="New project">+</button>
+    </div>
+    <div class="project-nav-list" id="project-nav-list"></div>
+    <div class="project-nav-footer">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span class="project-nav-title" style="padding:0">Agents</span>
+        <button class="msg-btn" onclick="openBroadcastPanel()" style="opacity:1;font-size:0.5rem">broadcast</button>
       </div>
-      <div class="sidebar-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-        <div class="sidebar-title">Live Feed</div>
-        <div class="event-feed" id="event-feed"></div>
+      <div class="agent-list" id="agent-list" style="padding:0"></div>
+    </div>
+  </div>
+
+  <!-- Main content area -->
+  <div id="main-view">
+    <!-- Overview or Project board rendered here -->
+    <div id="overview-view" class="overview"></div>
+    <div id="board-view" style="display:none">
+      <div class="main-panel">
+        <div class="stats-bar" id="stats-bar"></div>
+        <div class="usage-bar" id="usage-bar"></div>
+        <div class="filter-bar" id="filter-bar"></div>
+        <div class="main">
+          <div class="board" id="board"></div>
+          <div class="sidebar">
+            <div class="sidebar-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+              <div class="sidebar-title">Live Feed</div>
+              <div class="event-feed" id="event-feed"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -937,6 +1098,7 @@ let agents = [];
 let stats = {};
 let projects = [];
 let selectedProject = '';
+let currentView = 'overview'; // 'overview' or project ID
 let currentPanel = null; // {type:'task',id:'...'} or {type:'chat',agent:'...'}
 let searchQuery = '';
 let draggedTaskId = null;
@@ -1950,12 +2112,16 @@ async function fetchAll() {
     stats = await statsRes.json();
     projects = await projectsRes.json();
     usageData = await usageRes.json();
-    renderProjectTabs();
-    renderFilterBar();
-    renderBoard();
+    renderProjectNav();
+    if (currentView === 'overview') {
+      renderOverview();
+    } else {
+      renderFilterBar();
+      renderBoard();
+      renderStats();
+      renderUsage();
+    }
     renderAgents();
-    renderStats();
-    renderUsage();
     updatePageTitle();
     updateFavicon();
   } catch(e) {
@@ -1963,30 +2129,170 @@ async function fetchAll() {
   }
 }
 
-function renderProjectTabs() {
-  const container = document.getElementById('project-tabs');
-  if (projects.length === 0) {
-    container.innerHTML = '';
-    return;
-  }
+function renderProjectNav() {
+  const container = document.getElementById('project-nav-list');
   const allCount = tasks.length;
-  let html = `<button class="project-tab${selectedProject===''?' active':''}" data-project="">All<span class="tab-count">${allCount}</span></button>`;
+  let html = `<button class="project-nav-item${currentView==='overview'?' active':''} overview-item" data-view="overview">
+    <div class="nav-icon"></div>
+    <span class="project-nav-name">Overview</span>
+    <span class="project-nav-count">${allCount}</span>
+  </button>`;
+
   for (const p of projects) {
     const count = tasks.filter(t => t.project_id === p.id).length;
-    html += `<button class="project-tab${selectedProject===p.id?' active':''}" data-project="${p.id}">${esc(p.name)}<span class="tab-count">${count}</span></button>`;
+    const inProg = tasks.filter(t => t.project_id === p.id && t.status === 'in_progress').length;
+    html += `<button class="project-nav-item${currentView===p.id?' active':''}" data-view="${esc(p.id)}">
+      <div class="nav-icon"></div>
+      <span class="project-nav-name">${esc(p.name)}</span>
+      <span class="project-nav-count">${count}</span>
+    </button>`;
   }
-  // Show unassigned if there are tasks without a project
+
+  // Unassigned tasks
   const unassigned = tasks.filter(t => !t.project_id).length;
-  if (unassigned > 0 && projects.length > 0) {
-    html += `<button class="project-tab${selectedProject==='none'?' active':''}" data-project="none">Unassigned<span class="tab-count">${unassigned}</span></button>`;
+  if (unassigned > 0) {
+    html += `<button class="project-nav-item${currentView==='none'?' active':''}" data-view="none">
+      <div class="nav-icon" style="border:1px dashed var(--text-dim);background:none"></div>
+      <span class="project-nav-name" style="font-style:italic">Unassigned</span>
+      <span class="project-nav-count">${unassigned}</span>
+    </button>`;
   }
+
   container.innerHTML = html;
-  container.querySelectorAll('.project-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      selectedProject = tab.dataset.project;
-      renderProjectTabs();
-      renderBoard();
-    });
+  container.querySelectorAll('.project-nav-item').forEach(item => {
+    item.addEventListener('click', () => navigateTo(item.dataset.view));
+  });
+}
+
+function navigateTo(view) {
+  currentView = view;
+  closePanel();
+
+  const overviewEl = document.getElementById('overview-view');
+  const boardEl = document.getElementById('board-view');
+
+  if (view === 'overview') {
+    selectedProject = '';
+    overviewEl.style.display = '';
+    boardEl.style.display = 'none';
+    renderOverview();
+  } else {
+    selectedProject = view === 'none' ? 'none' : view;
+    overviewEl.style.display = 'none';
+    boardEl.style.display = '';
+    renderBoard();
+    renderFilterBar();
+    renderStats();
+    renderUsage();
+  }
+
+  renderProjectNav();
+}
+
+function renderOverview() {
+  const el = document.getElementById('overview-view');
+  const totalTasks = tasks.length;
+  const doneTasks = tasks.filter(t => t.status === 'done').length;
+  const inProg = tasks.filter(t => t.status === 'in_progress').length;
+  const activeAgents = agents.filter(a => a.status !== 'disconnected').length;
+  const totalCost = usageData && usageData.total ? usageData.total.cost_usd : 0;
+
+  // Build project cards
+  let projectCards = '';
+  for (const p of projects) {
+    const pTasks = tasks.filter(t => t.project_id === p.id);
+    const pDone = pTasks.filter(t => t.status === 'done').length;
+    const pInProg = pTasks.filter(t => t.status === 'in_progress').length;
+    const pBlocked = pTasks.filter(t => t.status === 'blocked').length;
+    const pReady = pTasks.filter(t => t.status === 'ready').length;
+    const pTotal = pTasks.length || 1;
+    const pct = Math.round(pDone / pTotal * 100);
+
+    projectCards += `
+      <div class="project-card" data-project-id="${esc(p.id)}">
+        <div class="project-card-accent"></div>
+        <div class="project-card-name">${esc(p.name)}</div>
+        ${p.description ? `<div class="project-card-desc">${esc(p.description)}</div>` : '<div class="project-card-desc" style="color:var(--border)">No description</div>'}
+        <div class="project-card-stats">
+          <div class="project-card-stat"><div class="dot" style="background:var(--amber)"></div>${pInProg} active</div>
+          <div class="project-card-stat"><div class="dot" style="background:var(--blue)"></div>${pReady} ready</div>
+          <div class="project-card-stat"><div class="dot" style="background:var(--red)"></div>${pBlocked} blocked</div>
+          <div class="project-card-stat"><div class="dot" style="background:var(--green)"></div>${pDone} done</div>
+        </div>
+        <div class="project-card-progress">
+          <div class="project-card-progress-fill" style="width:${pct}%;background:var(--green)"></div>
+        </div>
+      </div>`;
+  }
+
+  // Unassigned tasks card
+  const unassigned = tasks.filter(t => !t.project_id);
+  if (unassigned.length > 0) {
+    const uDone = unassigned.filter(t => t.status === 'done').length;
+    const uInProg = unassigned.filter(t => t.status === 'in_progress').length;
+    projectCards += `
+      <div class="project-card unassigned-card" data-project-id="none">
+        <div class="project-card-name">Unassigned Tasks</div>
+        <div class="project-card-desc">Tasks not assigned to any project</div>
+        <div class="project-card-stats">
+          <div class="project-card-stat"><div class="dot" style="background:var(--amber)"></div>${uInProg} active</div>
+          <div class="project-card-stat"><div class="dot" style="background:var(--green)"></div>${uDone} done</div>
+          <div class="project-card-stat" style="color:var(--text-dim)">${unassigned.length} total</div>
+        </div>
+      </div>`;
+  }
+
+  // Agent cards
+  let agentCards = '';
+  const sortedAgents = [...agents].sort((a, b) => {
+    const rank = t => t.status === 'disconnected' ? 9 : t.type === 'alpha' ? 0 : t.type === 'leader' ? 1 : 2;
+    return rank(a) - rank(b);
+  });
+  for (const a of sortedAgents) {
+    const roleColor = {alpha:'var(--amber)',leader:'var(--purple)',subagent:'var(--cyan)'}[a.type] || 'var(--text-dim)';
+    const taskCount = tasks.filter(t => t.assignee === a.name && t.status !== 'done').length;
+    agentCards += `
+      <div class="overview-agent-card" data-agent-name="${esc(a.name)}">
+        <div class="agent-status-dot ${a.status}"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:0.8rem;font-family:var(--font-sans);font-weight:500;color:var(--text-primary)">${esc(a.name)}
+            <span style="font-size:0.55rem;color:${roleColor};font-weight:700;text-transform:uppercase">${a.type}</span>
+          </div>
+          <div style="font-size:0.65rem;color:var(--text-dim)">${a.current_task ? esc(a.current_task) : (a.last_seen ? timeSince(new Date(a.last_seen)) : '')}</div>
+        </div>
+        ${taskCount > 0 ? `<span class="agent-workload has-tasks">${taskCount}</span>` : ''}
+      </div>`;
+  }
+
+  el.innerHTML = `
+    <div class="overview-header">
+      <div>
+        <div class="overview-title">All Projects</div>
+        <div class="overview-subtitle">${totalTasks} tasks across ${projects.length} projects \u00b7 ${activeAgents} agents online${totalCost > 0 ? ` \u00b7 $${totalCost.toFixed(2)} spent` : ''}</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')">+ Project</button>
+        <button class="btn" onclick="openCreatePanel('task')">+ Task</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="overview-section-title">Projects</div>
+      <div class="overview-grid">${projectCards || '<div class="empty-state"><div class="empty-hex"></div><p>No projects yet. Create one to organize your work.</p></div>'}</div>
+    </div>
+
+    ${agents.length > 0 ? `<div>
+      <div class="overview-section-title">Team</div>
+      <div class="overview-agents">${agentCards}</div>
+    </div>` : ''}
+  `;
+
+  // Click handlers
+  el.querySelectorAll('.project-card').forEach(card => {
+    card.addEventListener('click', () => navigateTo(card.dataset.projectId));
+  });
+  el.querySelectorAll('.overview-agent-card').forEach(card => {
+    card.addEventListener('click', () => openAgentPanel(null, card.dataset.agentName));
   });
 }
 
