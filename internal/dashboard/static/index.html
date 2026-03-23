@@ -97,18 +97,27 @@ body {
 }
 .header-right { display: flex; align-items: center; gap: 12px; }
 
-/* ── PROJECT SELECTOR ── */
-.project-selector {
-  display: flex; align-items: center; gap: 8px;
+/* ── PROJECT TABS ── */
+.project-tabs {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--bg-card); border-radius: var(--radius);
+  padding: 2px;
 }
-.project-select {
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem;
-  padding: 6px 10px; outline: none; cursor: pointer;
-  transition: border-color 0.15s;
+.project-tab {
+  padding: 6px 14px; border-radius: 4px;
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500;
+  color: var(--text-dim); cursor: pointer;
+  transition: all 0.15s; border: none; background: none;
+  white-space: nowrap;
 }
-.project-select:focus { border-color: var(--amber-dim); }
-.project-select option { background: var(--bg-surface); color: var(--text-primary); }
+.project-tab:hover { color: var(--text-secondary); background: var(--bg-elevated); }
+.project-tab.active {
+  color: var(--bg-deep); background: var(--amber);
+  font-weight: 600;
+}
+.project-tab .tab-count {
+  font-size: 0.6rem; margin-left: 4px; opacity: 0.7;
+}
 .sse-status { font-size: 0.75rem; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
 .sse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; }
 .sse-dot.connected { background: var(--green); }
@@ -420,11 +429,7 @@ body {
       <div class="logo-hex"><div class="logo-hex-inner"></div></div>
       waggle
     </div>
-    <div class="project-selector">
-      <select class="project-select" id="project-select" onchange="onProjectChange()">
-        <option value="">All Projects</option>
-      </select>
-    </div>
+    <div class="project-tabs" id="project-tabs"></div>
     <div class="header-stats" id="header-stats"></div>
   </div>
   <div class="header-right">
@@ -486,7 +491,8 @@ let currentPanel = null; // {type:'task',id:'...'} or {type:'chat',agent:'...'}
 function renderBoard() {
   const board = document.getElementById('board');
   board.innerHTML = '';
-  const filteredTasks = selectedProject ? tasks.filter(t => t.project_id === selectedProject) : tasks;
+  const filteredTasks = selectedProject === 'none' ? tasks.filter(t => !t.project_id) :
+    selectedProject ? tasks.filter(t => t.project_id === selectedProject) : tasks;
   for (const status of STATUSES) {
     const col = document.createElement('div');
     col.className = 'column';
@@ -621,7 +627,8 @@ function addEvent(evt) {
 
 // ── TASK DETAIL PANEL ──
 
-async function openTaskPanel(taskId) {
+async function openTaskPanel(taskId, defaultTab) {
+  defaultTab = defaultTab || 'details';
   currentPanel = {type:'task', id:taskId};
   const panel = document.getElementById('panel');
   const overlay = document.getElementById('overlay');
@@ -647,11 +654,11 @@ async function openTaskPanel(taskId) {
   const content = document.getElementById('panel-content');
   content.innerHTML = `
     <div class="panel-tabs">
-      <div class="panel-tab active" data-tab="details">Details</div>
-      <div class="panel-tab" data-tab="comments">Comments (${comments.length})</div>
-      <div class="panel-tab" data-tab="history">History (${history.length})</div>
+      <div class="panel-tab${defaultTab==='details'?' active':''}" data-tab="details">Details</div>
+      <div class="panel-tab${defaultTab==='comments'?' active':''}" data-tab="comments">Comments (${comments.length})</div>
+      <div class="panel-tab${defaultTab==='history'?' active':''}" data-tab="history">History (${history.length})</div>
     </div>
-    <div class="panel-body" id="tab-details">
+    <div class="panel-body" id="tab-details"${defaultTab!=='details'?' style="display:none"':''}>
       ${task.description ? `<div class="detail-section"><div class="detail-label">Description</div><div class="detail-value">${esc(task.description)}</div></div>` : ''}
       <div class="detail-row">
         <div class="detail-field"><div class="label">Status</div><div class="val"><span class="priority-badge priority-${statusColor(task.status)}">${task.status}</span></div></div>
@@ -670,7 +677,7 @@ async function openTaskPanel(taskId) {
       ${task.parent_id ? `<div class="detail-section"><div class="detail-label">Parent</div><div class="detail-deps">${depRow(tasks.find(t=>t.id===task.parent_id)||{id:task.parent_id,title:'(unknown)',status:'backlog'})}</div></div>` : ''}
       ${subtasks.length ? `<div class="detail-section"><div class="detail-label">Children <span style="color:var(--green);font-size:0.65rem">${progress.done}/${progress.total} done</span></div><div class="detail-deps">${subtasks.map(d => depRow(d)).join('')}</div></div>` : ''}
     </div>
-    <div class="panel-body" id="tab-comments" style="display:none">
+    <div class="panel-body" id="tab-comments"${defaultTab!=='comments'?' style="display:none"':''}>
       <div class="comment-list">
         ${comments.length === 0 ? '<div class="empty-state"><p>No comments yet</p></div>' :
           comments.map(c => `
@@ -688,7 +695,7 @@ async function openTaskPanel(taskId) {
         <button class="btn" onclick="addComment()">Post</button>
       </div>
     </div>
-    <div class="panel-body" id="tab-history" style="display:none">
+    <div class="panel-body" id="tab-history"${defaultTab!=='history'?' style="display:none"':''}>
       ${history.length === 0 ? '<div class="empty-state"><p>No history</p></div>' :
         history.map(h => `
           <div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:0.8rem">
@@ -743,7 +750,7 @@ async function addComment() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({author: 'dashboard', body}),
   });
-  openTaskPanel(currentPanel.id);
+  openTaskPanel(currentPanel.id, 'comments');
 }
 
 // ── CHAT PANEL ──
@@ -854,7 +861,7 @@ async function fetchAll() {
     agents = await agentsRes.json();
     stats = await statsRes.json();
     projects = await projectsRes.json();
-    renderProjectSelector();
+    renderProjectTabs();
     renderBoard();
     renderAgents();
     renderStats();
@@ -863,19 +870,31 @@ async function fetchAll() {
   }
 }
 
-function renderProjectSelector() {
-  const select = document.getElementById('project-select');
-  const current = select.value;
-  const opts = ['<option value="">All Projects</option>'];
-  for (const p of projects) {
-    opts.push(`<option value="${p.id}"${p.id === current ? ' selected' : ''}>${esc(p.name)}</option>`);
+function renderProjectTabs() {
+  const container = document.getElementById('project-tabs');
+  if (projects.length === 0) {
+    container.innerHTML = '';
+    return;
   }
-  select.innerHTML = opts.join('');
-}
-
-function onProjectChange() {
-  selectedProject = document.getElementById('project-select').value;
-  renderBoard();
+  const allCount = tasks.length;
+  let html = `<button class="project-tab${selectedProject===''?' active':''}" data-project="">All<span class="tab-count">${allCount}</span></button>`;
+  for (const p of projects) {
+    const count = tasks.filter(t => t.project_id === p.id).length;
+    html += `<button class="project-tab${selectedProject===p.id?' active':''}" data-project="${p.id}">${esc(p.name)}<span class="tab-count">${count}</span></button>`;
+  }
+  // Show unassigned if there are tasks without a project
+  const unassigned = tasks.filter(t => !t.project_id).length;
+  if (unassigned > 0 && projects.length > 0) {
+    html += `<button class="project-tab${selectedProject==='none'?' active':''}" data-project="none">Unassigned<span class="tab-count">${unassigned}</span></button>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.project-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      selectedProject = tab.dataset.project;
+      renderProjectTabs();
+      renderBoard();
+    });
+  });
 }
 
 // ── SSE ──
