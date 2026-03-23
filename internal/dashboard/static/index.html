@@ -1142,7 +1142,7 @@ let agents = [];
 let stats = {};
 let projects = [];
 let selectedProject = '';
-let currentView = 'overview'; // 'overview' or project ID
+let currentView = localStorage.getItem('waggle_view') || 'overview';
 let currentPanel = null; // {type:'task',id:'...'} or {type:'chat',agent:'...'}
 let searchQuery = '';
 let draggedTaskId = null;
@@ -2244,6 +2244,7 @@ function renderProjectNav() {
 
 function navigateTo(view) {
   currentView = view;
+  localStorage.setItem('waggle_view', view);
   closePanel();
 
   const overviewEl = document.getElementById('overview-view');
@@ -2802,6 +2803,11 @@ function updatePageTitle() {
   const inProg = tasks.filter(t => t.status === 'in_progress').length;
   const activeAgents = agents.filter(a => a.status !== 'disconnected').length;
   const parts = [];
+  if (currentView !== 'overview') {
+    const project = projects.find(p => p.id === currentView);
+    if (project) parts.push(project.name);
+    else if (currentView === 'none') parts.push('Unassigned');
+  }
   if (inProg > 0) parts.push(`${inProg} active`);
   if (activeAgents > 0) parts.push(`${activeAgents} agents`);
   document.title = parts.length > 0 ? `waggle \u00b7 ${parts.join(' \u00b7 ')}` : 'waggle';
@@ -2818,6 +2824,12 @@ function esc(s) {
 
 // ── INIT ──
 
+// Restore saved view
+if (currentView !== 'overview') {
+  selectedProject = currentView === 'none' ? 'none' : currentView;
+  document.getElementById('overview-view').style.display = 'none';
+  document.getElementById('board-view').style.display = '';
+}
 fetchAll();
 connectSSE();
 setInterval(fetchAll, 15000);
