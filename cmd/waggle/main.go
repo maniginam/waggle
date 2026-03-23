@@ -410,6 +410,28 @@ func cmdTask(subcmd string, args []string) {
 		}
 		fmt.Printf("  Created: %s\n", task["created_at"])
 
+		// Show dependency info
+		depsResp, err := http.Get(baseURL() + "/api/tasks/" + args[0] + "/deps")
+		if err == nil {
+			defer depsResp.Body.Close()
+			var deps map[string]any
+			json.NewDecoder(depsResp.Body).Decode(&deps)
+			if depList, ok := deps["depends_on"].([]any); ok && len(depList) > 0 {
+				fmt.Println("\n  Depends on:")
+				for _, d := range depList {
+					dep := d.(map[string]any)
+					fmt.Printf("    %s %s %s\n", statusIcon(dep["status"]), dep["id"], dep["title"])
+				}
+			}
+			if blockList, ok := deps["blocking"].([]any); ok && len(blockList) > 0 {
+				fmt.Println("\n  Blocking:")
+				for _, b := range blockList {
+					blk := b.(map[string]any)
+					fmt.Printf("    %s %s %s\n", statusIcon(blk["status"]), blk["id"], blk["title"])
+				}
+			}
+		}
+
 		// Show subtask progress
 		subResp, err := http.Get(baseURL() + "/api/tasks/" + args[0] + "/subtasks")
 		if err == nil {

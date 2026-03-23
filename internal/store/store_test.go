@@ -327,6 +327,40 @@ func TestSearchTasks(t *testing.T) {
 	}
 }
 
+func TestTaskDeps(t *testing.T) {
+	s := tempStore(t)
+	taskA := &model.Task{Title: "Task A"}
+	s.CreateTask(taskA)
+	taskB := &model.Task{Title: "Task B", DependsOn: []string{taskA.ID}}
+	s.CreateTask(taskB)
+	taskC := &model.Task{Title: "Task C", DependsOn: []string{taskA.ID}}
+	s.CreateTask(taskC)
+
+	// Task A should be blocking B and C
+	dependsOn, blocking, err := s.TaskDeps(taskA.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dependsOn) != 0 {
+		t.Errorf("expected 0 dependencies, got %d", len(dependsOn))
+	}
+	if len(blocking) != 2 {
+		t.Errorf("expected 2 blocked tasks, got %d", len(blocking))
+	}
+
+	// Task B should depend on A
+	dependsOn, blocking, err = s.TaskDeps(taskB.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dependsOn) != 1 || dependsOn[0].ID != taskA.ID {
+		t.Errorf("expected task B to depend on A")
+	}
+	if len(blocking) != 0 {
+		t.Errorf("expected 0 blocked tasks, got %d", len(blocking))
+	}
+}
+
 func TestSortTasks(t *testing.T) {
 	s := tempStore(t)
 	s.CreateTask(&model.Task{Title: "Low task", Priority: model.PriorityLow, Status: model.TaskReady})
