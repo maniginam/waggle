@@ -327,6 +327,31 @@ func TestSearchTasks(t *testing.T) {
 	}
 }
 
+func TestSortTasks(t *testing.T) {
+	s := tempStore(t)
+	s.CreateTask(&model.Task{Title: "Low task", Priority: model.PriorityLow, Status: model.TaskReady})
+	s.CreateTask(&model.Task{Title: "Critical task", Priority: model.PriorityCritical, Status: model.TaskReady})
+	s.CreateTask(&model.Task{Title: "High task", Priority: model.PriorityHigh, Status: model.TaskReady})
+
+	// Sort by priority (critical first)
+	tasks, _ := s.ListTasks(map[string]string{"sort": "priority"})
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(tasks))
+	}
+	if tasks[0].Priority != model.PriorityCritical {
+		t.Errorf("expected critical first, got %s", tasks[0].Priority)
+	}
+	if tasks[2].Priority != model.PriorityLow {
+		t.Errorf("expected low last, got %s", tasks[2].Priority)
+	}
+
+	// Sort by title ascending
+	tasks, _ = s.ListTasks(map[string]string{"sort": "title"})
+	if tasks[0].Title != "Critical task" {
+		t.Errorf("expected 'Critical task' first alphabetically, got %s", tasks[0].Title)
+	}
+}
+
 func TestTaskEvents(t *testing.T) {
 	s := tempStore(t)
 	task := &model.Task{Title: "History task"}

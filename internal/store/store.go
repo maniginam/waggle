@@ -198,7 +198,33 @@ func (s *Store) ListTasks(filters map[string]string) ([]*model.Task, error) {
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY created_at DESC"
+
+	// Sorting
+	sortCol := "created_at"
+	sortDir := "DESC"
+	if v, ok := filters["sort"]; ok {
+		switch v {
+		case "priority":
+			// Use CASE to order critical > high > medium > low
+			sortCol = "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
+			sortDir = "ASC"
+		case "deadline":
+			sortCol = "deadline"
+			sortDir = "ASC"
+		case "updated":
+			sortCol = "updated_at"
+		case "title":
+			sortCol = "title"
+			sortDir = "ASC"
+		case "status":
+			sortCol = "status"
+			sortDir = "ASC"
+		}
+	}
+	if v, ok := filters["order"]; ok && (v == "asc" || v == "desc") {
+		sortDir = strings.ToUpper(v)
+	}
+	query += " ORDER BY " + sortCol + " " + sortDir
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
