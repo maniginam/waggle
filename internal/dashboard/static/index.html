@@ -944,7 +944,7 @@ let filterPriority = '';
 let filterAssignee = '';
 let filterType = '';
 let usageData = null;
-let collapsedColumns = new Set();
+let collapsedColumns = new Set(JSON.parse(localStorage.getItem('waggle_collapsed') || '[]'));
 
 // ── BOARD RENDER ──
 
@@ -980,9 +980,6 @@ function renderBoard() {
       (childrenByParent[t.parent_id] = childrenByParent[t.parent_id] || []).push(t);
     }
   });
-  // Store for renderCard access
-  window._childrenByParent = childrenByParent;
-  window._tasksById = tasksById;
 
   for (const status of STATUSES) {
     const col = document.createElement('div');
@@ -1002,7 +999,7 @@ function renderBoard() {
       </div>
       <div class="column-body" data-status="${status}">
         ${colTasks.length === 0 ? '<div class="empty-state"><div class="empty-hex"></div></div>' :
-          colTasks.map(t => renderCard(t)).join('')}
+          colTasks.map(t => renderCard(t, childrenByParent, tasksById)).join('')}
       </div>
     `;
     board.appendChild(col);
@@ -1074,7 +1071,7 @@ function renderBoard() {
   });
 }
 
-function renderCard(t) {
+function renderCard(t, childrenByParent, tasksById) {
   const tags = (t.tags||[]).map(tag => `<span class="tag">${esc(tag)}</span>`).join('');
   const sel = currentPanel && currentPanel.type === 'task' && currentPanel.id === t.id ? ' selected' : '';
   const taskType = t.task_type || 'task';
@@ -1085,7 +1082,7 @@ function renderCard(t) {
     : (projects.length > 0 ? `<span class="project-badge unassigned">no project</span>` : '');
 
   // Epic progress: count children done vs total (using prebuilt map)
-  const children = (window._childrenByParent || {})[t.id] || [];
+  const children = (childrenByParent || {})[t.id] || [];
   const childDone = children.filter(c => c.status === 'done').length;
   const childTotal = children.length;
   const progressHtml = childTotal > 0 ? `
@@ -1095,9 +1092,8 @@ function renderCard(t) {
     </div>` : '';
 
   // Blocked deps: check if this task depends on unfinished tasks (using prebuilt map)
-  const tById = window._tasksById || {};
   const blockedDeps = (t.depends_on||[]).filter(depId => {
-    const dep = tById[depId];
+    const dep = (tasksById || {})[depId];
     return dep && dep.status !== 'done';
   });
   const blockedHtml = blockedDeps.length > 0 && t.status !== 'done'
@@ -2208,7 +2204,7 @@ document.addEventListener('keydown', e => {
     openCreatePanel('project');
     return;
   }
-  if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+  if (e.key === '?') {
     e.preventDefault();
     openShortcuts();
     return;
@@ -2279,6 +2275,7 @@ async function quickCreateTask(status) {
 function toggleColumn(status) {
   if (collapsedColumns.has(status)) collapsedColumns.delete(status);
   else collapsedColumns.add(status);
+  localStorage.setItem('waggle_collapsed', JSON.stringify([...collapsedColumns]));
   renderBoard();
 }
 
