@@ -773,6 +773,53 @@ select.form-input { cursor: pointer; }
   font-size: 0.6rem; color: var(--red); font-family: var(--font-mono);
 }
 
+/* ── CARD TOOLTIP ── */
+.card-tooltip {
+  position: absolute; left: 0; right: 0; top: 100%;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 8px 10px; z-index: 50;
+  font-size: 0.75rem; font-family: var(--font-sans); color: var(--text-secondary);
+  line-height: 1.5; max-height: 120px; overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  opacity: 0; pointer-events: none; transition: opacity 0.15s;
+  margin-top: 4px;
+}
+.card:hover .card-tooltip { opacity: 1; }
+
+/* ── QUICK CLAIM BUTTON ── */
+.card-quick-claim {
+  position: absolute; top: 6px; right: 6px;
+  font-size: 0.55rem; padding: 2px 6px; border-radius: 3px;
+  background: var(--cyan-dim); color: var(--cyan); border: 1px solid transparent;
+  cursor: pointer; font-family: var(--font-mono); font-weight: 600;
+  opacity: 0; transition: opacity 0.15s;
+}
+.card:hover .card-quick-claim { opacity: 1; }
+.card-quick-claim:hover { border-color: var(--cyan); background: rgba(34,211,238,0.25); }
+
+/* ── AGENT WORKLOAD BADGE ── */
+.agent-workload {
+  font-size: 0.6rem; background: var(--bg-elevated); color: var(--text-dim);
+  padding: 1px 6px; border-radius: 8px; font-weight: 600;
+  flex-shrink: 0; min-width: 20px; text-align: center;
+}
+.agent-workload.has-tasks { background: var(--amber-glow-strong); color: var(--amber); }
+
+/* ── COLLAPSIBLE DONE COLUMN ── */
+.column.collapsed { min-width: 44px; max-width: 44px; }
+.column.collapsed .column-body { display: none; }
+.column.collapsed .column-header {
+  writing-mode: vertical-rl; text-orientation: mixed;
+  padding: 12px 8px; cursor: pointer;
+  justify-content: flex-start; gap: 8px;
+}
+.column-collapse-btn {
+  font-size: 0.6rem; padding: 2px 6px; border-radius: 3px;
+  background: none; border: 1px solid var(--border); color: var(--text-dim);
+  cursor: pointer; font-family: var(--font-mono); transition: all 0.15s;
+}
+.column-collapse-btn:hover { color: var(--text-secondary); border-color: var(--text-dim); }
+
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
   .main { grid-template-columns: 1fr; }
@@ -889,6 +936,7 @@ let filterPriority = '';
 let filterAssignee = '';
 let filterType = '';
 let usageData = null;
+let collapsedColumns = new Set();
 
 // ── BOARD RENDER ──
 
@@ -915,16 +963,33 @@ function renderBoard() {
     else filteredTasks = filteredTasks.filter(t => t.assignee === filterAssignee);
   }
   if (filterType) filteredTasks = filteredTasks.filter(t => (t.task_type||'task') === filterType);
+  // Build lookup maps to avoid O(n²) in renderCard
+  const childrenByParent = {};
+  const tasksById = {};
+  tasks.forEach(t => {
+    tasksById[t.id] = t;
+    if (t.parent_id) {
+      (childrenByParent[t.parent_id] = childrenByParent[t.parent_id] || []).push(t);
+    }
+  });
+  // Store for renderCard access
+  window._childrenByParent = childrenByParent;
+  window._tasksById = tasksById;
+
   for (const status of STATUSES) {
     const col = document.createElement('div');
     col.className = 'column';
     col.dataset.status = status;
     const colTasks = filteredTasks.filter(t => t.status === status)
       .sort((a,b) => (PRIORITY_ORDER[a.priority]||4) - (PRIORITY_ORDER[b.priority]||4));
+    const isCollapsed = collapsedColumns.has(status);
+    if (isCollapsed) col.classList.add('collapsed');
+    const collapseBtn = `<button class="column-collapse-btn" onclick="event.stopPropagation();toggleColumn('${status}')">${isCollapsed ? '\u25B6' : '\u25C0'}</button>`;
     col.innerHTML = `
-      <div class="column-header">
+      <div class="column-header" ${isCollapsed ? `onclick="toggleColumn('${status}')"` : ''}>
         <span class="column-title">${STATUS_LABELS[status]}</span>
         <span class="column-count">${colTasks.length}</span>
+        ${collapseBtn}
       </div>
       <div class="column-body" data-status="${status}">
         ${colTasks.length === 0 ? '<div class="empty-state"><div class="empty-hex"></div></div>' :
@@ -997,8 +1062,8 @@ function renderCard(t) {
     ? `<span class="project-badge assigned">${esc(proj.name)}</span>`
     : (projects.length > 0 ? `<span class="project-badge unassigned">no project</span>` : '');
 
-  // Epic progress: count children done vs total
-  const children = tasks.filter(c => c.parent_id === t.id);
+  // Epic progress: count children done vs total (using prebuilt map)
+  const children = (window._childrenByParent || {})[t.id] || [];
   const childDone = children.filter(c => c.status === 'done').length;
   const childTotal = children.length;
   const progressHtml = childTotal > 0 ? `
@@ -1007,16 +1072,25 @@ function renderCard(t) {
       <span class="card-progress-label">${childDone}/${childTotal}</span>
     </div>` : '';
 
-  // Blocked deps: check if this task depends on unfinished tasks
+  // Blocked deps: check if this task depends on unfinished tasks (using prebuilt map)
+  const tById = window._tasksById || {};
   const blockedDeps = (t.depends_on||[]).filter(depId => {
-    const dep = tasks.find(d => d.id === depId);
+    const dep = tById[depId];
     return dep && dep.status !== 'done';
   });
   const blockedHtml = blockedDeps.length > 0 && t.status !== 'done'
     ? `<div class="card-blocked-deps">${blockedDeps.length} unresolved dep${blockedDeps.length > 1 ? 's' : ''}</div>` : '';
 
+  // Quick claim button (only if unassigned and agents exist)
+  const claimBtn = !t.assignee && agents.length > 0 && t.status !== 'done'
+    ? `<button class="card-quick-claim" onclick="event.stopPropagation();quickClaim('${t.id}')" title="Assign to agent">claim</button>` : '';
+
+  // Tooltip with description
+  const tooltip = t.description ? `<div class="card-tooltip">${esc(t.description)}</div>` : '';
+
   return `
     <div class="card${sel}" data-id="${t.id}">
+      ${claimBtn}
       <div class="card-id">
         <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${t.id}</span>
         ${projBadge}
@@ -1029,6 +1103,7 @@ function renderCard(t) {
       </div>
       ${progressHtml}
       ${blockedHtml}
+      ${tooltip}
     </div>
   `;
 }
@@ -1056,6 +1131,7 @@ function renderAgents() {
     const stale = agentIsStale(a);
     const roleColor = {alpha:'var(--amber)',leader:'var(--purple)',subagent:'var(--cyan)',custom:'var(--text-dim)'}[a.type] || 'var(--text-dim)';
     const lastSeenStr = a.last_seen ? timeSince(new Date(a.last_seen)) : '';
+    const taskCount = tasks.filter(t => t.assignee === a.name && t.status !== 'done').length;
     return `
     <div class="agent-row${sel}${stale ? ' agent-stale' : ''}" data-agent="${esc(a.name)}">
       <div class="agent-status-dot ${a.status}"></div>
@@ -1063,6 +1139,7 @@ function renderAgents() {
         <div class="agent-name">${esc(a.name)} <span style="font-size:0.55rem;color:${roleColor};font-weight:700;text-transform:uppercase;letter-spacing:0.5px">${a.type}</span></div>
         <div class="agent-type" style="color:var(--text-dim)">${a.current_task ? esc(a.current_task) : lastSeenStr}</div>
       </div>
+      <span class="agent-workload${taskCount > 0 ? ' has-tasks' : ''}" title="${taskCount} assigned task${taskCount !== 1 ? 's' : ''}">${taskCount}</span>
       <div class="agent-actions">
         ${stale ? `<button class="poke-btn" onclick="pokeAgent(event,'${esc(a.name)}')">poke</button>` : ''}
         <button class="msg-btn" onclick="openAgentPanel(event,'${esc(a.name)}')">&#9993;</button>
@@ -1862,6 +1939,7 @@ async function fetchAll() {
     renderStats();
     renderUsage();
     updatePageTitle();
+    updateFavicon();
   } catch(e) {
     console.error('fetch error:', e);
   }
@@ -2117,6 +2195,84 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ── QUICK CLAIM ──
+
+async function quickClaim(taskId) {
+  if (agents.length === 0) return;
+  const active = agents.filter(a => a.status !== 'disconnected');
+  if (active.length === 0) { showToast('No active agents', 'var(--red)'); return; }
+  if (active.length === 1) {
+    await doClaimTask(taskId, active[0].name);
+    return;
+  }
+  // Show a mini picker
+  const names = active.map(a => a.name);
+  const choice = prompt('Assign to which agent?\n\n' + names.map((n,i) => `${i+1}. ${n}`).join('\n') + '\n\nEnter name or number:');
+  if (!choice) return;
+  const name = /^\d+$/.test(choice.trim()) ? names[parseInt(choice.trim()) - 1] : choice.trim();
+  if (!name) return;
+  await doClaimTask(taskId, name);
+}
+
+async function doClaimTask(taskId, agentName) {
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({assignee: agentName, status: 'in_progress'}),
+  });
+  showToast(`Assigned to ${agentName}`, 'var(--cyan)');
+  await fetchAll();
+}
+
+// ── COLUMN COLLAPSE ──
+
+function toggleColumn(status) {
+  if (collapsedColumns.has(status)) collapsedColumns.delete(status);
+  else collapsedColumns.add(status);
+  renderBoard();
+}
+
+// ── FAVICON BADGE ──
+
+function updateFavicon() {
+  const inProg = tasks.filter(t => t.status === 'in_progress').length;
+  const canvas = document.createElement('canvas');
+  canvas.width = 32; canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  // Draw hexagon
+  ctx.fillStyle = '#f0a500';
+  ctx.beginPath();
+  const cx = 16, cy = 16, r = 14;
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 6;
+    const x = cx + r * Math.cos(angle), y = cy + r * Math.sin(angle);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath(); ctx.fill();
+  // Draw count if > 0
+  if (inProg > 0) {
+    ctx.fillStyle = '#0a0a0c';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(inProg > 9 ? '9+' : inProg.toString(), cx, cy + 1);
+  } else {
+    // Inner hex cutout
+    ctx.fillStyle = '#0a0a0c';
+    ctx.beginPath();
+    const ri = 8;
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 3) * i - Math.PI / 6;
+      const x = cx + ri * Math.cos(angle), y = cy + ri * Math.sin(angle);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+  // Apply as favicon
+  let link = document.querySelector("link[rel='icon']");
+  if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+  link.href = canvas.toDataURL('image/png');
+}
+
 // ── SHORTCUTS OVERLAY ──
 
 function openShortcuts() {
@@ -2163,7 +2319,11 @@ function esc(s) {
 fetchAll();
 connectSSE();
 setInterval(fetchAll, 15000);
-setInterval(tickAgentTimestamps, 1000);
+let tickInterval = setInterval(tickAgentTimestamps, 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { clearInterval(tickInterval); tickInterval = null; }
+  else if (!tickInterval) { tickInterval = setInterval(tickAgentTimestamps, 1000); fetchAll(); }
+});
 </script>
 </body>
 </html>
