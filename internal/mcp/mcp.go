@@ -136,6 +136,8 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"tag":      prop("string", "Filter by tag"),
 				"priority": propEnum("string", []string{"critical", "high", "medium", "low"}, "Filter by priority"),
 				"q":        prop("string", "Search title and description"),
+				"sort":     propEnum("string", []string{"priority", "deadline", "updated", "title", "status"}, "Sort field"),
+				"order":    propEnum("string", []string{"asc", "desc"}, "Sort direction"),
 			},
 		}),
 		toolDef("waggle_show_task", "Show details of a specific task.", map[string]any{
@@ -303,7 +305,7 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 
 	case "waggle_list_tasks":
 		params := []string{}
-		for _, key := range []string{"status", "assignee", "tag", "priority", "q"} {
+		for _, key := range []string{"status", "assignee", "tag", "priority", "q", "sort", "order"} {
 			if v, ok := args[key].(string); ok && v != "" {
 				params = append(params, key+"="+v)
 			}

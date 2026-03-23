@@ -321,6 +321,16 @@ func cmdTask(subcmd string, args []string) {
 					params = append(params, "q="+args[i+1])
 					i++
 				}
+			case "--sort":
+				if i+1 < len(args) {
+					params = append(params, "sort="+args[i+1])
+					i++
+				}
+			case "--order":
+				if i+1 < len(args) {
+					params = append(params, "order="+args[i+1])
+					i++
+				}
 			}
 		}
 		if len(params) > 0 {
@@ -987,7 +997,7 @@ Usage:
     --deadline 2026-03-25            Deadline (RFC3339 or YYYY-MM-DD)
     --parent wg-xxx                  Parent task ID
     --depends wg-xxx                 Dependency (repeatable)
-  waggle task list [--status X]    List tasks (also --priority, --tag, --search/-q)
+  waggle task list [--status X]    List tasks (--priority, --tag, --search/-q, --sort, --order)
   waggle task next [--tag X]       Show highest-priority ready task
   waggle task show <id>            Show task detail
   waggle task update <id> [flags]  Update a task
