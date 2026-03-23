@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,19 +15,29 @@ import (
 
 func setupWSHub(t *testing.T) (*Hub, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir, err := os.MkdirTemp("", "waggle-ws-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := store.New(filepath.Join(dir, "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
 
 	eh := event.NewHub()
 	hub := NewHub(s, eh)
 
-	// Start HTTP server with WS handler
 	mux := newTestMux(hub)
 	server := newTestServer(t, mux)
+
+	// Cleanup in correct order: server closes first, then store, then dir
+	// We register this as a single cleanup to control ordering
+	t.Cleanup(func() {
+		s.Close()
+		time.Sleep(50 * time.Millisecond) // Let SQLite release WAL files
+		os.RemoveAll(dir)
+	})
+
 	return hub, server
 }
 

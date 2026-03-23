@@ -207,6 +207,10 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			"properties": map[string]any{"id": prop("string", "Task ID")},
 			"required":   []string{"id"},
 		}),
+		toolDef("waggle_briefing", "Get a complete status briefing: your current task, unread messages, available tasks, and team status. Call this when starting work or after a break.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}),
 		toolDef("waggle_list_agents", "List connected agents.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -443,6 +447,38 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			}
 		}
 		return best, nil
+
+	case "waggle_briefing":
+		briefing := map[string]any{}
+
+		// Agent info
+		if a.agentName != "" {
+			if agent, err := a.get("/api/agents/" + a.agentName); err == nil {
+				briefing["you"] = agent
+			}
+
+			// Unread messages
+			if msgs, err := a.get("/api/messages?to=" + a.agentName + "&limit=10"); err == nil {
+				briefing["messages"] = msgs
+			}
+		}
+
+		// Stats
+		if stats, err := a.get("/api/stats"); err == nil {
+			briefing["stats"] = stats
+		}
+
+		// Ready tasks (sorted by priority)
+		if tasks, err := a.get("/api/tasks?status=ready&sort=priority"); err == nil {
+			briefing["ready_tasks"] = tasks
+		}
+
+		// Active agents
+		if agents, err := a.get("/api/agents"); err == nil {
+			briefing["team"] = agents
+		}
+
+		return briefing, nil
 
 	case "waggle_list_agents":
 		url := "/api/agents"
