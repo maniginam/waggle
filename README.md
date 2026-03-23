@@ -38,7 +38,7 @@ Connect Claude Code to a running Waggle server:
 waggle connect    # generates .mcp.json in current directory
 ```
 
-This exposes 25 tools including: `waggle_register_agent`, `waggle_briefing`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_get_next_task`, `waggle_claim_task`, `waggle_complete_task`, `waggle_task_deps`, `waggle_task_history`, `waggle_list_subtasks`, `waggle_add_comment`, `waggle_send_message`, `waggle_read_messages`, `waggle_create_project`, `waggle_list_projects`, `waggle_show_project`, `waggle_update_project`, `waggle_delete_project`, and more.
+This exposes 27 tools including: `waggle_register_agent`, `waggle_briefing`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_get_next_task`, `waggle_claim_task`, `waggle_complete_task`, `waggle_task_deps`, `waggle_task_history`, `waggle_list_subtasks`, `waggle_add_comment`, `waggle_send_message`, `waggle_read_messages`, `waggle_create_project`, `waggle_list_projects`, `waggle_show_project`, `waggle_update_project`, `waggle_delete_project`, `waggle_report_usage`, `waggle_get_usage`, and more.
 
 ## SMART Tasks
 
@@ -108,7 +108,9 @@ POST   /api/agents/:name/status  Update agent status
 POST   /api/messages             Send message
 GET    /api/messages?to=<name>   Read messages
 GET    /api/events               List events (or SSE with Accept: text/event-stream)
-GET    /api/stats                Dashboard stats (tasks/agents/messages summary)
+GET    /api/stats                Dashboard stats (tasks/agents/messages/tokens summary)
+POST   /api/usage                Report token usage (agent_name, model, input_tokens, output_tokens)
+GET    /api/usage                Token usage summary (total, by_agent, recent)
 GET    /health                   Health check
 WS     /ws                       WebSocket endpoint
 ```

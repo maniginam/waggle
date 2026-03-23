@@ -31,6 +31,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/events", a.handleEvents)
 	mux.HandleFunc("/api/messages", a.handleMessages)
 	mux.HandleFunc("/api/stats", a.handleStats)
+	mux.HandleFunc("/api/usage", a.handleUsage)
 	return mux
 }
 
@@ -706,6 +707,57 @@ func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func (a *API) handleUsage(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		total, err := a.store.TokenUsageTotal()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "usage_failed", err.Error())
+			return
+		}
+		byAgent, err := a.store.TokenUsageByAgent()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "usage_failed", err.Error())
+			return
+		}
+		if byAgent == nil {
+			byAgent = []*model.TokenSummary{}
+		}
+		recent, err := a.store.TokenUsageRecent(20)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "usage_failed", err.Error())
+			return
+		}
+		if recent == nil {
+			recent = []*model.TokenUsage{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"total":    total,
+			"by_agent": byAgent,
+			"recent":   recent,
+		})
+
+	case http.MethodPost:
+		var u model.TokenUsage
+		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if u.AgentName == "" {
+			writeError(w, http.StatusBadRequest, "missing_agent", "agent_name is required")
+			return
+		}
+		if err := a.store.RecordTokenUsage(&u); err != nil {
+			writeError(w, http.StatusInternalServerError, "record_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, u)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

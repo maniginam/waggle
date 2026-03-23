@@ -121,12 +121,26 @@ func (s *Store) migrate() error {
 			updated_at  TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS token_usage (
+			id            TEXT PRIMARY KEY,
+			agent_name    TEXT NOT NULL,
+			model         TEXT DEFAULT '',
+			input_tokens  INTEGER DEFAULT 0,
+			output_tokens INTEGER DEFAULT 0,
+			total_tokens  INTEGER DEFAULT 0,
+			cost_usd      REAL DEFAULT 0,
+			task_id       TEXT DEFAULT '',
+			created_at    TEXT NOT NULL
+		);
+
 		CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
 		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 		CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
 		CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
 		CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 		CREATE INDEX IF NOT EXISTS idx_messages_to ON messages("to");
+		CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_name);
+		CREATE INDEX IF NOT EXISTS idx_token_usage_time ON token_usage(created_at);
 	`)
 	if err != nil {
 		return err
@@ -908,15 +922,84 @@ func (s *Store) DeleteProject(id string) error {
 	return err
 }
 
+// --- Token Usage ---
+
+func (s *Store) RecordTokenUsage(u *model.TokenUsage) error {
+	if u.ID == "" {
+		u.ID = id.New()
+	}
+	u.CreatedAt = time.Now().UTC()
+	u.TotalTokens = u.InputTokens + u.OutputTokens
+	if u.CostUSD == 0 {
+		u.CostUSD = model.CalculateCost(u.Model, u.InputTokens, u.OutputTokens)
+	}
+	_, err := s.db.Exec(`INSERT INTO token_usage (id, agent_name, model, input_tokens, output_tokens, total_tokens, cost_usd, task_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.AgentName, u.Model, u.InputTokens, u.OutputTokens, u.TotalTokens, u.CostUSD, u.TaskID,
+		u.CreatedAt.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) TokenUsageByAgent() ([]*model.TokenSummary, error) {
+	rows, err := s.db.Query(`SELECT agent_name, COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0), COUNT(*) FROM token_usage GROUP BY agent_name ORDER BY SUM(cost_usd) DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var summaries []*model.TokenSummary
+	for rows.Next() {
+		var ts model.TokenSummary
+		if err := rows.Scan(&ts.AgentName, &ts.InputTokens, &ts.OutputTokens, &ts.TotalTokens, &ts.CostUSD, &ts.Reports); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, &ts)
+	}
+	return summaries, rows.Err()
+}
+
+func (s *Store) TokenUsageTotal() (*model.TokenSummary, error) {
+	var ts model.TokenSummary
+	err := s.db.QueryRow(`SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0), COUNT(*) FROM token_usage`).
+		Scan(&ts.InputTokens, &ts.OutputTokens, &ts.TotalTokens, &ts.CostUSD, &ts.Reports)
+	if err != nil {
+		return nil, err
+	}
+	return &ts, nil
+}
+
+func (s *Store) TokenUsageRecent(limit int) ([]*model.TokenUsage, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT id, agent_name, model, input_tokens, output_tokens, total_tokens, cost_usd, task_id, created_at FROM token_usage ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var usages []*model.TokenUsage
+	for rows.Next() {
+		var u model.TokenUsage
+		var ts string
+		if err := rows.Scan(&u.ID, &u.AgentName, &u.Model, &u.InputTokens, &u.OutputTokens, &u.TotalTokens, &u.CostUSD, &u.TaskID, &ts); err != nil {
+			return nil, err
+		}
+		u.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+		usages = append(usages, &u)
+	}
+	return usages, rows.Err()
+}
+
 // --- Stats ---
 
 type Stats struct {
-	TasksByStatus  map[string]int `json:"tasks_by_status"`
-	TasksByPriority map[string]int `json:"tasks_by_priority"`
-	TotalTasks     int            `json:"total_tasks"`
-	AgentsByStatus map[string]int `json:"agents_by_status"`
-	TotalAgents    int            `json:"total_agents"`
-	UnreadMessages int            `json:"unread_messages"`
+	TasksByStatus   map[string]int         `json:"tasks_by_status"`
+	TasksByPriority map[string]int         `json:"tasks_by_priority"`
+	TotalTasks      int                    `json:"total_tasks"`
+	AgentsByStatus  map[string]int         `json:"agents_by_status"`
+	TotalAgents     int                    `json:"total_agents"`
+	UnreadMessages  int                    `json:"unread_messages"`
+	TokenUsage      *model.TokenSummary    `json:"token_usage,omitempty"`
+	TokenByAgent    []*model.TokenSummary  `json:"token_by_agent,omitempty"`
 }
 
 func (s *Store) Stats() (*Stats, error) {
@@ -969,6 +1052,14 @@ func (s *Store) Stats() (*Stats, error) {
 
 	// Unread messages
 	s.db.QueryRow("SELECT COUNT(*) FROM messages WHERE read = 0").Scan(&stats.UnreadMessages)
+
+	// Token usage
+	if total, err := s.TokenUsageTotal(); err == nil {
+		stats.TokenUsage = total
+	}
+	if byAgent, err := s.TokenUsageByAgent(); err == nil {
+		stats.TokenByAgent = byAgent
+	}
 
 	return stats, nil
 }
