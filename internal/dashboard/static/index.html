@@ -706,6 +706,73 @@ select.form-input { cursor: pointer; }
   transition: width 0.5s ease;
 }
 
+/* ── KEYBOARD SHORTCUTS OVERLAY ── */
+.shortcuts-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6); z-index: 400;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.shortcuts-overlay.open { opacity: 1; pointer-events: auto; }
+.shortcuts-box {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 24px 32px; max-width: 420px; width: 90%;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+}
+.shortcuts-title {
+  font-family: var(--font-sans); font-size: 1.1rem; font-weight: 700;
+  color: var(--amber); margin-bottom: 16px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.shortcuts-title .close-hint { font-size: 0.65rem; color: var(--text-dim); font-weight: 400; }
+.shortcut-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 0; border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+}
+.shortcut-row:last-child { border-bottom: none; }
+.shortcut-key {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 8px; font-family: var(--font-mono);
+  font-size: 0.75rem; color: var(--text-primary); font-weight: 600;
+  min-width: 28px; text-align: center;
+}
+.shortcut-desc { color: var(--text-secondary); font-family: var(--font-sans); }
+
+/* ── EPIC PROGRESS ON CARDS ── */
+.card-progress {
+  margin-top: 6px; display: flex; align-items: center; gap: 8px;
+}
+.card-progress-bar {
+  flex: 1; height: 4px; background: var(--bg-elevated);
+  border-radius: 2px; overflow: hidden;
+}
+.card-progress-fill {
+  height: 100%; background: var(--green); border-radius: 2px;
+  transition: width 0.5s ease;
+}
+.card-progress-label {
+  font-size: 0.6rem; color: var(--text-dim); white-space: nowrap;
+  font-weight: 600;
+}
+
+/* ── BLOCKED INDICATOR ON CARDS ── */
+.card-blocked-deps {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 0.6rem; color: var(--red); font-weight: 600;
+  margin-top: 4px;
+}
+.card-blocked-deps::before {
+  content: ''; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--red); flex-shrink: 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* ── SSE RECONNECT COUNTDOWN ── */
+.sse-countdown {
+  font-size: 0.6rem; color: var(--red); font-family: var(--font-mono);
+}
+
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
   .main { grid-template-columns: 1fr; }
@@ -769,6 +836,19 @@ select.form-input { cursor: pointer; }
         <div class="event-feed" id="event-feed"></div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Keyboard shortcuts overlay -->
+<div class="shortcuts-overlay" id="shortcuts-overlay" onclick="closeShortcuts()">
+  <div class="shortcuts-box" onclick="event.stopPropagation()">
+    <div class="shortcuts-title">Keyboard Shortcuts <span class="close-hint">esc to close</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Search tasks</span><span class="shortcut-key">/</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">New task</span><span class="shortcut-key">n</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">New project</span><span class="shortcut-key">p</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Close panel</span><span class="shortcut-key">esc</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Show this help</span><span class="shortcut-key">?</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Refresh data</span><span class="shortcut-key">r</span></div>
   </div>
 </div>
 
@@ -916,6 +996,25 @@ function renderCard(t) {
   const projBadge = proj
     ? `<span class="project-badge assigned">${esc(proj.name)}</span>`
     : (projects.length > 0 ? `<span class="project-badge unassigned">no project</span>` : '');
+
+  // Epic progress: count children done vs total
+  const children = tasks.filter(c => c.parent_id === t.id);
+  const childDone = children.filter(c => c.status === 'done').length;
+  const childTotal = children.length;
+  const progressHtml = childTotal > 0 ? `
+    <div class="card-progress">
+      <div class="card-progress-bar"><div class="card-progress-fill" style="width:${Math.round(childDone/childTotal*100)}%"></div></div>
+      <span class="card-progress-label">${childDone}/${childTotal}</span>
+    </div>` : '';
+
+  // Blocked deps: check if this task depends on unfinished tasks
+  const blockedDeps = (t.depends_on||[]).filter(depId => {
+    const dep = tasks.find(d => d.id === depId);
+    return dep && dep.status !== 'done';
+  });
+  const blockedHtml = blockedDeps.length > 0 && t.status !== 'done'
+    ? `<div class="card-blocked-deps">${blockedDeps.length} unresolved dep${blockedDeps.length > 1 ? 's' : ''}</div>` : '';
+
   return `
     <div class="card${sel}" data-id="${t.id}">
       <div class="card-id">
@@ -928,6 +1027,8 @@ function renderCard(t) {
         ${t.assignee ? `<span class="card-assignee">${esc(t.assignee)}</span>` : ''}
         ${tags ? `<div class="card-tags">${tags}</div>` : ''}
       </div>
+      ${progressHtml}
+      ${blockedHtml}
     </div>
   `;
 }
@@ -1760,6 +1861,7 @@ async function fetchAll() {
     renderAgents();
     renderStats();
     renderUsage();
+    updatePageTitle();
   } catch(e) {
     console.error('fetch error:', e);
   }
@@ -1826,9 +1928,15 @@ function connectSSE() {
   };
   evtSource.onerror = () => {
     dot.className = 'sse-dot error';
-    label.textContent = 'reconnecting';
     evtSource.close();
-    setTimeout(connectSSE, 3000);
+    let countdown = 3;
+    label.innerHTML = `reconnecting <span class="sse-countdown">${countdown}s</span>`;
+    const ticker = setInterval(() => {
+      countdown--;
+      if (countdown <= 0) { clearInterval(ticker); return; }
+      label.innerHTML = `reconnecting <span class="sse-countdown">${countdown}s</span>`;
+    }, 1000);
+    setTimeout(() => { clearInterval(ticker); connectSSE(); }, 3000);
   };
 }
 
@@ -1977,7 +2085,10 @@ document.addEventListener('keydown', e => {
   // Don't trigger shortcuts when typing in inputs
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
 
-  if (e.key === 'Escape') { closePanel(); return; }
+  if (e.key === 'Escape') {
+    if (document.getElementById('shortcuts-overlay').classList.contains('open')) { closeShortcuts(); return; }
+    closePanel(); return;
+  }
   if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     document.getElementById('search-input').focus();
@@ -1993,7 +2104,50 @@ document.addEventListener('keydown', e => {
     openCreatePanel('project');
     return;
   }
+  if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+    e.preventDefault();
+    openShortcuts();
+    return;
+  }
+  if (e.key === 'r' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    fetchAll();
+    showToast('Refreshed', 'var(--blue)');
+    return;
+  }
 });
+
+// ── SHORTCUTS OVERLAY ──
+
+function openShortcuts() {
+  document.getElementById('shortcuts-overlay').classList.add('open');
+}
+function closeShortcuts() {
+  document.getElementById('shortcuts-overlay').classList.remove('open');
+}
+
+// ── LIVE AGENT TIMESTAMPS ──
+
+function tickAgentTimestamps() {
+  document.querySelectorAll('.agent-row .agent-type').forEach(el => {
+    const row = el.closest('.agent-row');
+    if (!row) return;
+    const agent = agents.find(a => a.name === row.dataset.agent);
+    if (!agent || !agent.last_seen || agent.current_task) return;
+    el.textContent = timeSince(new Date(agent.last_seen));
+  });
+}
+
+// ── DYNAMIC PAGE TITLE ──
+
+function updatePageTitle() {
+  const inProg = tasks.filter(t => t.status === 'in_progress').length;
+  const activeAgents = agents.filter(a => a.status !== 'disconnected').length;
+  const parts = [];
+  if (inProg > 0) parts.push(`${inProg} active`);
+  if (activeAgents > 0) parts.push(`${activeAgents} agents`);
+  document.title = parts.length > 0 ? `waggle \u00b7 ${parts.join(' \u00b7 ')}` : 'waggle';
+}
 
 // ── UTILS ──
 
@@ -2009,6 +2163,7 @@ function esc(s) {
 fetchAll();
 connectSSE();
 setInterval(fetchAll, 15000);
+setInterval(tickAgentTimestamps, 1000);
 </script>
 </body>
 </html>
