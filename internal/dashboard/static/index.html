@@ -753,6 +753,32 @@ select.form-input { cursor: pointer; }
   transition: opacity 0.15s;
 }
 .search-input:focus ~ .search-kbd { opacity: 0; }
+.search-results {
+  position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  max-height: 320px; overflow-y: auto; z-index: 150;
+  display: none;
+}
+.search-results.visible { display: block; }
+.search-results:empty { display: none; }
+.search-result {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; cursor: pointer; transition: background 0.1s;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.search-result:last-child { border-bottom: none; }
+.search-result:hover, .search-result.highlighted { background: var(--amber-glow); }
+.search-result-title {
+  flex: 1; font-size: 0.8rem; font-family: var(--font-sans); color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.search-result-meta {
+  font-size: 0.6rem; color: var(--text-dim); white-space: nowrap;
+}
+.search-results-empty {
+  padding: 12px; text-align: center; font-size: 0.75rem; color: var(--text-dim);
+}
 
 /* ── TOOLBAR ── */
 .toolbar {
@@ -1076,8 +1102,9 @@ select.form-input { cursor: pointer; }
   <div class="header-right">
     <div class="search-bar">
       <span class="search-icon">&#x1F50D;</span>
-      <input class="search-input" id="search-input" placeholder="Search tasks..." oninput="onSearch(this.value)" onkeydown="if(event.key==='Escape'){this.blur();this.value='';onSearch('')}">
+      <input class="search-input" id="search-input" placeholder="Search tasks..." oninput="onSearch(this.value)" onkeydown="handleSearchKey(event)" onfocus="showSearchResults()" onblur="setTimeout(hideSearchResults,200)">
       <span class="search-kbd">/</span>
+      <div class="search-results" id="search-results"></div>
     </div>
     <button class="add-btn" onclick="openCreatePanel('task')" title="New task (n)">+</button>
     <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')" title="New project">+ Project</button>
@@ -2609,9 +2636,79 @@ function showToast(message, color) {
 
 // ── SEARCH ──
 
+let searchHighlight = -1;
+
 function onSearch(query) {
   searchQuery = query;
-  renderBoard();
+  if (currentView !== 'overview') renderBoard();
+  showSearchResults();
+}
+
+function handleSearchKey(e) {
+  const results = document.getElementById('search-results');
+  const items = results.querySelectorAll('.search-result');
+  if (e.key === 'Escape') {
+    e.target.blur(); e.target.value = ''; onSearch('');
+    hideSearchResults();
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    searchHighlight = Math.min(searchHighlight + 1, items.length - 1);
+    items.forEach((item, i) => item.classList.toggle('highlighted', i === searchHighlight));
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    searchHighlight = Math.max(searchHighlight - 1, 0);
+    items.forEach((item, i) => item.classList.toggle('highlighted', i === searchHighlight));
+  }
+  if (e.key === 'Enter' && searchHighlight >= 0 && items[searchHighlight]) {
+    e.preventDefault();
+    items[searchHighlight].click();
+  }
+}
+
+function showSearchResults() {
+  const q = (searchQuery || '').toLowerCase();
+  const container = document.getElementById('search-results');
+  if (!q || q.length < 2) { container.innerHTML = ''; container.classList.remove('visible'); return; }
+
+  const matches = tasks.filter(t =>
+    (t.title||'').toLowerCase().includes(q) ||
+    (t.id||'').toLowerCase().includes(q) ||
+    (t.assignee||'').toLowerCase().includes(q) ||
+    (t.tags||[]).some(tag => tag.toLowerCase().includes(q))
+  ).slice(0, 10);
+
+  searchHighlight = -1;
+  if (matches.length === 0) {
+    container.innerHTML = '<div class="search-results-empty">No matching tasks</div>';
+  } else {
+    container.innerHTML = matches.map(t => {
+      const proj = t.project_id ? projects.find(p => p.id === t.project_id) : null;
+      const statusColors = {ready:'var(--blue)',in_progress:'var(--amber)',done:'var(--green)',blocked:'var(--red)',review:'var(--purple)',backlog:'var(--text-dim)'};
+      return `<div class="search-result" data-task-id="${esc(t.id)}">
+        <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${statusColors[t.status]||'var(--text-dim)'};flex-shrink:0"></span>
+        <span class="search-result-title">${esc(t.title)}</span>
+        <span class="search-result-meta">${proj ? esc(proj.name) : ''} ${t.assignee ? esc(t.assignee) : ''}</span>
+      </div>`;
+    }).join('');
+  }
+  container.classList.add('visible');
+  container.querySelectorAll('.search-result').forEach(el => {
+    el.addEventListener('click', () => {
+      const taskId = el.dataset.taskId;
+      hideSearchResults();
+      document.getElementById('search-input').value = '';
+      searchQuery = '';
+      openTaskPanel(taskId);
+    });
+  });
+}
+
+function hideSearchResults() {
+  document.getElementById('search-results').classList.remove('visible');
+  searchHighlight = -1;
 }
 
 // ── INLINE ASSIGNEE EDIT ──
