@@ -175,6 +175,36 @@ body {
   padding: 8px; border-top: 1px solid var(--border);
 }
 
+/* ── BOARD HEADER ── */
+.board-header {
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+  background: var(--bg-surface); display: flex; align-items: center;
+  justify-content: space-between; flex-shrink: 0;
+}
+.board-header:empty { display: none; }
+.board-header-left { display: flex; align-items: center; gap: 12px; }
+.board-breadcrumb {
+  font-size: 0.7rem; color: var(--text-dim); cursor: pointer;
+  transition: color 0.15s;
+}
+.board-breadcrumb:hover { color: var(--amber); }
+.board-breadcrumb::after { content: ' /'; margin-left: 4px; }
+.board-project-name {
+  font-family: var(--font-sans); font-size: 1.1rem; font-weight: 600;
+  color: var(--text-primary);
+}
+.board-project-desc {
+  font-size: 0.7rem; color: var(--text-dim); margin-left: 12px;
+  max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── PROJECT NAV ACTIVITY INDICATOR ── */
+.project-nav-activity {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.project-nav-activity.has-active { background: var(--green); animation: pulse 2s ease-in-out infinite; }
+.project-nav-activity.has-working { background: var(--amber); animation: pulse 2s ease-in-out infinite; }
+
 /* ── MAIN PANEL ── */
 .main-panel {
   display: grid;
@@ -1028,6 +1058,7 @@ select.form-input { cursor: pointer; }
     <!-- Overview or Project board rendered here -->
     <div id="overview-view" class="overview"></div>
     <div id="board-view" style="display:none">
+      <div class="board-header" id="board-header"></div>
       <div class="main-panel">
         <div class="stats-bar" id="stats-bar"></div>
         <div class="usage-bar" id="usage-bar"></div>
@@ -1053,7 +1084,7 @@ select.form-input { cursor: pointer; }
     <div class="shortcut-row"><span class="shortcut-desc">Search tasks</span><span class="shortcut-key">/</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">New task</span><span class="shortcut-key">n</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">New project</span><span class="shortcut-key">p</span></div>
-    <div class="shortcut-row"><span class="shortcut-desc">Close panel</span><span class="shortcut-key">esc</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Close panel / back to overview</span><span class="shortcut-key">esc</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Show this help</span><span class="shortcut-key">?</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Refresh data</span><span class="shortcut-key">r</span></div>
   </div>
@@ -2135,6 +2166,7 @@ async function fetchAll() {
     if (currentView === 'overview') {
       renderOverview();
     } else {
+      renderBoardHeader();
       renderFilterBar();
       renderBoard();
       renderStats();
@@ -2159,10 +2191,15 @@ function renderProjectNav() {
 
   for (const p of projects) {
     const count = tasks.filter(t => t.project_id === p.id).length;
-    const inProg = tasks.filter(t => t.project_id === p.id && t.status === 'in_progress').length;
+    const pActiveAgents = agents.filter(a => a.project_id === p.id && a.status !== 'disconnected');
+    const hasWorking = pActiveAgents.some(a => a.status === 'working');
+    const hasActive = pActiveAgents.length > 0;
+    const activityDot = hasWorking ? '<div class="project-nav-activity has-working"></div>' :
+      hasActive ? '<div class="project-nav-activity has-active"></div>' : '';
     html += `<button class="project-nav-item${currentView===p.id?' active':''}" data-view="${esc(p.id)}">
       <div class="nav-icon"></div>
       <span class="project-nav-name">${esc(p.name)}</span>
+      ${activityDot}
       <span class="project-nav-count">${count}</span>
     </button>`;
   }
@@ -2199,6 +2236,7 @@ function navigateTo(view) {
     selectedProject = view === 'none' ? 'none' : view;
     overviewEl.style.display = 'none';
     boardEl.style.display = '';
+    renderBoardHeader();
     renderBoard();
     renderFilterBar();
     renderStats();
@@ -2207,6 +2245,29 @@ function navigateTo(view) {
 
   renderProjectNav();
   renderAgents();
+}
+
+function renderBoardHeader() {
+  const el = document.getElementById('board-header');
+  if (currentView === 'overview') { el.innerHTML = ''; return; }
+
+  const project = currentView === 'none' ? null : projects.find(p => p.id === currentView);
+  const name = project ? project.name : 'Unassigned Tasks';
+  const desc = project && project.description ? project.description : '';
+  const pAgents = project ? agents.filter(a => a.project_id === project.id && a.status !== 'disconnected') : [];
+  const agentInfo = pAgents.length > 0 ? `<span style="font-size:0.7rem;color:var(--cyan);margin-left:8px">${pAgents.length} agent${pAgents.length !== 1 ? 's' : ''} active</span>` : '';
+
+  el.innerHTML = `
+    <div class="board-header-left">
+      <span class="board-breadcrumb" onclick="navigateTo('overview')">Overview</span>
+      <span class="board-project-name">${esc(name)}</span>
+      ${agentInfo}
+      ${desc ? `<span class="board-project-desc">${esc(desc)}</span>` : ''}
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-ghost btn-sm" onclick="openCreatePanel('task')">+ Task</button>
+    </div>
+  `;
 }
 
 function renderOverview() {
@@ -2515,7 +2576,9 @@ document.addEventListener('keydown', e => {
 
   if (e.key === 'Escape') {
     if (document.getElementById('shortcuts-overlay').classList.contains('open')) { closeShortcuts(); return; }
-    closePanel(); return;
+    if (currentPanel) { closePanel(); return; }
+    if (currentView !== 'overview') { navigateTo('overview'); return; }
+    return;
   }
   if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
