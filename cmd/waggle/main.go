@@ -28,6 +28,14 @@ func main() {
 		cmdStart()
 	case "status":
 		cmdStatus()
+	case "project":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: waggle project <add|list|show|update|rm> [args]")
+			os.Exit(1)
+		}
+		cmdProject(os.Args[2], os.Args[3:])
+	case "projects":
+		cmdProject("list", os.Args[2:])
 	case "task":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: waggle task <add|list|show|update|claim|done|comment|rm|next> [args]")
@@ -274,6 +282,16 @@ func cmdTask(subcmd string, args []string) {
 					task["depends_on"] = deps
 					i++
 				}
+			case "--type":
+				if i+1 < len(args) {
+					task["task_type"] = args[i+1]
+					i++
+				}
+			case "--project":
+				if i+1 < len(args) {
+					task["project_id"] = args[i+1]
+					i++
+				}
 			}
 		}
 		body, _ := json.Marshal(task)
@@ -329,6 +347,16 @@ func cmdTask(subcmd string, args []string) {
 			case "--order":
 				if i+1 < len(args) {
 					params = append(params, "order="+args[i+1])
+					i++
+				}
+			case "--type":
+				if i+1 < len(args) {
+					params = append(params, "task_type="+args[i+1])
+					i++
+				}
+			case "--project":
+				if i+1 < len(args) {
+					params = append(params, "project_id="+args[i+1])
 					i++
 				}
 			}
@@ -634,6 +662,176 @@ func cmdTask(subcmd string, args []string) {
 		if desc, ok := best["description"].(string); ok && desc != "" {
 			fmt.Printf("  %s\n", desc)
 		}
+	}
+}
+
+func cmdProject(subcmd string, args []string) {
+	switch subcmd {
+	case "add":
+		if len(args) == 0 {
+			fmt.Println("Usage: waggle project add \"name\" [--desc \"description\"]")
+			os.Exit(1)
+		}
+		project := map[string]any{"name": args[0]}
+		for i := 1; i < len(args); i++ {
+			if (args[i] == "--desc" || args[i] == "--description") && i+1 < len(args) {
+				project["description"] = args[i+1]
+				i++
+			}
+		}
+		body, _ := json.Marshal(project)
+		resp, err := http.Post(baseURL()+"/api/projects", "application/json", strings.NewReader(string(body)))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		var result map[string]any
+		json.NewDecoder(resp.Body).Decode(&result)
+		if resp.StatusCode >= 400 {
+			fmt.Fprintf(os.Stderr, "error: %v\n", result)
+			os.Exit(1)
+		}
+		fmt.Printf("Created project %s: %s\n", result["id"], result["name"])
+
+	case "list":
+		resp, err := http.Get(baseURL() + "/api/projects")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		var projects []map[string]any
+		json.NewDecoder(resp.Body).Decode(&projects)
+		if len(projects) == 0 {
+			fmt.Println("No projects")
+			return
+		}
+		for _, p := range projects {
+			desc := ""
+			if d, ok := p["description"].(string); ok && d != "" {
+				desc = " - " + d
+			}
+			fmt.Printf("  [%s] %s%s\n", p["id"], p["name"], desc)
+		}
+
+	case "show":
+		if len(args) == 0 {
+			fmt.Println("Usage: waggle project show <id>")
+			os.Exit(1)
+		}
+		resp, err := http.Get(baseURL() + "/api/projects/" + args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == 404 {
+			fmt.Fprintf(os.Stderr, "project %s not found\n", args[0])
+			os.Exit(1)
+		}
+		var project map[string]any
+		json.NewDecoder(resp.Body).Decode(&project)
+		fmt.Printf("%s: %s\n", project["id"], project["name"])
+		if desc, ok := project["description"].(string); ok && desc != "" {
+			fmt.Printf("  %s\n", desc)
+		}
+
+		// Show epics
+		epicsResp, err := http.Get(baseURL() + "/api/projects/" + args[0] + "/epics")
+		if err == nil {
+			defer epicsResp.Body.Close()
+			var epics []map[string]any
+			json.NewDecoder(epicsResp.Body).Decode(&epics)
+			if len(epics) > 0 {
+				fmt.Printf("\n  Epics (%d):\n", len(epics))
+				for _, e := range epics {
+					progress := ""
+					if p, ok := e["progress"].(map[string]any); ok {
+						done := int(p["done"].(float64))
+						total := int(p["total"].(float64))
+						if total > 0 {
+							progress = fmt.Sprintf(" [%d/%d]", done, total)
+						}
+					}
+					fmt.Printf("    %s %s %s%s\n", statusIcon(e["status"]), e["id"], e["title"], progress)
+				}
+			}
+		}
+
+		// Show all tasks in project
+		tasksResp, err := http.Get(baseURL() + "/api/tasks?project_id=" + args[0])
+		if err == nil {
+			defer tasksResp.Body.Close()
+			var tasks []map[string]any
+			json.NewDecoder(tasksResp.Body).Decode(&tasks)
+			if len(tasks) > 0 {
+				fmt.Printf("\n  All tasks (%d):\n", len(tasks))
+				for _, t := range tasks {
+					taskType := ""
+					if tt, ok := t["task_type"].(string); ok && tt != "task" {
+						taskType = " [" + tt + "]"
+					}
+					fmt.Printf("    %s %s %-12s %s%s\n", statusIcon(t["status"]), t["id"], t["priority"], t["title"], taskType)
+				}
+			}
+		}
+
+	case "update":
+		if len(args) < 2 {
+			fmt.Println("Usage: waggle project update <id> --name \"new name\" [--desc \"new desc\"]")
+			os.Exit(1)
+		}
+		projectID := args[0]
+		updates := map[string]any{}
+		for i := 1; i < len(args); i++ {
+			switch args[i] {
+			case "--name":
+				if i+1 < len(args) {
+					updates["name"] = args[i+1]
+					i++
+				}
+			case "--desc", "--description":
+				if i+1 < len(args) {
+					updates["description"] = args[i+1]
+					i++
+				}
+			}
+		}
+		body, _ := json.Marshal(updates)
+		req, _ := http.NewRequest(http.MethodPatch, baseURL()+"/api/projects/"+projectID, strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		fmt.Printf("Updated project %s\n", projectID)
+
+	case "rm":
+		if len(args) < 1 {
+			fmt.Println("Usage: waggle project rm <id>")
+			os.Exit(1)
+		}
+		req, _ := http.NewRequest(http.MethodDelete, baseURL()+"/api/projects/"+args[0], nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			var errResp map[string]any
+			json.NewDecoder(resp.Body).Decode(&errResp)
+			fmt.Fprintf(os.Stderr, "error: %v\n", errResp)
+			os.Exit(1)
+		}
+		fmt.Printf("Deleted project %s\n", args[0])
+
+	default:
+		fmt.Println("Usage: waggle project <add|list|show|update|rm> [args]")
+		os.Exit(1)
 	}
 }
 
@@ -1019,7 +1217,9 @@ Usage:
     --deadline 2026-03-25            Deadline (RFC3339 or YYYY-MM-DD)
     --parent wg-xxx                  Parent task ID
     --depends wg-xxx                 Dependency (repeatable)
-  waggle task list [--status X]    List tasks (--priority, --tag, --search/-q, --sort, --order)
+    --type epic                      Task type (task|epic|story|issue)
+    --project wg-xxx                 Project ID
+  waggle task list [--status X]    List tasks (--priority, --tag, --type, --project, --search/-q, --sort, --order)
   waggle task next [--tag X]       Show highest-priority ready task
   waggle task show <id>            Show task detail
   waggle task update <id> [flags]  Update a task
@@ -1028,6 +1228,12 @@ Usage:
   waggle task comment <id> "msg"   Add comment to task
   waggle task rm <id>              Delete a task
   waggle tasks                     Shorthand for task list
+
+  waggle project add "name"        Create a project (--desc "description")
+  waggle project list              List projects (also: waggle projects)
+  waggle project show <id>         Show project with epics and tasks
+  waggle project update <id>       Update project (--name, --desc)
+  waggle project rm <id>           Delete a project
 
   waggle agent show <name>         Show agent detail
   waggle agents                    List connected agents
