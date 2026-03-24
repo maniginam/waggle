@@ -416,6 +416,7 @@ body {
 .priority-low { background: var(--bg-elevated); color: var(--text-dim); }
 .card-assignee { font-size: 0.7rem; color: var(--cyan); display: flex; align-items: center; gap: 4px; }
 .card-assignee::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); }
+.card-age { font-size: 0.6rem; color: var(--text-dim); font-family: var(--font-mono); margin-left: auto; }
 .card-tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag { font-size: 0.6rem; color: var(--purple); background: var(--purple-dim); padding: 1px 5px; border-radius: 3px; transition: all 0.15s; }
 .tag.tag-removable { cursor: pointer; }
@@ -1307,6 +1308,7 @@ select.form-input { cursor: pointer; }
     <div class="project-nav-footer">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
         <span class="project-nav-title" style="padding:0">Agents</span>
+        <button class="msg-btn" onclick="dismissAllDisconnected()" style="opacity:1;font-size:0.5rem;color:var(--red)" title="Dismiss all disconnected agents">purge</button>
         <button class="msg-btn" onclick="openBroadcastPanel()" style="opacity:1;font-size:0.5rem">broadcast</button>
       </div>
       <div class="agent-list" id="agent-list" style="padding:0"></div>
@@ -1633,6 +1635,7 @@ function renderCard(t, childrenByParent, tasksById) {
         <span class="priority-badge priority-${t.priority}">${t.priority}</span>
         ${t.assignee ? `<span class="card-assignee">${esc(t.assignee)}</span>` : ''}
         ${deadlineHtml}
+        <span class="card-age">${timeSince(new Date(t.updated_at))}</span>
         ${tags ? `<div class="card-tags">${tags}</div>` : ''}
       </div>
       ${progressHtml}
@@ -2214,6 +2217,15 @@ async function reviewReject(reviewId, taskId) {
   });
   showToast('Review rejected', 'var(--red)');
   openTaskPanel(taskId, 'reviews');
+}
+
+async function dismissAllDisconnected() {
+  const disconnected = agents.filter(a => a.status === 'disconnected');
+  if (disconnected.length === 0) { showToast('No disconnected agents', 'var(--text-dim)'); return; }
+  if (!confirm(`Dismiss ${disconnected.length} disconnected agent${disconnected.length !== 1 ? 's' : ''}?`)) return;
+  await Promise.all(disconnected.map(a => fetch(`/api/agents/${encodeURIComponent(a.name)}`, {method: 'DELETE'})));
+  showToast(`Dismissed ${disconnected.length} agents`, 'var(--red)');
+  await fetchAll();
 }
 
 async function dismissAgent(agentName) {
