@@ -1351,6 +1351,54 @@ select.form-input { cursor: pointer; }
 .command-target-option:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .command-target-option.active { color: var(--amber); }
 
+/* ── SPAWN FORM ── */
+.spawn-form { padding: 20px; }
+.spawn-field { margin-bottom: 14px; }
+.spawn-label {
+  display: block; font-size: 0.65rem; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600;
+}
+.spawn-input {
+  width: 100%; padding: 8px 12px; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem;
+  outline: none; transition: border-color 0.15s;
+}
+.spawn-input:focus { border-color: var(--amber-dim); }
+.spawn-input::placeholder { color: var(--text-dim); }
+.spawn-select {
+  width: 100%; padding: 8px 12px; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem;
+  outline: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' fill='none' stroke='%238a8a96' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+.spawn-textarea {
+  width: 100%; min-height: 60px; padding: 8px 12px; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem;
+  outline: none; resize: vertical;
+}
+.spawn-textarea:focus { border-color: var(--amber-dim); }
+.spawn-textarea::placeholder { color: var(--text-dim); }
+.spawn-hint { font-size: 0.6rem; color: var(--text-dim); margin-top: 3px; }
+.spawn-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* ── ACTIVE SESSIONS ── */
+.session-list { margin-top: 16px; }
+.session-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); margin-bottom: 4px; font-size: 0.75rem;
+}
+.session-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
+.session-name { color: var(--cyan); font-weight: 600; }
+.session-actions { margin-left: auto; display: flex; gap: 6px; }
+
 /* Push main content above command bar */
 .app-shell { padding-bottom: 52px; }
 
@@ -1380,6 +1428,7 @@ select.form-input { cursor: pointer; }
     </div>
     <button class="add-btn" onclick="openCreatePanel('task')" title="New task (n)">+</button>
     <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')" title="New project">+ Project</button>
+    <button class="btn-ghost btn-sm" onclick="openSpawnPanel()" title="Spawn agent" style="color:var(--cyan);border-color:var(--cyan-dim)">+ Agent</button>
     <div class="sse-status">
       <div class="sse-dot" id="sse-dot"></div>
       <span id="sse-label">connecting</span>
@@ -2350,6 +2399,122 @@ async function pokeAgent(evtOrNull, agentName) {
   });
   showToast(`Poked ${agentName}`, 'var(--red)');
   fetchAll();
+}
+
+async function openSpawnPanel() {
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+
+  document.getElementById('panel-title').textContent = 'Spawn Agent';
+  document.getElementById('panel-subtitle').textContent = 'Launch a new Claude Code agent in a tmux session';
+
+  // Fetch active sessions
+  const sessions = await fetch('/api/sessions').then(r => r.json()).catch(() => []);
+
+  const projectOpts = projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+
+  document.getElementById('panel-content').innerHTML = `
+    <div class="spawn-form">
+      <div class="spawn-field">
+        <label class="spawn-label">Agent Name</label>
+        <input class="spawn-input" id="spawn-name" placeholder="e.g. backend-dev, reviewer, tester" autofocus>
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Project</label>
+        <select class="spawn-select" id="spawn-project">
+          <option value="">None</option>
+          ${projectOpts}
+        </select>
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Working Directory</label>
+        <input class="spawn-input" id="spawn-workdir" placeholder="/Users/maniginam/projects/...">
+        <div class="spawn-hint">Absolute path to the project directory</div>
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Model</label>
+        <select class="spawn-select" id="spawn-model">
+          <option value="">Default (Sonnet)</option>
+          <option value="claude-opus-4-6">Opus 4.6</option>
+          <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+          <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+        </select>
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Initial Prompt</label>
+        <textarea class="spawn-textarea" id="spawn-prompt" placeholder="What should this agent work on?"></textarea>
+        <div class="spawn-hint">The agent will register with waggle automatically, then execute this prompt</div>
+      </div>
+      <div class="spawn-actions">
+        <button class="btn-ghost btn-sm" onclick="closePanel()">Cancel</button>
+        <button class="btn" onclick="doSpawn()" style="background:var(--cyan);border-color:var(--cyan)">Spawn Agent</button>
+      </div>
+
+      ${sessions.length > 0 ? `
+        <div style="margin-top:24px;border-top:1px solid var(--border);padding-top:16px">
+          <div class="spawn-label" style="margin-bottom:8px">Active Sessions (${sessions.length})</div>
+          <div class="session-list">
+            ${sessions.map(s => `
+              <div class="session-row">
+                <div class="session-dot"></div>
+                <span class="session-name">${esc(s.agent)}</span>
+                <span style="color:var(--text-dim);font-size:0.6rem">${esc(s.name)}</span>
+                <div class="session-actions">
+                  <button class="msg-btn" onclick="setCommandTarget('${esc(s.agent)}');closePanel();document.getElementById('cmd-input').focus()">msg</button>
+                  <button class="poke-btn" onclick="killSession('${esc(s.agent)}')">kill</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  overlay.classList.add('open');
+  panel.classList.add('open');
+}
+
+async function doSpawn() {
+  const name = document.getElementById('spawn-name').value.trim();
+  const projectId = document.getElementById('spawn-project').value;
+  const workDir = document.getElementById('spawn-workdir').value.trim();
+  const model = document.getElementById('spawn-model').value;
+  const prompt = document.getElementById('spawn-prompt').value.trim();
+
+  if (!name) { showToast('Agent name required', 'var(--red)'); return; }
+  if (!workDir) { showToast('Working directory required', 'var(--red)'); return; }
+
+  const resp = await fetch('/api/spawn', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name, project_id: projectId, work_dir: workDir,
+      model: model || undefined, prompt: prompt || undefined,
+    }),
+  });
+
+  const result = await resp.json();
+  if (!resp.ok) {
+    showToast(result.error?.message || 'Spawn failed', 'var(--red)');
+    return;
+  }
+
+  showToast(`Spawned ${name} in ${result.session}`, 'var(--cyan)');
+  closePanel();
+  await fetchAll();
+}
+
+async function killSession(agentName) {
+  if (!confirm('Kill session for ' + agentName + '?')) return;
+  const resp = await fetch('/api/sessions/' + encodeURIComponent(agentName), {method: 'DELETE'});
+  if (resp.ok) {
+    showToast('Killed session for ' + agentName, 'var(--red)');
+    openSpawnPanel(); // Refresh the panel
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast(err.error?.message || 'Failed to kill session', 'var(--red)');
+  }
 }
 
 async function openBroadcastPanel() {

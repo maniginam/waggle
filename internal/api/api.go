@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/maniginam/waggle/internal/event"
@@ -34,6 +37,9 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/reviews/", a.handleReview)
 	mux.HandleFunc("/api/stats", a.handleStats)
 	mux.HandleFunc("/api/usage", a.handleUsage)
+	mux.HandleFunc("/api/spawn", a.handleSpawn)
+	mux.HandleFunc("/api/sessions", a.handleSessions)
+	mux.HandleFunc("/api/sessions/", a.handleSessionAction)
 	return mux
 }
 
@@ -888,6 +894,203 @@ func (a *API) handleReview(w http.ResponseWriter, r *http.Request) {
 		a.eventHub.Publish(&model.Event{Type: model.EventType(eventType), TaskID: rev.TaskID, Payload: rev})
 		writeJSON(w, http.StatusOK, rev)
 
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name      string `json:"name"`
+		ProjectID string `json:"project_id"`
+		WorkDir   string `json:"work_dir"`
+		Prompt    string `json:"prompt"`
+		Model     string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "missing_name", "agent name is required")
+		return
+	}
+	if req.WorkDir == "" {
+		writeError(w, http.StatusBadRequest, "missing_work_dir", "work_dir is required")
+		return
+	}
+
+	// Resolve work dir
+	workDir := req.WorkDir
+	if !filepath.IsAbs(workDir) {
+		home, _ := os.UserHomeDir()
+		workDir = filepath.Join(home, workDir)
+	}
+	if _, err := os.Stat(workDir); os.IsNotExist(err) {
+		writeError(w, http.StatusBadRequest, "invalid_work_dir", "directory does not exist: "+workDir)
+		return
+	}
+
+	// Ensure .mcp.json has waggle config in the work dir
+	mcpPath := filepath.Join(workDir, ".mcp.json")
+	waggleBin, _ := os.Executable()
+	if waggleBin == "" {
+		waggleBin = "waggle"
+	}
+	mcpConfig := map[string]any{
+		"mcpServers": map[string]any{
+			"waggle": map[string]any{
+				"command": waggleBin,
+				"args":    []string{"mcp"},
+			},
+		},
+	}
+	// Merge with existing .mcp.json if present
+	if data, err := os.ReadFile(mcpPath); err == nil {
+		var existing map[string]any
+		if json.Unmarshal(data, &existing) == nil {
+			if servers, ok := existing["mcpServers"].(map[string]any); ok {
+				servers["waggle"] = mcpConfig["mcpServers"].(map[string]any)["waggle"]
+				mcpConfig = existing
+			}
+		}
+	}
+	mcpData, _ := json.MarshalIndent(mcpConfig, "", "  ")
+	os.WriteFile(mcpPath, mcpData, 0644)
+
+	// Find claude binary
+	claudeBin := "/Users/maniginam/.local/bin/claude"
+	if _, err := os.Stat(claudeBin); os.IsNotExist(err) {
+		// Try PATH
+		if p, err := exec.LookPath("claude"); err == nil {
+			claudeBin = p
+		} else {
+			writeError(w, http.StatusInternalServerError, "claude_not_found", "claude CLI not found")
+			return
+		}
+	}
+
+	// Build the initial prompt
+	sessionName := "waggle-" + req.Name
+	prompt := req.Prompt
+	if prompt == "" {
+		prompt = "You are agent '" + req.Name + "'. Register with waggle and check for tasks."
+	}
+
+	// Build registration preamble
+	regPreamble := fmt.Sprintf(
+		"First, register with waggle: use waggle_register_agent with name '%s'",
+		req.Name,
+	)
+	if req.ProjectID != "" {
+		regPreamble += fmt.Sprintf(" and project_id '%s'", req.ProjectID)
+	}
+	regPreamble += ". Then: " + prompt
+
+	// Kill existing tmux session if any
+	exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+
+	// Write prompt to a temp file to avoid shell escaping issues
+	promptFile := filepath.Join(os.TempDir(), "waggle-prompt-"+req.Name+".txt")
+	os.WriteFile(promptFile, []byte(regPreamble), 0644)
+
+	// Build shell command — read prompt from file to avoid quoting issues
+	shellCmd := fmt.Sprintf("%s --dangerously-skip-permissions", claudeBin)
+	if req.Model != "" {
+		shellCmd += " --model " + req.Model
+	}
+	shellCmd += fmt.Sprintf(` -p "$(cat '%s')"`, promptFile)
+
+	// Write a launch script to avoid shell escaping issues entirely
+	launchScript := filepath.Join(os.TempDir(), "waggle-launch-"+req.Name+".sh")
+	os.WriteFile(launchScript, []byte("#!/bin/sh\n"+shellCmd+"\nexec $SHELL"), 0755)
+
+	// Spawn tmux session with the launch script
+	tmuxCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName, "-c", workDir, launchScript)
+	tmuxCmd.Env = os.Environ()
+
+	if out, err := tmuxCmd.CombinedOutput(); err != nil {
+		writeError(w, http.StatusInternalServerError, "spawn_failed",
+			fmt.Sprintf("failed to create tmux session: %v — %s", err, string(out)))
+		return
+	}
+
+	// Record event
+	a.eventHub.Publish(&model.Event{
+		Type:    model.EventAgentJoined,
+		AgentID: req.Name,
+		Payload: map[string]string{
+			"session": sessionName,
+			"work_dir": workDir,
+			"prompt":  prompt,
+		},
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "spawned",
+		"session": sessionName,
+		"name":    req.Name,
+	})
+}
+
+func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// List active tmux sessions matching waggle-*
+	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}|#{session_created}|#{session_activity}|#{session_windows}").Output()
+	if err != nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	var sessions []map[string]string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 4)
+		name := parts[0]
+		if !strings.HasPrefix(name, "waggle-") {
+			continue
+		}
+		s := map[string]string{"name": name, "agent": strings.TrimPrefix(name, "waggle-")}
+		if len(parts) > 1 {
+			s["created"] = parts[1]
+		}
+		if len(parts) > 2 {
+			s["activity"] = parts[2]
+		}
+		sessions = append(sessions, s)
+	}
+	if sessions == nil {
+		sessions = []map[string]string{}
+	}
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "missing_name", "session name required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodDelete:
+		sessionName := "waggle-" + name
+		if err := exec.Command("tmux", "kill-session", "-t", sessionName).Run(); err != nil {
+			writeError(w, http.StatusInternalServerError, "kill_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "killed", "session": sessionName})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
