@@ -61,6 +61,13 @@ body {
   z-index: 100;
 }
 .header-left { display: flex; align-items: center; gap: 16px; }
+.mobile-menu-btn {
+  display: none; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-secondary); font-size: 1.1rem; padding: 4px 8px;
+  cursor: pointer; transition: all 0.15s;
+}
+.mobile-menu-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
 .logo {
   font-family: var(--font-sans);
   font-size: 1.4rem;
@@ -1168,12 +1175,42 @@ select.form-input { cursor: pointer; }
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
-  .project-nav { display: none; }
+  .project-nav {
+    position: fixed; left: -260px; top: 0; bottom: 0; z-index: 200;
+    width: 260px; transition: left 0.25s ease;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+  }
+  .project-nav.mobile-open { left: 0; }
+  .mobile-nav-backdrop {
+    position: fixed; inset: 0; z-index: 199;
+    background: rgba(0,0,0,0.5); opacity: 0;
+    pointer-events: none; transition: opacity 0.25s;
+  }
+  .mobile-nav-backdrop.open { opacity: 1; pointer-events: auto; }
+  .mobile-menu-btn { display: flex !important; }
   .main { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .board { min-height: 70vh; }
+  .board { min-height: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+  .column { min-width: 280px; scroll-snap-align: start; }
   .panel { width: 100vw; max-width: 100vw; }
   .overview-grid { grid-template-columns: 1fr; }
+  .header { padding: 0 8px; gap: 6px; }
+  .header-right { gap: 4px; }
+  .search-bar { min-width: 0; }
+  .search-input { width: 80px; }
+  .search-input:focus { width: 140px; }
+  .header-stats { display: none; }
+  .search-kbd { display: none; }
+  .btn-ghost.btn-sm { font-size: 0; padding: 6px; }
+  .btn-ghost.btn-sm::before { content: 'P'; font-size: 0.65rem; }
+  .filter-bar { overflow-x: auto; flex-wrap: nowrap; padding: 6px 8px; }
+  .board-header { padding: 8px 12px; }
+  .board-progress { padding: 4px 8px 6px; }
+  .stats-bar { flex-wrap: wrap; }
+  .card { padding: 10px 12px; }
+  .card.bulk-selectable { padding-left: 32px; }
+  .overview { padding: 12px; }
+  .overview-agents { grid-template-columns: 1fr 1fr; }
 }
 
 /* ── HONEYCOMB BACKGROUND ── */
@@ -1190,6 +1227,7 @@ select.form-input { cursor: pointer; }
 <body>
 <div class="header">
   <div class="header-left">
+    <button class="mobile-menu-btn" onclick="toggleMobileNav()" title="Projects">&#9776;</button>
     <div class="logo" onclick="navigateTo('overview')">
       <div class="logo-hex"><div class="logo-hex-inner"></div></div>
       waggle
@@ -1212,6 +1250,7 @@ select.form-input { cursor: pointer; }
   </div>
 </div>
 
+<div class="mobile-nav-backdrop" id="mobile-nav-backdrop" onclick="closeMobileNav()"></div>
 <div class="app-shell">
   <!-- Left project navigation -->
   <div class="project-nav">
@@ -1268,6 +1307,7 @@ select.form-input { cursor: pointer; }
     <div class="shortcut-row"><span class="shortcut-desc">Show this help</span><span class="shortcut-key">?</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Refresh data</span><span class="shortcut-key">r</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Toggle sidebar</span><span class="shortcut-key">[</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Bulk select mode</span><span class="shortcut-key">b</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Overview / projects 1-8</span><span class="shortcut-key">1-9</span></div>
   </div>
 </div>
@@ -2530,6 +2570,7 @@ function navigateTo(view) {
   currentView = view;
   localStorage.setItem('waggle_view', view);
   closePanel();
+  closeMobileNav();
 
   const overviewEl = document.getElementById('overview-view');
   const boardEl = document.getElementById('board-view');
@@ -3200,6 +3241,11 @@ document.addEventListener('keydown', e => {
     toggleNav();
     return;
   }
+  if (e.key === 'b' && !e.ctrlKey && !e.metaKey && currentView !== 'overview') {
+    e.preventDefault();
+    toggleBulkMode();
+    return;
+  }
   // Number keys 1-9 to jump to projects
   if (e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.metaKey) {
     const idx = parseInt(e.key) - 1;
@@ -3302,6 +3348,19 @@ function toggleNav() {
   document.querySelector('.app-shell').classList.toggle('nav-collapsed', navCollapsed);
   const btn = document.querySelector('.nav-collapse-btn');
   if (btn) btn.innerHTML = navCollapsed ? '&#9654;' : '&#9664;';
+}
+
+// ── MOBILE NAV ──
+
+function toggleMobileNav() {
+  const nav = document.querySelector('.project-nav');
+  const backdrop = document.getElementById('mobile-nav-backdrop');
+  nav.classList.toggle('mobile-open');
+  backdrop.classList.toggle('open');
+}
+function closeMobileNav() {
+  document.querySelector('.project-nav').classList.remove('mobile-open');
+  document.getElementById('mobile-nav-backdrop').classList.remove('open');
 }
 
 // ── COLUMN COLLAPSE ──
