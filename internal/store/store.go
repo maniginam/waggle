@@ -720,6 +720,31 @@ func (s *Store) ReadMessages(to string, limit int) ([]*model.Message, error) {
 	return messages, rows.Err()
 }
 
+func (s *Store) ListAllMessages(limit int) ([]*model.Message, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(`SELECT id, "from", "to", body, read, created_at FROM messages ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []*model.Message
+	for rows.Next() {
+		var m model.Message
+		var readInt int
+		var ts string
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &ts); err != nil {
+			return nil, err
+		}
+		m.Read = readInt != 0
+		m.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+		messages = append(messages, &m)
+	}
+	return messages, rows.Err()
+}
+
 // --- Helpers ---
 
 func (s *Store) checkCycleDeps(taskID string, deps []string) error {

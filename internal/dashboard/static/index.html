@@ -1265,6 +1265,100 @@ select.form-input { cursor: pointer; }
   z-index: 0;
 }
 .app-shell > * { position: relative; z-index: 1; }
+
+/* ── INBOX VIEW ── */
+.inbox { padding: 20px 24px; max-width: 900px; }
+.inbox-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.inbox-title { font-family: var(--font-sans); font-size: 1.3rem; font-weight: 700; }
+.inbox-filters { display: flex; gap: 8px; }
+.inbox-msg {
+  display: flex; gap: 12px; padding: 10px 14px;
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); margin-bottom: 4px;
+  transition: all 0.15s; cursor: default;
+}
+.inbox-msg:hover { background: var(--bg-card-hover); border-color: var(--border); }
+.inbox-msg.unread { border-left: 2px solid var(--amber); }
+.inbox-msg-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--bg-elevated); display: flex; align-items: center; justify-content: center;
+  font-size: 0.6rem; font-weight: 700; color: var(--cyan); flex-shrink: 0;
+  text-transform: uppercase;
+}
+.inbox-msg-body { flex: 1; min-width: 0; }
+.inbox-msg-meta {
+  display: flex; gap: 8px; align-items: center;
+  font-size: 0.65rem; margin-bottom: 3px;
+}
+.inbox-msg-from { font-weight: 600; color: var(--cyan); }
+.inbox-msg-to { color: var(--text-dim); }
+.inbox-msg-time { color: var(--text-dim); margin-left: auto; font-family: var(--font-mono); font-size: 0.6rem; }
+.inbox-msg-text {
+  font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* ── COMMAND BAR ── */
+.command-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 150;
+  background: var(--bg-surface); border-top: 1px solid var(--border);
+  padding: 8px 16px; display: flex; gap: 8px; align-items: center;
+}
+.command-bar-target {
+  font-size: 0.65rem; padding: 4px 8px; border-radius: 4px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  color: var(--cyan); font-family: var(--font-mono); cursor: pointer;
+  white-space: nowrap; transition: all 0.15s;
+}
+.command-bar-target:hover { border-color: var(--cyan); }
+.command-bar-target.broadcast { color: var(--amber); }
+.command-bar-target.broadcast:hover { border-color: var(--amber); }
+.command-input {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 14px; color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 0.8rem; outline: none;
+}
+.command-input:focus { border-color: var(--amber-dim); box-shadow: 0 0 0 2px var(--amber-glow); }
+.command-input::placeholder { color: var(--text-dim); }
+.command-send {
+  padding: 8px 16px; background: var(--amber); color: var(--bg-deep);
+  border: none; border-radius: 6px; font-family: var(--font-mono);
+  font-size: 0.7rem; font-weight: 700; cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+}
+.command-send:hover { background: #ffb820; }
+.command-send:active { transform: scale(0.95); }
+.command-hint {
+  font-size: 0.55rem; color: var(--text-dim); font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.command-target-picker {
+  position: absolute; bottom: 100%; left: 0;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 4px; margin-bottom: 4px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.5); max-height: 240px; overflow-y: auto;
+  min-width: 180px; display: none;
+}
+.command-target-picker.open { display: block; }
+.command-target-option {
+  display: block; width: 100%; padding: 6px 10px; background: none; border: none;
+  color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.7rem;
+  cursor: pointer; text-align: left; border-radius: 3px; transition: all 0.1s;
+}
+.command-target-option:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.command-target-option.active { color: var(--amber); }
+
+/* Push main content above command bar */
+.app-shell { padding-bottom: 52px; }
+
+@media (max-width: 900px) {
+  .command-hint { display: none; }
+  .command-bar { padding: 6px 8px; }
+  .inbox { padding: 12px; }
+}
 </style>
 </head>
 <body>
@@ -1317,8 +1411,9 @@ select.form-input { cursor: pointer; }
 
   <!-- Main content area -->
   <div id="main-view">
-    <!-- Overview or Project board rendered here -->
+    <!-- Overview, Inbox, or Project board rendered here -->
     <div id="overview-view" class="overview"></div>
+    <div id="inbox-view" class="inbox" style="display:none"></div>
     <div id="board-view" style="display:none">
       <div class="board-header" id="board-header"></div>
       <div class="main-panel">
@@ -1400,6 +1495,8 @@ let boardSort = localStorage.getItem('waggle_sort') || 'priority'; // priority, 
 let bulkMode = false;
 let bulkSelected = new Set();
 let pendingReviews = [];
+let inboxMessages = [];
+let commandTarget = 'broadcast'; // 'broadcast' or agent name
 
 // ── BOARD PROGRESS ──
 
@@ -2558,6 +2655,29 @@ function onCreateTypeChange() {
   parentGroup.style.display = (type === 'story' || type === 'issue') ? '' : 'none';
 }
 
+async function deleteProject(projectId, projectName) {
+  const taskCount = tasks.filter(t => t.project_id === projectId).length;
+  const msg = taskCount > 0
+    ? `Delete project "${projectName}"? Its ${taskCount} task${taskCount !== 1 ? 's' : ''} will become unassigned.`
+    : `Delete project "${projectName}"?`;
+  if (!confirm(msg)) return;
+  // Unassign tasks from this project first
+  if (taskCount > 0) {
+    const projectTasks = tasks.filter(t => t.project_id === projectId);
+    await Promise.all(projectTasks.map(t =>
+      fetch(`/api/tasks/${t.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({project_id:''})})
+    ));
+  }
+  const resp = await fetch(`/api/projects/${projectId}`, {method:'DELETE'});
+  if (resp.ok || resp.status === 204) {
+    showToast(`Deleted project "${projectName}"`, 'var(--red)');
+    navigateTo('overview');
+    await fetchAll();
+  } else {
+    showToast('Failed to delete project', 'var(--red)');
+  }
+}
+
 async function submitCreateProject() {
   const name = document.getElementById('create-name').value.trim();
   if (!name) { alert('Name is required'); return; }
@@ -2624,13 +2744,14 @@ function closePanel() {
 
 async function fetchAll() {
   try {
-    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes, reviewsRes] = await Promise.all([
+    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes, reviewsRes, msgsRes] = await Promise.all([
       fetch('/api/tasks'),
       fetch('/api/agents'),
       fetch('/api/stats'),
       fetch('/api/projects'),
       fetch('/api/usage'),
       fetch('/api/reviews?status=pending'),
+      fetch('/api/messages?limit=100'),
     ]);
     tasks = await tasksRes.json();
     agents = await agentsRes.json();
@@ -2638,9 +2759,12 @@ async function fetchAll() {
     projects = await projectsRes.json();
     usageData = await usageRes.json();
     pendingReviews = await reviewsRes.json().catch(() => []);
+    inboxMessages = await msgsRes.json().catch(() => []);
     renderProjectNav();
     if (currentView === 'overview') {
       renderOverview();
+    } else if (currentView === 'inbox') {
+      renderInbox();
     } else {
       renderBoardHeader();
       renderFilterBar();
@@ -2659,10 +2783,16 @@ async function fetchAll() {
 function renderProjectNav() {
   const container = document.getElementById('project-nav-list');
   const allCount = tasks.length;
+  const unreadCount = inboxMessages.filter(m => !m.read).length;
   let html = `<button class="project-nav-item${currentView==='overview'?' active':''} overview-item" data-view="overview">
     <div class="nav-icon"></div>
     <span class="project-nav-name">Overview</span>
     <span class="project-nav-count">${allCount}</span>
+  </button>
+  <button class="project-nav-item${currentView==='inbox'?' active':''}" data-view="inbox" style="border-left:2px solid ${unreadCount > 0 ? 'var(--amber)' : 'transparent'}">
+    <div class="nav-icon" style="background:var(--purple-dim);border-color:var(--purple)"></div>
+    <span class="project-nav-name">Inbox</span>
+    ${unreadCount > 0 ? `<span class="project-nav-count" style="background:var(--amber-glow-strong);color:var(--amber)">${unreadCount}</span>` : `<span class="project-nav-count">${inboxMessages.length}</span>`}
   </button>`;
 
   for (const p of projects) {
@@ -2704,16 +2834,25 @@ function navigateTo(view) {
 
   const overviewEl = document.getElementById('overview-view');
   const boardEl = document.getElementById('board-view');
+  const inboxEl = document.getElementById('inbox-view');
 
   if (view === 'overview') {
     selectedProject = '';
     overviewEl.style.display = '';
     boardEl.style.display = 'none';
+    inboxEl.style.display = 'none';
     renderOverview();
+  } else if (view === 'inbox') {
+    selectedProject = '';
+    overviewEl.style.display = 'none';
+    boardEl.style.display = 'none';
+    inboxEl.style.display = '';
+    renderInbox();
   } else {
     selectedProject = view === 'none' ? 'none' : view;
     overviewEl.style.display = 'none';
     boardEl.style.display = '';
+    inboxEl.style.display = 'none';
     renderBoardHeader();
     renderBoard();
     renderFilterBar();
@@ -2746,6 +2885,7 @@ function renderBoardHeader() {
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn-ghost btn-sm" onclick="toggleBulkMode()" title="Select multiple tasks">${bulkMode ? 'Exit Select' : 'Select'}</button>
       <button class="btn-ghost btn-sm" onclick="openCreatePanel('task')">+ Task</button>
+      ${project ? `<button class="btn-ghost btn-sm" style="color:var(--red)" onclick="deleteProject('${esc(project.id)}','${esc(project.name)}')" title="Delete project">Delete</button>` : ''}
     </div>
   `;
 }
@@ -2948,6 +3088,132 @@ function renderOverview() {
     });
   }).catch(() => {});
 }
+
+// ── INBOX ──
+
+let inboxFilter = 'all'; // all, sent, received
+
+function renderInbox() {
+  const el = document.getElementById('inbox-view');
+  if (!el) return;
+
+  let msgs = [...inboxMessages];
+  if (inboxFilter === 'sent') msgs = msgs.filter(m => m.from === 'dashboard' || m.from === 'user' || m.from === 'alpha');
+  else if (inboxFilter === 'received') msgs = msgs.filter(m => m.from !== 'dashboard' && m.from !== 'user' && m.from !== 'alpha');
+
+  el.innerHTML = `
+    <div class="inbox-header">
+      <div>
+        <div class="inbox-title">Messages</div>
+        <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">${inboxMessages.length} messages</div>
+      </div>
+      <div class="inbox-filters">
+        <button class="btn-ghost btn-sm${inboxFilter==='all'?' active':''}" onclick="inboxFilter='all';renderInbox()" style="${inboxFilter==='all'?'color:var(--amber);border-color:var(--amber-dim)':''}">All</button>
+        <button class="btn-ghost btn-sm${inboxFilter==='sent'?' active':''}" onclick="inboxFilter='sent';renderInbox()" style="${inboxFilter==='sent'?'color:var(--amber);border-color:var(--amber-dim)':''}">Sent</button>
+        <button class="btn-ghost btn-sm${inboxFilter==='received'?' active':''}" onclick="inboxFilter='received';renderInbox()" style="${inboxFilter==='received'?'color:var(--amber);border-color:var(--amber-dim)':''}">Received</button>
+      </div>
+    </div>
+    ${msgs.length === 0 ? '<div class="empty-state"><p>No messages</p></div>' : msgs.map(m => {
+      const isMine = m.from === 'dashboard' || m.from === 'user' || m.from === 'alpha';
+      const initials = (m.from || '?').slice(0,2);
+      const toLabel = m.to ? ` \u2192 ${esc(m.to)}` : ' \u2192 all';
+      return `<div class="inbox-msg${m.read ? '' : ' unread'}">
+        <div class="inbox-msg-avatar" style="${isMine ? 'background:var(--amber-glow-strong);color:var(--amber)' : ''}">${esc(initials)}</div>
+        <div class="inbox-msg-body">
+          <div class="inbox-msg-meta">
+            <span class="inbox-msg-from" style="${isMine ? 'color:var(--amber)' : ''}">${esc(m.from)}</span>
+            <span class="inbox-msg-to">${toLabel}</span>
+            <span class="inbox-msg-time">${m.created_at ? timeSince(new Date(m.created_at)) : ''}</span>
+          </div>
+          <div class="inbox-msg-text">${esc(m.body)}</div>
+        </div>
+      </div>`;
+    }).join('')}
+  `;
+}
+
+// ── COMMAND BAR ──
+
+function toggleTargetPicker() {
+  const picker = document.getElementById('cmd-target-picker');
+  const isOpen = picker.classList.contains('open');
+  if (isOpen) { picker.classList.remove('open'); return; }
+
+  let html = `<button class="command-target-option${commandTarget==='broadcast'?' active':''}" onclick="setCommandTarget('broadcast')">@broadcast <span style="color:var(--text-dim)">(all agents)</span></button>`;
+  for (const a of agents) {
+    html += `<button class="command-target-option${commandTarget===a.name?' active':''}" onclick="setCommandTarget('${esc(a.name)}')">@${esc(a.name)} <span style="color:var(--text-dim)">${a.status}</span></button>`;
+  }
+  picker.innerHTML = html;
+  picker.classList.add('open');
+}
+
+function setCommandTarget(target) {
+  commandTarget = target;
+  const btn = document.getElementById('cmd-target-btn');
+  btn.textContent = '@' + target;
+  btn.className = 'command-bar-target' + (target === 'broadcast' ? ' broadcast' : '');
+  document.getElementById('cmd-target-picker').classList.remove('open');
+  document.getElementById('cmd-input').focus();
+}
+
+function handleCommandKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendCommand();
+  }
+  if (e.key === '@' && document.getElementById('cmd-input').value === '') {
+    e.preventDefault();
+    toggleTargetPicker();
+  }
+}
+
+async function sendCommand() {
+  const input = document.getElementById('cmd-input');
+  const body = input.value.trim();
+  if (!body) return;
+  input.value = '';
+
+  if (commandTarget === 'broadcast') {
+    const active = agents.filter(a => a.status !== 'disconnected');
+    if (active.length === 0) {
+      // Send as broadcast anyway (stored for when agents come online)
+      await fetch('/api/messages', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({from: 'user', to: '', body}),
+      });
+      showToast('Broadcast sent (no active agents — stored for later)', 'var(--amber)');
+    } else {
+      await Promise.all(active.map(a =>
+        fetch('/api/messages', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({from: 'user', to: a.name, body}),
+        })
+      ));
+      showToast(`Sent to ${active.length} agents`, 'var(--amber)');
+    }
+  } else {
+    await fetch('/api/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({from: 'user', to: commandTarget, body}),
+    });
+    showToast(`Sent to ${commandTarget}`, 'var(--cyan)');
+  }
+
+  await fetchAll();
+  if (currentView === 'inbox') renderInbox();
+}
+
+// Close target picker when clicking elsewhere
+document.addEventListener('click', (e) => {
+  const picker = document.getElementById('cmd-target-picker');
+  const btn = document.getElementById('cmd-target-btn');
+  if (picker && !picker.contains(e.target) && e.target !== btn) {
+    picker.classList.remove('open');
+  }
+});
 
 // ── SSE ──
 
@@ -3627,7 +3893,11 @@ if (navCollapsed) {
   if (btn) btn.innerHTML = '&#9654;';
 }
 // Restore saved view
-if (currentView !== 'overview') {
+if (currentView === 'inbox') {
+  document.getElementById('overview-view').style.display = 'none';
+  document.getElementById('inbox-view').style.display = '';
+  document.getElementById('board-view').style.display = 'none';
+} else if (currentView !== 'overview') {
   selectedProject = currentView === 'none' ? 'none' : currentView;
   document.getElementById('overview-view').style.display = 'none';
   document.getElementById('board-view').style.display = '';
@@ -3641,5 +3911,17 @@ document.addEventListener('visibilitychange', () => {
   else if (!tickInterval) { tickInterval = setInterval(tickAgentTimestamps, 1000); fetchAll(); }
 });
 </script>
+
+<!-- Command Bar -->
+<div class="command-bar" id="command-bar">
+  <div style="position:relative">
+    <button class="command-bar-target broadcast" id="cmd-target-btn" onclick="toggleTargetPicker()">@broadcast</button>
+    <div class="command-target-picker" id="cmd-target-picker"></div>
+  </div>
+  <input class="command-input" id="cmd-input" placeholder="Send a message to agents... (@ to change target)" onkeydown="handleCommandKey(event)" autocomplete="off">
+  <button class="command-send" onclick="sendCommand()">Send</button>
+  <span class="command-hint">@ = target &middot; Enter = send</span>
+</div>
+
 </body>
 </html>
