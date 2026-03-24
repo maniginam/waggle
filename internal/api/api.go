@@ -498,15 +498,17 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		to := r.URL.Query().Get("to")
-		if to == "" {
-			writeError(w, http.StatusBadRequest, "missing_to", "'to' query param required")
-			return
-		}
 		limit := 50
 		if l := r.URL.Query().Get("limit"); l != "" {
 			fmt.Sscanf(l, "%d", &limit)
 		}
-		msgs, err := a.store.ReadMessages(to, limit)
+		var msgs []*model.Message
+		var err error
+		if to == "" {
+			msgs, err = a.store.ListAllMessages(limit)
+		} else {
+			msgs, err = a.store.ReadMessages(to, limit)
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "read_failed", err.Error())
 			return

@@ -438,12 +438,12 @@ func TestAgentNotFound(t *testing.T) {
 	}
 }
 
-func TestMessagesMissingTo(t *testing.T) {
+func TestMessagesListAll(t *testing.T) {
 	_, ts := setup(t)
 	resp, _ := http.Get(ts.URL + "/api/messages")
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400 for missing 'to', got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for listing all messages, got %d", resp.StatusCode)
 	}
 }
 
