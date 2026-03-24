@@ -577,6 +577,21 @@ func (s *Store) DisconnectAgent(name string) error {
 	return err
 }
 
+func (s *Store) DeleteAgent(name string) error {
+	_, err := s.db.Exec("DELETE FROM agents WHERE name = ?", name)
+	return err
+}
+
+func (s *Store) PurgeStaleAgents(maxAge time.Duration) (int, error) {
+	cutoff := time.Now().UTC().Add(-maxAge).Format(time.RFC3339)
+	result, err := s.db.Exec("DELETE FROM agents WHERE status = 'disconnected' AND last_seen < ?", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
+}
+
 // --- Events ---
 
 func (s *Store) RecordEvent(e *model.Event) error {

@@ -127,6 +127,10 @@ func (s *Server) reapStaleAgents() {
 					})
 				}
 			}
+			// Purge agents disconnected for 24+ hours
+			if purged, err := s.store.PurgeStaleAgents(24 * time.Hour); err == nil && purged > 0 {
+				log.Printf("purged %d agents disconnected for 24+ hours", purged)
+			}
 		}
 	}
 }
