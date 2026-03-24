@@ -761,6 +761,44 @@ select.form-input { cursor: pointer; }
   width: 6px; height: 6px; border-radius: 50%;
 }
 
+/* ── REVIEW CARDS ── */
+.review-card {
+  padding: 10px 12px; margin-bottom: 8px;
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+.review-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.review-status {
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 10px; letter-spacing: 0.5px;
+}
+.review-pending { background: var(--amber-glow); color: var(--amber); }
+.review-approved { background: rgba(46,204,113,0.12); color: var(--green); }
+.review-rejected { background: rgba(239,68,68,0.12); color: var(--red); }
+.review-summary {
+  font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 6px;
+}
+.review-diff {
+  font-size: 0.7rem; font-family: var(--font-mono); line-height: 1.5;
+  background: var(--bg-deep); border: 1px solid var(--border-subtle);
+  border-radius: 4px; padding: 8px 10px; overflow-x: auto;
+  max-height: 400px; overflow-y: auto; white-space: pre; margin: 4px 0;
+}
+.review-diff .diff-add { color: var(--green); }
+.review-diff .diff-del { color: var(--red); }
+.review-diff .diff-hunk { color: var(--cyan); font-weight: 600; }
+.review-diff .diff-file { color: var(--amber); font-weight: 600; }
+.review-feedback {
+  font-size: 0.75rem; color: var(--text-dim); padding: 6px 0;
+  border-top: 1px solid var(--border-subtle); margin-top: 6px;
+}
+.review-actions {
+  display: flex; gap: 8px; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
 /* ── INLINE TASK CREATOR ── */
 .inline-creator {
   padding: 8px; margin-bottom: 4px;
@@ -1827,12 +1865,13 @@ async function openTaskPanel(taskId, defaultTab) {
   document.getElementById('panel-title').innerHTML = `<span class="editable-val" onclick="editTitle('${esc(taskId)}')" title="Click to edit">${esc(task.title)}</span>`;
   document.getElementById('panel-subtitle').textContent = `${taskType} · ${task.id} · ${task.status} · ${task.priority}${proj ? ' · ' + proj.name : ''}`;
 
-  // Fetch comments, deps, history, subtasks in parallel
-  const [comments, deps, history, subtaskData] = await Promise.all([
+  // Fetch comments, deps, history, subtasks, reviews in parallel
+  const [comments, deps, history, subtaskData, reviews] = await Promise.all([
     fetch(`/api/tasks/${taskId}/comments`).then(r => r.json()).catch(() => []),
     fetch(`/api/tasks/${taskId}/deps`).then(r => r.json()).catch(() => ({depends_on:[],blocking:[]})),
     fetch(`/api/tasks/${taskId}/history`).then(r => r.json()).catch(() => []),
     fetch(`/api/tasks/${taskId}/subtasks`).then(r => r.json()).catch(() => ({subtasks:[],progress:{done:0,total:0}})),
+    fetch(`/api/reviews?task_id=${taskId}`).then(r => r.json()).catch(() => []),
   ]);
   const subtasks = subtaskData.subtasks || [];
   const progress = subtaskData.progress || {done:0,total:0};
@@ -1841,6 +1880,7 @@ async function openTaskPanel(taskId, defaultTab) {
   content.innerHTML = `
     <div class="panel-tabs">
       <div class="panel-tab${defaultTab==='details'?' active':''}" data-tab="details">Details</div>
+      <div class="panel-tab${defaultTab==='reviews'?' active':''}" data-tab="reviews">Reviews${reviews.length ? ` (${reviews.length})` : ''}</div>
       <div class="panel-tab${defaultTab==='comments'?' active':''}" data-tab="comments">Comments (${comments.length})</div>
       <div class="panel-tab${defaultTab==='history'?' active':''}" data-tab="history">History (${history.length})</div>
     </div>
@@ -1933,6 +1973,31 @@ async function openTaskPanel(taskId, defaultTab) {
         <button class="btn" onclick="addComment()">Post</button>
       </div>
     </div>
+    <div class="panel-body" id="tab-reviews"${defaultTab!=='reviews'?' style="display:none"':''}>
+      ${reviews.length === 0 ? '<div class="empty-state"><p>No reviews submitted yet.<br><span style="font-size:0.7rem;color:var(--text-dim)">Agents can submit diffs via waggle_submit_review</span></p></div>' :
+        reviews.map(r => `
+          <div class="review-card" data-review-id="${esc(r.id)}">
+            <div class="review-header">
+              <span class="review-status review-${r.status}">${r.status}</span>
+              <span style="color:var(--cyan);font-size:0.7rem">${esc(r.agent_id)}</span>
+              ${r.branch ? `<span style="color:var(--purple);font-size:0.65rem;font-family:var(--font-mono)">⎇ ${esc(r.branch)}</span>` : ''}
+              <span style="color:var(--text-dim);font-size:0.6rem;margin-left:auto">${timeSince(new Date(r.created_at))}</span>
+            </div>
+            ${r.summary ? `<div class="review-summary">${esc(r.summary)}</div>` : ''}
+            <details class="review-diff-toggle">
+              <summary style="cursor:pointer;font-size:0.7rem;color:var(--text-dim);padding:4px 0">Show diff (${r.diff.split('\\n').length} lines)</summary>
+              <pre class="review-diff">${colorDiff(esc(r.diff))}</pre>
+            </details>
+            ${r.feedback ? `<div class="review-feedback"><span style="font-weight:600;color:var(--text-secondary)">Feedback:</span> ${esc(r.feedback)}</div>` : ''}
+            ${r.status === 'pending' ? `
+              <div class="review-actions">
+                <button class="btn btn-sm" style="background:var(--green);border-color:var(--green)" onclick="reviewAction('${esc(r.id)}','approved','${esc(taskId)}')">Approve</button>
+                <button class="btn-ghost btn-sm" onclick="reviewReject('${esc(r.id)}','${esc(taskId)}')">Reject</button>
+              </div>
+            ` : ''}
+          </div>
+        `).join('')}
+    </div>
     <div class="panel-body" id="tab-history"${defaultTab!=='history'?' style="display:none"':''}>
       ${history.length === 0 ? '<div class="empty-state"><p>No history</p></div>' :
         history.map(h => `
@@ -1950,7 +2015,7 @@ async function openTaskPanel(taskId, defaultTab) {
     tab.addEventListener('click', () => {
       content.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      ['details','comments','history'].forEach(name => {
+      ['details','reviews','comments','history'].forEach(name => {
         const el = document.getElementById('tab-' + name);
         if (el) el.style.display = tab.dataset.tab === name ? '' : 'none';
       });
@@ -2116,6 +2181,37 @@ async function assignAgentProject(agentName, projectId) {
     showToast(`${agentName} assigned to ${projectName}`, 'var(--cyan)');
     await fetchAll();
   }
+}
+
+function colorDiff(escaped) {
+  return escaped.split('\n').map(line => {
+    if (line.startsWith('+++') || line.startsWith('---')) return `<span class="diff-file">${line}</span>`;
+    if (line.startsWith('@@')) return `<span class="diff-hunk">${line}</span>`;
+    if (line.startsWith('+')) return `<span class="diff-add">${line}</span>`;
+    if (line.startsWith('-')) return `<span class="diff-del">${line}</span>`;
+    return line;
+  }).join('\n');
+}
+
+async function reviewAction(reviewId, status, taskId) {
+  await fetch(`/api/reviews/${reviewId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status}),
+  });
+  showToast(`Review ${status}`, status === 'approved' ? 'var(--green)' : 'var(--red)');
+  openTaskPanel(taskId, 'reviews');
+}
+
+async function reviewReject(reviewId, taskId) {
+  const feedback = prompt('Rejection feedback (optional):');
+  await fetch(`/api/reviews/${reviewId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status: 'rejected', feedback: feedback || ''}),
+  });
+  showToast('Review rejected', 'var(--red)');
+  openTaskPanel(taskId, 'reviews');
 }
 
 async function dismissAgent(agentName) {

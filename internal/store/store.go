@@ -133,6 +133,21 @@ func (s *Store) migrate() error {
 			created_at    TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS reviews (
+			id         TEXT PRIMARY KEY,
+			task_id    TEXT NOT NULL,
+			agent_id   TEXT NOT NULL,
+			branch     TEXT DEFAULT '',
+			diff       TEXT NOT NULL,
+			summary    TEXT DEFAULT '',
+			status     TEXT DEFAULT 'pending',
+			feedback   TEXT DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id);
+		CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
 		CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
 		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 		CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
@@ -944,6 +959,88 @@ func (s *Store) DeleteProject(id string) error {
 	}
 	_, err = s.db.Exec("DELETE FROM projects WHERE id = ?", id)
 	return err
+}
+
+// --- Reviews ---
+
+func (s *Store) CreateReview(r *model.Review) error {
+	if r.ID == "" {
+		r.ID = id.New()
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	r.CreatedAt, _ = time.Parse(time.RFC3339, now)
+	r.UpdatedAt = r.CreatedAt
+	if r.Status == "" {
+		r.Status = model.ReviewPending
+	}
+	_, err := s.db.Exec(`INSERT INTO reviews (id, task_id, agent_id, branch, diff, summary, status, feedback, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.TaskID, r.AgentID, r.Branch, r.Diff, r.Summary, r.Status, r.Feedback, now, now)
+	return err
+}
+
+func (s *Store) GetReview(id string) (*model.Review, error) {
+	row := s.db.QueryRow(`SELECT id, task_id, agent_id, branch, diff, summary, status, feedback, created_at, updated_at FROM reviews WHERE id = ?`, id)
+	return scanReview(row)
+}
+
+func (s *Store) ListReviewsByTask(taskID string) ([]*model.Review, error) {
+	rows, err := s.db.Query(`SELECT id, task_id, agent_id, branch, diff, summary, status, feedback, created_at, updated_at FROM reviews WHERE task_id = ? ORDER BY created_at DESC`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var reviews []*model.Review
+	for rows.Next() {
+		r, err := scanReview(rows)
+		if err != nil {
+			return nil, err
+		}
+		reviews = append(reviews, r)
+	}
+	return reviews, nil
+}
+
+func (s *Store) ListReviews(statusFilter string) ([]*model.Review, error) {
+	query := `SELECT id, task_id, agent_id, branch, diff, summary, status, feedback, created_at, updated_at FROM reviews`
+	var args []any
+	if statusFilter != "" {
+		query += ` WHERE status = ?`
+		args = append(args, statusFilter)
+	}
+	query += ` ORDER BY created_at DESC`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var reviews []*model.Review
+	for rows.Next() {
+		r, err := scanReview(rows)
+		if err != nil {
+			return nil, err
+		}
+		reviews = append(reviews, r)
+	}
+	return reviews, nil
+}
+
+func (s *Store) UpdateReviewStatus(id string, status model.ReviewStatus, feedback string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(`UPDATE reviews SET status = ?, feedback = ?, updated_at = ? WHERE id = ?`, status, feedback, now, id)
+	return err
+}
+
+func scanReview(s scanner) (*model.Review, error) {
+	var r model.Review
+	var createdAt, updatedAt string
+	err := s.Scan(&r.ID, &r.TaskID, &r.AgentID, &r.Branch, &r.Diff, &r.Summary, &r.Status, &r.Feedback, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	r.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	r.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &r, nil
 }
 
 // --- Token Usage ---

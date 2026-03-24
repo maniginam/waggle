@@ -144,6 +144,27 @@ type Message struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type ReviewStatus string
+
+const (
+	ReviewPending  ReviewStatus = "pending"
+	ReviewApproved ReviewStatus = "approved"
+	ReviewRejected ReviewStatus = "rejected"
+)
+
+type Review struct {
+	ID        string       `json:"id"`
+	TaskID    string       `json:"task_id"`
+	AgentID   string       `json:"agent_id"`
+	Branch    string       `json:"branch,omitempty"`
+	Diff      string       `json:"diff"`
+	Summary   string       `json:"summary,omitempty"`
+	Status    ReviewStatus `json:"status"`
+	Feedback  string       `json:"feedback,omitempty"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
+}
+
 type TokenUsage struct {
 	ID           string    `json:"id"`
 	AgentName    string    `json:"agent_name"`

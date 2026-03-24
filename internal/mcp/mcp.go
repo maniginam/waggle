@@ -251,6 +251,16 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"from":  prop("string", "Filter by sender"),
 			},
 		}),
+		toolDef("waggle_submit_review", "Submit a git diff for review on a task. The diff will appear in the dashboard for the user to approve or reject.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"task_id": prop("string", "Task ID this diff is for"),
+				"diff":    prop("string", "Git diff output"),
+				"branch":  prop("string", "Git branch name"),
+				"summary": prop("string", "Brief summary of changes"),
+			},
+			"required": []string{"task_id", "diff"},
+		}),
 		toolDef("waggle_create_project", "Create a new project to organize epics and stories.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -600,6 +610,25 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			url += fmt.Sprintf("&limit=%d", int(limit))
 		}
 		return a.get(url)
+
+	case "waggle_submit_review":
+		if a.agentName == "" {
+			return nil, fmt.Errorf("must call waggle_register_agent first")
+		}
+		taskID, _ := args["task_id"].(string)
+		diff, _ := args["diff"].(string)
+		if taskID == "" || diff == "" {
+			return nil, fmt.Errorf("task_id and diff are required")
+		}
+		branch, _ := args["branch"].(string)
+		summary, _ := args["summary"].(string)
+		return a.postJSON("/api/reviews", map[string]string{
+			"task_id":  taskID,
+			"agent_id": a.agentName,
+			"diff":     diff,
+			"branch":   branch,
+			"summary":  summary,
+		})
 
 	case "waggle_create_project":
 		return a.postJSON("/api/projects", args)

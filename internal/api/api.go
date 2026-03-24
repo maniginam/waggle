@@ -30,6 +30,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/agents/", a.handleAgent)
 	mux.HandleFunc("/api/events", a.handleEvents)
 	mux.HandleFunc("/api/messages", a.handleMessages)
+	mux.HandleFunc("/api/reviews", a.handleReviews)
+	mux.HandleFunc("/api/reviews/", a.handleReview)
 	mux.HandleFunc("/api/stats", a.handleStats)
 	mux.HandleFunc("/api/usage", a.handleUsage)
 	return mux
@@ -794,6 +796,99 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func (a *API) handleReviews(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		statusFilter := r.URL.Query().Get("status")
+		taskID := r.URL.Query().Get("task_id")
+		var reviews []*model.Review
+		var err error
+		if taskID != "" {
+			reviews, err = a.store.ListReviewsByTask(taskID)
+		} else {
+			reviews, err = a.store.ListReviews(statusFilter)
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		if reviews == nil {
+			reviews = []*model.Review{}
+		}
+		writeJSON(w, http.StatusOK, reviews)
+
+	case http.MethodPost:
+		var rev model.Review
+		if err := json.NewDecoder(r.Body).Decode(&rev); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if rev.TaskID == "" || rev.Diff == "" {
+			writeError(w, http.StatusBadRequest, "missing_fields", "task_id and diff are required")
+			return
+		}
+		if rev.AgentID == "" {
+			rev.AgentID = "unknown"
+		}
+		if err := a.store.CreateReview(&rev); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		a.eventHub.Publish(&model.Event{Type: "review_submitted", AgentID: rev.AgentID, TaskID: rev.TaskID, Payload: rev})
+		writeJSON(w, http.StatusCreated, rev)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleReview(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/reviews/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing_id", "review id required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		rev, err := a.store.GetReview(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "not_found", "review not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, rev)
+
+	case http.MethodPatch:
+		var req struct {
+			Status   string `json:"status"`
+			Feedback string `json:"feedback"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		status := model.ReviewStatus(req.Status)
+		if status != model.ReviewApproved && status != model.ReviewRejected {
+			writeError(w, http.StatusBadRequest, "invalid_status", "status must be 'approved' or 'rejected'")
+			return
+		}
+		if err := a.store.UpdateReviewStatus(id, status, req.Feedback); err != nil {
+			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+			return
+		}
+		rev, _ := a.store.GetReview(id)
+		eventType := "review_approved"
+		if status == model.ReviewRejected {
+			eventType = "review_rejected"
+		}
+		a.eventHub.Publish(&model.Event{Type: model.EventType(eventType), TaskID: rev.TaskID, Payload: rev})
+		writeJSON(w, http.StatusOK, rev)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
