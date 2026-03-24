@@ -1643,6 +1643,7 @@ function renderAgents() {
       <span class="agent-workload${taskCount > 0 ? ' has-tasks' : ''}" title="${taskCount} assigned task${taskCount !== 1 ? 's' : ''}">${taskCount}</span>
       <div class="agent-actions">
         ${stale ? `<button class="poke-btn" onclick="pokeAgent(event,'${esc(a.name)}')">poke</button>` : ''}
+        ${a.status === 'disconnected' ? `<button class="poke-btn" style="color:var(--red)" onclick="event.stopPropagation();dismissAgent('${esc(a.name)}')" title="Dismiss">&#x2715;</button>` : ''}
         <button class="msg-btn" onclick="openAgentPanel(event,'${esc(a.name)}')">&#9993;</button>
       </div>
     </div>`;
@@ -2040,6 +2041,7 @@ async function openAgentPanel(evtOrNull, agentName) {
           <button class="quick-action" onclick="fillPrompt('Please provide a summary of what you have completed so far.')">Progress summary</button>
           <button class="quick-action" onclick="fillPrompt('You appear to be stalled. Please check in and confirm your current state, or abandon your current task and pick up a new one.')">Unstall</button>
           <button class="quick-action" onclick="fillPrompt('Please run all tests and report back on what passes and what fails.')">Run tests</button>
+          ${agent && agent.status === 'disconnected' ? `<button class="quick-action poke" style="border-color:var(--red);color:var(--red)" onclick="dismissAgent('${esc(agentName)}')">&#x2715; Dismiss agent</button>` : ''}
         </div>
         <div class="prompt-box" style="margin-top:12px">
           <div class="prompt-box-header">
@@ -2113,6 +2115,18 @@ async function assignAgentProject(agentName, projectId) {
     const projectName = projectId ? projects.find(p => p.id === projectId)?.name || projectId : 'shared';
     showToast(`${agentName} assigned to ${projectName}`, 'var(--cyan)');
     await fetchAll();
+  }
+}
+
+async function dismissAgent(agentName) {
+  if (!confirm(`Remove ${agentName} from the dashboard? They'll re-appear if they reconnect.`)) return;
+  const resp = await fetch(`/api/agents/${encodeURIComponent(agentName)}`, {method: 'DELETE'});
+  if (resp.ok) {
+    showToast(`${agentName} dismissed`, 'var(--red)');
+    closePanel();
+    await fetchAll();
+  } else {
+    showToast('Failed to dismiss agent', 'var(--red)');
   }
 }
 

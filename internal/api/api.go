@@ -457,6 +457,18 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// DELETE /api/agents/:name
+	if r.Method == http.MethodDelete && subAction == "" {
+		if err := a.store.DeleteAgent(name); err != nil {
+			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
+			return
+		}
+		a.store.RecordEvent(&model.Event{Type: model.EventAgentLeft, AgentID: name})
+		a.eventHub.Publish(&model.Event{Type: model.EventAgentLeft, AgentID: name})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+		return
+	}
+
 	// GET /api/agents/:id
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
