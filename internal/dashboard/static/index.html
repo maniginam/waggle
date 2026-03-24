@@ -235,7 +235,7 @@ body {
 .main-panel {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto auto auto 1fr;
   overflow: hidden;
   flex: 1;
 }
@@ -297,6 +297,10 @@ body {
   background: var(--amber); opacity: 0; transition: opacity 0.2s;
 }
 .project-card:hover .project-card-accent { opacity: 1; }
+.project-card-dates {
+  display: flex; gap: 12px; font-size: 0.6rem; color: var(--text-dim);
+  margin-top: 4px; font-family: var(--font-mono);
+}
 .unassigned-card {
   border-style: dashed; border-color: var(--border);
 }
@@ -2611,6 +2615,7 @@ function renderBoardHeader() {
       <span class="board-project-name">${esc(name)}</span>
       ${agentInfo}
       ${desc ? `<span class="board-project-desc">${esc(desc)}</span>` : ''}
+      ${project ? `<span style="font-size:0.6rem;color:var(--text-dim);font-family:var(--font-mono)">created ${timeSince(new Date(project.created_at))} · updated ${timeSince(new Date(project.updated_at))}</span>` : ''}
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn-ghost btn-sm" onclick="toggleBulkMode()" title="Select multiple tasks">${bulkMode ? 'Exit Select' : 'Select'}</button>
@@ -2653,6 +2658,10 @@ function renderOverview() {
         <div class="project-card-progress">
           <div class="project-card-progress-fill" style="width:${pct}%;background:var(--green)"></div>
         </div>
+        <div class="project-card-dates">
+          <span>created ${timeSince(new Date(p.created_at))}</span>
+          <span>updated ${timeSince(new Date(p.updated_at))}</span>
+        </div>
       </div>`;
   }
 
@@ -2690,7 +2699,8 @@ function renderOverview() {
           <div style="font-size:0.8rem;font-family:var(--font-sans);font-weight:500;color:var(--text-primary)">${esc(a.name)}
             <span style="font-size:0.55rem;color:${roleColor};font-weight:700;text-transform:uppercase">${a.type}</span>
           </div>
-          <div style="font-size:0.65rem;color:var(--text-dim)">${a.current_task ? esc(a.current_task) : (ap ? esc(ap.name) : (a.last_seen ? timeSince(new Date(a.last_seen)) : ''))}</div>
+          <div style="font-size:0.65rem;color:var(--text-dim)">${a.current_task ? esc(a.current_task) : (ap ? esc(ap.name) : '')}</div>
+          <div style="font-size:0.55rem;color:var(--text-dim);font-family:var(--font-mono)">${a.last_seen ? 'seen ' + timeSince(new Date(a.last_seen)) : ''}${a.connected_at ? ' · joined ' + timeSince(new Date(a.connected_at)) : ''}</div>
         </div>
         ${taskCount > 0 ? `<span class="agent-workload has-tasks">${taskCount}</span>` : ''}
       </div>`;
