@@ -1397,6 +1397,7 @@ let navCollapsed = localStorage.getItem('waggle_nav_collapsed') === 'true';
 let boardSort = localStorage.getItem('waggle_sort') || 'priority'; // priority, deadline, newest, oldest
 let bulkMode = false;
 let bulkSelected = new Set();
+let pendingReviews = [];
 
 // ── BOARD PROGRESS ──
 
@@ -1732,6 +1733,7 @@ function renderStats() {
     <div class="header-stat"><span class="val">${taskCount}</span> tasks${scopeLabel ? ` <span style="color:var(--amber);font-size:0.7rem">${esc(scopeLabel)}</span>` : ''}</div>
     <div class="header-stat"><span class="val">${s.total_agents}</span> agents</div>
     ${costStr}
+    ${pendingReviews.length > 0 ? `<div class="header-stat" style="cursor:pointer" onclick="navigateTo('overview')"><span class="val" style="color:var(--amber)">${pendingReviews.length}</span> review${pendingReviews.length !== 1 ? 's' : ''}</div>` : ''}
     <div class="header-stat"><div class="pulse-dot"></div> live</div>
   `;
 
@@ -2610,18 +2612,20 @@ function closePanel() {
 
 async function fetchAll() {
   try {
-    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes] = await Promise.all([
+    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes, reviewsRes] = await Promise.all([
       fetch('/api/tasks'),
       fetch('/api/agents'),
       fetch('/api/stats'),
       fetch('/api/projects'),
       fetch('/api/usage'),
+      fetch('/api/reviews?status=pending'),
     ]);
     tasks = await tasksRes.json();
     agents = await agentsRes.json();
     stats = await statsRes.json();
     projects = await projectsRes.json();
     usageData = await usageRes.json();
+    pendingReviews = await reviewsRes.json().catch(() => []);
     renderProjectNav();
     if (currentView === 'overview') {
       renderOverview();
@@ -2849,6 +2853,24 @@ function renderOverview() {
       </div>`;
     })()}
 
+    ${pendingReviews.length > 0 ? `<div>
+      <div class="overview-section-title">Pending Reviews (${pendingReviews.length})</div>
+      <div class="overview-activity">
+        ${pendingReviews.map(r => {
+          const task = tasks.find(t => t.id === r.task_id);
+          return `<div class="overview-activity-row clickable review-row" data-review-id="${esc(r.id)}" data-task-id="${esc(r.task_id)}">
+            <span class="review-status review-pending" style="font-size:0.55rem;padding:1px 6px">pending</span>
+            <span style="color:var(--text-secondary);font-size:0.75rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${task ? esc(task.title) : esc(r.task_id)}</span>
+            <span style="color:var(--cyan);font-size:0.65rem">${esc(r.agent_id)}</span>
+            ${r.branch ? `<span style="color:var(--purple);font-size:0.6rem;font-family:var(--font-mono)">⎇ ${esc(r.branch)}</span>` : ''}
+            <span style="color:var(--text-dim);font-size:0.6rem">${timeSince(new Date(r.created_at))}</span>
+            <button class="btn btn-sm" style="background:var(--green);border-color:var(--green);font-size:0.6rem;padding:2px 8px" onclick="event.stopPropagation();reviewAction('${esc(r.id)}','approved','${esc(r.task_id)}')">Approve</button>
+            <button class="btn-ghost btn-sm" style="font-size:0.6rem;padding:2px 6px" onclick="event.stopPropagation();reviewReject('${esc(r.id)}','${esc(r.task_id)}')">Reject</button>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : ''}
+
     <div>
       <div class="overview-section-title">Projects</div>
       <div class="overview-grid">${projectCards || '<div class="empty-state"><div class="empty-hex"></div><p>No projects yet. Create one to organize your work.</p></div>'}</div>
@@ -2871,6 +2893,9 @@ function renderOverview() {
   });
   el.querySelectorAll('.overview-agent-card').forEach(card => {
     card.addEventListener('click', () => openAgentPanel(null, card.dataset.agentName));
+  });
+  el.querySelectorAll('.review-row[data-task-id]').forEach(row => {
+    row.addEventListener('click', () => openTaskPanel(row.dataset.taskId, 'reviews'));
   });
   el.querySelectorAll('.overview-alert[data-task-id]').forEach(row => {
     row.addEventListener('click', () => {
@@ -2929,11 +2954,13 @@ function connectSSE() {
         task_created:'var(--green)',task_completed:'var(--green)',task_claimed:'var(--amber)',
         task_updated:'var(--blue)',task_deleted:'var(--red)',agent_registered:'var(--cyan)',
         agent_disconnected:'var(--red)',message_sent:'var(--purple)',
+        review_submitted:'var(--amber)',review_approved:'var(--green)',review_rejected:'var(--red)',
       };
       const toastMsgs = {
         task_created:'Task created',task_completed:'Task completed',task_claimed:'Task claimed',
         task_updated:'Task updated',task_deleted:'Task deleted',agent_registered:'Agent connected',
         agent_disconnected:'Agent disconnected',message_sent:'Message sent',
+        review_submitted:'Review needs approval',review_approved:'Review approved',review_rejected:'Review rejected',
       };
       const label = toastMsgs[evt.type];
       if (label) {
