@@ -1486,6 +1486,14 @@ select.form-input { cursor: pointer; }
 .modal-btn-danger { background: var(--red); color: #fff; border-color: var(--red); font-weight: 600; }
 .modal-btn-danger:hover { filter: brightness(1.15); }
 @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── SLASH COMMANDS HINT ── */
+.slash-hints { position: absolute; bottom: 100%; left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 4px; box-shadow: 0 -4px 16px rgba(0,0,0,0.3); max-height: 240px; overflow-y: auto; display: none; z-index: 60; }
+.slash-hints.open { display: block; }
+.slash-hint-item { padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.1s; }
+.slash-hint-item:hover, .slash-hint-item.active { background: var(--bg-elevated); }
+.slash-hint-cmd { font-family: var(--font-mono); font-size: 0.75rem; color: var(--amber); min-width: 120px; }
+.slash-hint-desc { font-size: 0.7rem; color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -3731,7 +3739,55 @@ function setCommandTarget(target) {
   document.getElementById('cmd-input').focus();
 }
 
+const SLASH_COMMANDS = [
+  {cmd: '/spawn', args: '<name> [prompt]', desc: 'Spawn a new agent in tmux', fn: slashSpawn},
+  {cmd: '/kill', args: '<agent>', desc: 'Kill an agent tmux session', fn: slashKill},
+  {cmd: '/status', args: '', desc: 'Show agent statuses', fn: slashStatus},
+  {cmd: '/view', args: '<page>', desc: 'Navigate (overview, inbox, sessions)', fn: slashView},
+  {cmd: '/task', args: '<title>', desc: 'Quick-create a backlog task', fn: slashTask},
+  {cmd: '/clear', args: '', desc: 'Clear command history', fn: () => { showToast('Cleared', 'var(--text-dim)'); }},
+];
+let slashHintIdx = -1;
+
+function onCommandInput() {
+  const input = document.getElementById('cmd-input');
+  const val = input.value;
+  const hints = document.getElementById('slash-hints');
+  if (val.startsWith('/')) {
+    const query = val.split(' ')[0].toLowerCase();
+    const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(query));
+    if (matches.length > 0) {
+      hints.innerHTML = matches.map((c, i) => `<div class="slash-hint-item${i===slashHintIdx?' active':''}" data-idx="${i}" onclick="pickSlashCommand('${c.cmd}')"><span class="slash-hint-cmd">${c.cmd} ${c.args}</span><span class="slash-hint-desc">${c.desc}</span></div>`).join('');
+      hints.classList.add('open');
+      return;
+    }
+  }
+  hints.classList.remove('open');
+  slashHintIdx = -1;
+}
+
+function pickSlashCommand(cmd) {
+  const input = document.getElementById('cmd-input');
+  input.value = cmd + ' ';
+  input.focus();
+  document.getElementById('slash-hints').classList.remove('open');
+  slashHintIdx = -1;
+}
+
 function handleCommandKey(e) {
+  const hints = document.getElementById('slash-hints');
+  if (hints.classList.contains('open')) {
+    const items = hints.querySelectorAll('.slash-hint-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); slashHintIdx = Math.min(slashHintIdx + 1, items.length - 1); onCommandInput(); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); slashHintIdx = Math.max(slashHintIdx - 1, 0); onCommandInput(); return; }
+    if (e.key === 'Tab' && items.length > 0) {
+      e.preventDefault();
+      const idx = Math.max(slashHintIdx, 0);
+      const cmd = SLASH_COMMANDS.filter(c => c.cmd.startsWith(document.getElementById('cmd-input').value.split(' ')[0].toLowerCase()))[idx];
+      if (cmd) pickSlashCommand(cmd.cmd);
+      return;
+    }
+  }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendCommand();
@@ -3740,12 +3796,26 @@ function handleCommandKey(e) {
     e.preventDefault();
     toggleTargetPicker();
   }
+  if (e.key === 'Escape') {
+    hints.classList.remove('open');
+    slashHintIdx = -1;
+  }
 }
 
 async function sendCommand() {
   const input = document.getElementById('cmd-input');
   const body = input.value.trim();
   if (!body) return;
+  document.getElementById('slash-hints').classList.remove('open');
+  slashHintIdx = -1;
+
+  // Handle slash commands
+  if (body.startsWith('/')) {
+    const parts = body.split(/\s+/);
+    const cmd = SLASH_COMMANDS.find(c => c.cmd === parts[0].toLowerCase());
+    if (cmd) { input.value = ''; await cmd.fn(parts.slice(1).join(' ')); return; }
+  }
+
   input.value = '';
 
   if (commandTarget === 'broadcast') {
@@ -3801,6 +3871,71 @@ document.addEventListener('click', (e) => {
     picker.classList.remove('open');
   }
 });
+
+// ── SLASH COMMAND HANDLERS ──
+
+async function slashSpawn(args) {
+  if (!args.trim()) { showToast('Usage: /spawn <name> [prompt]', 'var(--amber)'); return; }
+  const parts = args.split(/\s+/);
+  const name = parts[0];
+  const prompt = parts.slice(1).join(' ');
+  const resp = await fetch('/api/spawn', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, prompt: prompt || undefined}),
+  });
+  if (resp.ok) {
+    showToast(`Spawned agent: ${name}`, 'var(--green)');
+    await fetchAll();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast('Spawn failed: ' + (err.error?.message || 'unknown'), 'var(--red)');
+  }
+}
+
+async function slashKill(args) {
+  const name = args.trim();
+  if (!name) { showToast('Usage: /kill <agent-name>', 'var(--amber)'); return; }
+  if (!await showConfirm(`Kill session for ${name}?`, {title: 'Kill Session', danger: true})) return;
+  const resp = await fetch(`/api/sessions/${encodeURIComponent(name)}`, {method: 'DELETE'});
+  if (resp.ok) {
+    showToast(`Killed: ${name}`, 'var(--red)');
+    await fetchAll();
+  } else {
+    showToast('Session not found: ' + name, 'var(--red)');
+  }
+}
+
+function slashStatus() {
+  const active = agents.filter(a => a.status !== 'disconnected');
+  if (active.length === 0) { showToast('No active agents', 'var(--text-dim)'); return; }
+  const summary = active.map(a => `${a.name}: ${a.status}`).join(' · ');
+  showToast(summary, 'var(--cyan)');
+}
+
+function slashView(args) {
+  const page = args.trim().toLowerCase();
+  if (page === 'overview' || page === 'home') { navigateTo('overview'); }
+  else if (page === 'inbox' || page === 'messages') { navigateTo('inbox'); }
+  else if (page === 'sessions' || page === 'cctv') { navigateTo('sessions'); }
+  else { showToast('Views: overview, inbox, sessions', 'var(--amber)'); }
+}
+
+async function slashTask(args) {
+  const title = args.trim();
+  if (!title) { showToast('Usage: /task <title>', 'var(--amber)'); return; }
+  const resp = await fetch('/api/tasks', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({title, status: 'backlog', priority: 'medium'}),
+  });
+  if (resp.ok) {
+    showToast(`Task created: ${title}`, 'var(--green)');
+    await fetchAll();
+  } else {
+    showToast('Failed to create task', 'var(--red)');
+  }
+}
 
 // ── SSE ──
 
@@ -4604,9 +4739,12 @@ document.addEventListener('visibilitychange', () => {
     <button class="command-bar-target broadcast" id="cmd-target-btn" onclick="toggleTargetPicker()">@broadcast</button>
     <div class="command-target-picker" id="cmd-target-picker"></div>
   </div>
-  <input class="command-input" id="cmd-input" placeholder="Send a message to agents... (@ to change target)" onkeydown="handleCommandKey(event)" autocomplete="off">
+  <div style="flex:1;position:relative">
+    <div class="slash-hints" id="slash-hints"></div>
+    <input class="command-input" id="cmd-input" placeholder="Send a message or type / for commands..." onkeydown="handleCommandKey(event)" oninput="onCommandInput()" autocomplete="off" style="width:100%">
+  </div>
   <button class="command-send" onclick="sendCommand()">Send</button>
-  <span class="command-hint" id="cmd-hint">@ = target &middot; Enter = send &middot; &#8984;K focus</span>
+  <span class="command-hint" id="cmd-hint">/ = commands &middot; @ = target &middot; &#8984;K focus</span>
 </div>
 
 </body>
