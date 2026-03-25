@@ -1642,6 +1642,7 @@ let usageData = null;
 let collapsedColumns = new Set(JSON.parse(localStorage.getItem('waggle_collapsed') || '[]'));
 let navCollapsed = localStorage.getItem('waggle_nav_collapsed') === 'true';
 let boardSort = localStorage.getItem('waggle_sort') || 'priority'; // priority, deadline, newest, oldest
+let focusMode = localStorage.getItem('waggle_focus') === 'true';
 let bulkMode = false;
 let bulkSelected = new Set();
 let pendingReviews = [];
@@ -1718,7 +1719,8 @@ function renderBoard() {
     }
   });
 
-  for (const status of STATUSES) {
+  const displayStatuses = focusMode ? STATUSES.filter(s => s !== 'done') : STATUSES;
+  for (const status of displayStatuses) {
     const col = document.createElement('div');
     col.className = 'column';
     col.dataset.status = status;
@@ -4181,7 +4183,17 @@ function renderFilterBar() {
         `<button class="filter-chip${boardSort===s?' active':''}" onclick="setSort('${s}')">${s}</button>`
       ).join('')}
     </div>
+    <div class="filter-divider"></div>
+    <button class="filter-chip${focusMode?' active':''}" onclick="toggleFocusMode()" style="${focusMode?'color:var(--amber);border-color:var(--amber)':''}">Focus</button>
   `;
+}
+
+function toggleFocusMode() {
+  focusMode = !focusMode;
+  localStorage.setItem('waggle_focus', focusMode);
+  renderFilterBar();
+  renderBoard();
+  showToast(focusMode ? 'Focus mode: done column hidden' : 'Focus mode off', 'var(--text-dim)');
 }
 
 function toggleFilter(type, val) {
