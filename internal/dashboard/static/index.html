@@ -1469,6 +1469,23 @@ select.form-input { cursor: pointer; }
   .command-bar { padding: 6px 8px; }
   .inbox { padding: 12px; }
 }
+
+/* ── MODAL SYSTEM ── */
+.modal-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; animation: modalFadeIn 0.15s ease-out; }
+.modal-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; min-width: 340px; max-width: 460px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+.modal-title { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-primary); margin-bottom: 12px; font-weight: 600; }
+.modal-body { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5; }
+.modal-input { width: 100%; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem; margin-bottom: 16px; outline: none; transition: border-color 0.15s; box-sizing: border-box; }
+.modal-input:focus { border-color: var(--amber); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-btn { padding: 6px 16px; border-radius: var(--radius); font-family: var(--font-mono); font-size: 0.75rem; cursor: pointer; border: 1px solid var(--border); transition: all 0.15s; }
+.modal-btn-cancel { background: var(--bg-elevated); color: var(--text-secondary); }
+.modal-btn-cancel:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.modal-btn-confirm { background: var(--amber); color: var(--bg); border-color: var(--amber); font-weight: 600; }
+.modal-btn-confirm:hover { filter: brightness(1.1); }
+.modal-btn-danger { background: var(--red); color: #fff; border-color: var(--red); font-weight: 600; }
+.modal-btn-danger:hover { filter: brightness(1.15); }
+@keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
 </style>
 </head>
 <body>
@@ -2540,7 +2557,8 @@ async function reviewAction(reviewId, status, taskId) {
 }
 
 async function reviewReject(reviewId, taskId) {
-  const feedback = prompt('Rejection feedback (optional):');
+  const feedback = await showPrompt('Rejection feedback (optional):', {title: 'Reject Review', placeholder: 'What needs to be fixed...'});
+  if (feedback === null) return;
   await fetch(`/api/reviews/${reviewId}`, {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
@@ -2553,14 +2571,14 @@ async function reviewReject(reviewId, taskId) {
 async function dismissAllDisconnected() {
   const disconnected = agents.filter(a => a.status === 'disconnected');
   if (disconnected.length === 0) { showToast('No disconnected agents', 'var(--text-dim)'); return; }
-  if (!confirm(`Dismiss ${disconnected.length} disconnected agent${disconnected.length !== 1 ? 's' : ''}?`)) return;
+  if (!await showConfirm(`Dismiss ${disconnected.length} disconnected agent${disconnected.length !== 1 ? 's' : ''}?`, {title: 'Dismiss Agents', danger: true})) return;
   await Promise.all(disconnected.map(a => fetch(`/api/agents/${encodeURIComponent(a.name)}`, {method: 'DELETE'})));
   showToast(`Dismissed ${disconnected.length} agents`, 'var(--red)');
   await fetchAll();
 }
 
 async function dismissAgent(agentName) {
-  if (!confirm(`Remove ${agentName} from the dashboard? They'll re-appear if they reconnect.`)) return;
+  if (!await showConfirm(`Remove ${agentName} from the dashboard? They'll re-appear if they reconnect.`, {title: 'Dismiss Agent', danger: true})) return;
   const resp = await fetch(`/api/agents/${encodeURIComponent(agentName)}`, {method: 'DELETE'});
   if (resp.ok) {
     showToast(`${agentName} dismissed`, 'var(--red)');
@@ -2705,7 +2723,7 @@ async function doSpawn() {
 }
 
 async function killSession(agentName) {
-  if (!confirm('Kill session for ' + agentName + '?')) return;
+  if (!await showConfirm('Kill session for ' + agentName + '?', {title: 'Kill Session', danger: true})) return;
   const resp = await fetch('/api/sessions/' + encodeURIComponent(agentName), {method: 'DELETE'});
   if (resp.ok) {
     showToast('Killed session for ' + agentName, 'var(--red)');
@@ -2898,7 +2916,7 @@ async function duplicateTask(taskId) {
 }
 
 async function deleteTask(taskId) {
-  if (!confirm('Delete this task?')) return;
+  if (!await showConfirm('Delete this task?', {title: 'Delete Task', danger: true})) return;
   const resp = await fetch(`/api/tasks/${taskId}`, {method: 'DELETE'});
   if (resp.status === 409) {
     alert('Cannot delete in-progress task. Unclaim it first.');
@@ -3086,7 +3104,7 @@ async function deleteProject(projectId, projectName) {
   const msg = taskCount > 0
     ? `Delete project "${projectName}"? Its ${taskCount} task${taskCount !== 1 ? 's' : ''} will become unassigned.`
     : `Delete project "${projectName}"?`;
-  if (!confirm(msg)) return;
+  if (!await showConfirm(msg, {title: 'Delete Project', danger: true})) return;
   // Unassign tasks from this project first
   if (taskCount > 0) {
     const projectTasks = tasks.filter(t => t.project_id === projectId);
@@ -3963,7 +3981,7 @@ async function bulkMoveTo(status) {
 }
 
 async function bulkDelete() {
-  if (!confirm(`Delete ${bulkSelected.size} tasks? This cannot be undone.`)) return;
+  if (!await showConfirm(`Delete ${bulkSelected.size} tasks? This cannot be undone.`, {title: 'Bulk Delete', danger: true})) return;
   const ids = [...bulkSelected];
   await Promise.all(ids.map(id =>
     fetch('/api/tasks/' + id, {method:'DELETE'})
@@ -3982,6 +4000,56 @@ function showToast(message, color) {
   toast.innerHTML = `<div class="toast-dot" style="background:${color||'var(--text-dim)'}"></div>${esc(message)}`;
   container.appendChild(toast);
   setTimeout(() => { if (toast.parentElement) toast.remove(); }, 4000);
+}
+
+// ── MODAL SYSTEM ──
+
+function showConfirm(message, {title = 'Confirm', danger = false} = {}) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `<div class="modal-box">
+      <div class="modal-title">${esc(title)}</div>
+      <div class="modal-body">${esc(message)}</div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-cancel" data-action="cancel">Cancel</button>
+        <button class="modal-btn ${danger ? 'modal-btn-danger' : 'modal-btn-confirm'}" data-action="ok">${danger ? 'Delete' : 'Confirm'}</button>
+      </div>
+    </div>`;
+    const close = (val) => { overlay.remove(); resolve(val); };
+    overlay.querySelector('[data-action="cancel"]').onclick = () => close(false);
+    overlay.querySelector('[data-action="ok"]').onclick = () => close(true);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(false); });
+    document.body.appendChild(overlay);
+    overlay.querySelector('[data-action="ok"]').focus();
+    const onKey = e => { if (e.key === 'Escape') { close(false); document.removeEventListener('keydown', onKey); } else if (e.key === 'Enter') { close(true); document.removeEventListener('keydown', onKey); } };
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+function showPrompt(message, {title = 'Input', placeholder = '', defaultValue = ''} = {}) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `<div class="modal-box">
+      <div class="modal-title">${esc(title)}</div>
+      <div class="modal-body">${esc(message)}</div>
+      <input class="modal-input" placeholder="${esc(placeholder)}" value="${esc(defaultValue)}">
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-cancel" data-action="cancel">Cancel</button>
+        <button class="modal-btn modal-btn-confirm" data-action="ok">OK</button>
+      </div>
+    </div>`;
+    const input = overlay.querySelector('.modal-input');
+    const close = (val) => { overlay.remove(); resolve(val); };
+    overlay.querySelector('[data-action="cancel"]').onclick = () => close(null);
+    overlay.querySelector('[data-action="ok"]').onclick = () => close(input.value);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    document.body.appendChild(overlay);
+    input.focus();
+    input.select();
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') close(input.value); else if (e.key === 'Escape') close(null); });
+  });
 }
 
 // ── SEARCH ──
@@ -4154,7 +4222,7 @@ function cancelEditDescription() {
 }
 
 async function addTag(taskId) {
-  const tag = prompt('Tag name:');
+  const tag = await showPrompt('Enter tag name:', {title: 'Add Tag', placeholder: 'e.g. frontend, urgent, v2'});
   if (!tag || !tag.trim()) return;
   const task = tasks.find(t => t.id === taskId);
   if (!task) return;
