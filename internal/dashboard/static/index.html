@@ -3831,6 +3831,7 @@ async function sendCommand() {
       });
       showToast('Broadcast sent (no active agents — stored for later)', 'var(--amber)');
     } else {
+      // Send waggle messages to all active agents
       await Promise.all(active.map(a =>
         fetch('/api/messages', {
           method: 'POST',
@@ -3838,7 +3839,21 @@ async function sendCommand() {
           body: JSON.stringify({from: 'user', to: a.name, body}),
         })
       ));
-      showToast(`Sent to ${active.length} agents`, 'var(--amber)');
+      // Also inject into tmux sessions for guaranteed delivery
+      const injected = [];
+      for (const a of active) {
+        const sess = tmuxSessions.find(s => s.agent === a.name);
+        if (sess) {
+          await fetch(`/api/sessions/${encodeURIComponent(a.name)}/send`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({keys: body}),
+          }).catch(() => {});
+          injected.push(a.name);
+        }
+      }
+      const tmuxNote = injected.length > 0 ? ` (${injected.length} via terminal)` : '';
+      showToast(`Sent to ${active.length} agents${tmuxNote}`, 'var(--amber)');
     }
   } else {
     // Send as waggle message
