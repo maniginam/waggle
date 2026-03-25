@@ -2438,12 +2438,24 @@ async function sendAgentPrompt(agentName) {
   const body = ta ? ta.value.trim() : '';
   if (!body) return;
   ta.value = '';
+  // Send as waggle message
   await fetch('/api/messages', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({from: 'user', to: agentName, body}),
   });
-  showToast(`Instruction sent to ${agentName}`, 'var(--amber)');
+  // Also inject into tmux if session exists
+  const session = tmuxSessions.find(s => s.agent === agentName);
+  if (session) {
+    await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys: body}),
+    }).catch(() => {});
+    showToast(`Sent to ${agentName} (message + terminal)`, 'var(--amber)');
+  } else {
+    showToast(`Instruction sent to ${agentName}`, 'var(--amber)');
+  }
 }
 
 async function assignAgentProject(agentName, projectId) {
@@ -2711,6 +2723,7 @@ async function sendBroadcast() {
   const active = agents.filter(a => a.status !== 'disconnected');
   if (active.length === 0) { showToast('No active agents', 'var(--red)'); return; }
   ta.value = '';
+  // Send messages
   await Promise.all(active.map(a =>
     fetch('/api/messages', {
       method: 'POST',
@@ -2718,7 +2731,16 @@ async function sendBroadcast() {
       body: JSON.stringify({from: 'user', to: a.name, body}),
     })
   ));
-  showToast(`Broadcast sent to ${active.length} agents`, 'var(--amber)');
+  // Also inject into tmux sessions
+  const injected = await Promise.all(tmuxSessions.map(s =>
+    fetch(`/api/sessions/${encodeURIComponent(s.agent)}/send`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys: body}),
+    }).then(() => true).catch(() => false)
+  ));
+  const injectedCount = injected.filter(Boolean).length;
+  showToast(`Broadcast: ${active.length} messages${injectedCount > 0 ? `, ${injectedCount} terminal injections` : ''}`, 'var(--amber)');
   fetchAll();
 }
 
@@ -3500,12 +3522,24 @@ async function sendCommand() {
       showToast(`Sent to ${active.length} agents`, 'var(--amber)');
     }
   } else {
+    // Send as waggle message
     await fetch('/api/messages', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({from: 'user', to: commandTarget, body}),
     });
-    showToast(`Sent to ${commandTarget}`, 'var(--cyan)');
+    // Also try to inject directly into tmux session
+    const session = tmuxSessions.find(s => s.agent === commandTarget);
+    if (session) {
+      await fetch(`/api/sessions/${encodeURIComponent(commandTarget)}/send`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({keys: body}),
+      }).catch(() => {});
+      showToast(`Sent to ${commandTarget} (message + terminal)`, 'var(--cyan)');
+    } else {
+      showToast(`Sent to ${commandTarget} (message only — no tmux session)`, 'var(--cyan)');
+    }
   }
 
   await fetchAll();
