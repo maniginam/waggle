@@ -3747,7 +3747,9 @@ const SLASH_COMMANDS = [
   {cmd: '/status', args: '', desc: 'Show agent statuses', fn: slashStatus},
   {cmd: '/view', args: '<page>', desc: 'Navigate (overview, inbox, sessions)', fn: slashView},
   {cmd: '/task', args: '<title>', desc: 'Quick-create a backlog task', fn: slashTask},
-  {cmd: '/clear', args: '', desc: 'Clear command history', fn: () => { showToast('Cleared', 'var(--text-dim)'); }},
+  {cmd: '/assign', args: '<task-id> <agent>', desc: 'Assign a task to an agent', fn: slashAssign},
+  {cmd: '/move', args: '<task-id> <status>', desc: 'Move task to status column', fn: slashMove},
+  {cmd: '/help', args: '', desc: 'Show all commands', fn: slashHelp},
 ];
 let slashHintIdx = -1;
 
@@ -3896,10 +3898,20 @@ async function slashSpawn(args) {
   const parts = args.split(/\s+/);
   const name = parts[0];
   const prompt = parts.slice(1).join(' ');
+  // Use project work_dir if available, fall back to stored paths
+  let workDir = '';
+  if (selectedProject && selectedProject !== 'none') {
+    const proj = projects.find(p => p.id === selectedProject);
+    if (proj) workDir = projectPaths[proj.name] || projectPaths[proj.id] || '';
+  }
+  if (!workDir) {
+    workDir = await showPrompt('Working directory for this agent:', {title: 'Spawn ' + name, placeholder: '/path/to/project'});
+    if (!workDir) return;
+  }
   const resp = await fetch('/api/spawn', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, prompt: prompt || undefined}),
+    body: JSON.stringify({name, work_dir: workDir, prompt: prompt || undefined}),
   });
   if (resp.ok) {
     showToast(`Spawned agent: ${name}`, 'var(--green)');
@@ -3952,6 +3964,36 @@ async function slashTask(args) {
   } else {
     showToast('Failed to create task', 'var(--red)');
   }
+}
+
+async function slashAssign(args) {
+  const parts = args.trim().split(/\s+/);
+  if (parts.length < 2) { showToast('Usage: /assign <task-id> <agent-name>', 'var(--amber)'); return; }
+  const [taskId, agentName] = parts;
+  const task = tasks.find(t => t.id === taskId || t.id.startsWith(taskId));
+  if (!task) { showToast('Task not found: ' + taskId, 'var(--red)'); return; }
+  await doClaimTask(task.id, agentName);
+}
+
+async function slashMove(args) {
+  const parts = args.trim().split(/\s+/);
+  if (parts.length < 2) { showToast('Usage: /move <task-id> <status>', 'var(--amber)'); return; }
+  const [taskId, status] = parts;
+  const valid = ['backlog','ready','in_progress','review','done','blocked'];
+  if (!valid.includes(status)) { showToast('Valid statuses: ' + valid.join(', '), 'var(--amber)'); return; }
+  const task = tasks.find(t => t.id === taskId || t.id.startsWith(taskId));
+  if (!task) { showToast('Task not found: ' + taskId, 'var(--red)'); return; }
+  const resp = await fetch(`/api/tasks/${task.id}`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status}),
+  });
+  if (resp.ok) { showToast(`Moved ${task.id} → ${status}`, 'var(--green)'); await fetchAll(); }
+  else { showToast('Move failed', 'var(--red)'); }
+}
+
+function slashHelp() {
+  const lines = SLASH_COMMANDS.map(c => `${c.cmd} ${c.args} — ${c.desc}`).join('\n');
+  showToast('Commands: ' + SLASH_COMMANDS.map(c => c.cmd).join(', '), 'var(--cyan)');
 }
 
 // ── SSE ──
