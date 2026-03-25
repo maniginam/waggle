@@ -3417,6 +3417,11 @@ function renderOverview() {
       <div class="overview-agents">${agentCards}</div>
     </div>` : ''}
 
+    ${tmuxSessions.length > 0 ? `<div>
+      <div class="overview-section-title">Live Sessions <span style="font-size:0.6rem;color:var(--text-dim);font-weight:400;cursor:pointer" onclick="navigateTo('sessions')">view all &rarr;</span></div>
+      <div id="overview-sessions" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px"></div>
+    </div>` : ''}
+
     <div>
       <div class="overview-section-title">Recent Activity</div>
       <div class="overview-activity" id="overview-activity"><div class="empty-state"><p>Loading...</p></div></div>
@@ -3439,6 +3444,29 @@ function renderOverview() {
       if (t) openDetailPanel(null, t);
     });
   });
+
+  // Fetch session previews for overview
+  const sessContainer = document.getElementById('overview-sessions');
+  if (sessContainer && tmuxSessions.length > 0) {
+    Promise.all(tmuxSessions.slice(0, 6).map(async s => {
+      try {
+        const resp = await fetch(`/api/sessions/${encodeURIComponent(s.agent)}/output?lines=6`);
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        const lines = (data.output || '').trim().split('\n').slice(-4).join('\n');
+        return {agent: s.agent, output: lines};
+      } catch { return null; }
+    })).then(results => {
+      const valid = results.filter(Boolean);
+      if (valid.length === 0) return;
+      sessContainer.innerHTML = valid.map(s => `
+        <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--radius);overflow:hidden;cursor:pointer" onclick="navigateTo('sessions')">
+          <div style="padding:4px 8px;background:var(--bg-elevated);font-size:0.65rem;font-weight:600;color:var(--cyan);border-bottom:1px solid var(--border)">${esc(s.agent)}</div>
+          <pre style="padding:4px 8px;font-size:0.55rem;color:var(--text-dim);line-height:1.3;margin:0;white-space:pre-wrap;word-break:break-all;max-height:70px;overflow:hidden">${esc(s.output)}</pre>
+        </div>
+      `).join('');
+    });
+  }
 
   // Fetch recent events
   fetch('/api/events?limit=20').then(r => r.json()).then(events => {
@@ -3625,7 +3653,8 @@ function toggleTargetPicker() {
 function setCommandTarget(target) {
   commandTarget = target;
   const btn = document.getElementById('cmd-target-btn');
-  btn.textContent = '@' + target;
+  const hasSession = target !== 'broadcast' && tmuxSessions.some(s => s.agent === target);
+  btn.textContent = '@' + target + (hasSession ? ' (live)' : '');
   btn.className = 'command-bar-target' + (target === 'broadcast' ? ' broadcast' : '');
   document.getElementById('cmd-target-picker').classList.remove('open');
   document.getElementById('cmd-input').focus();
@@ -4448,7 +4477,7 @@ document.addEventListener('visibilitychange', () => {
   </div>
   <input class="command-input" id="cmd-input" placeholder="Send a message to agents... (@ to change target)" onkeydown="handleCommandKey(event)" autocomplete="off">
   <button class="command-send" onclick="sendCommand()">Send</button>
-  <span class="command-hint">@ = target &middot; Enter = send</span>
+  <span class="command-hint" id="cmd-hint">@ = target &middot; Enter = send &middot; &#8984;K focus</span>
 </div>
 
 </body>
