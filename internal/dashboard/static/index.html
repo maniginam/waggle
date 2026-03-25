@@ -1488,6 +1488,14 @@ select.form-input { cursor: pointer; }
 @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* ── SLASH COMMANDS HINT ── */
+/* ── CONTEXT MENU ── */
+.ctx-menu { position: fixed; z-index: 100; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 4px 16px rgba(0,0,0,0.4); padding: 4px; min-width: 180px; }
+.ctx-menu-item { display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.72rem; cursor: pointer; text-align: left; border-radius: 3px; transition: all 0.1s; }
+.ctx-menu-item:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.ctx-menu-item.danger { color: var(--red); }
+.ctx-menu-item.danger:hover { background: rgba(255,77,77,0.1); }
+.ctx-menu-sep { height: 1px; background: var(--border); margin: 3px 0; }
+
 .slash-hints { position: absolute; bottom: 100%; left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 4px; box-shadow: 0 -4px 16px rgba(0,0,0,0.3); max-height: 240px; overflow-y: auto; display: none; z-index: 60; }
 .slash-hints.open { display: block; }
 .slash-hint-item { padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.1s; }
@@ -1764,6 +1772,7 @@ function renderBoard() {
       }
       openTaskPanel(card.dataset.id);
     });
+    card.addEventListener('contextmenu', (e) => showTaskContextMenu(e, card.dataset.id));
     // Drag and drop
     if (!bulkMode) card.setAttribute('draggable', 'true');
     card.addEventListener('dragstart', (e) => {
@@ -4427,6 +4436,68 @@ async function cyclePriority(taskId, current) {
   });
   showToast(`Priority: ${next}`, next === 'critical' ? 'var(--red)' : next === 'high' ? 'var(--amber)' : 'var(--text-dim)');
   await fetchAll();
+}
+
+// ── TASK CONTEXT MENU ──
+
+function showTaskContextMenu(e, taskId) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.querySelectorAll('.ctx-menu').forEach(el => el.remove());
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  const statuses = ['backlog','ready','in_progress','review','done','blocked'];
+  const moveItems = statuses.filter(s => s !== task.status).map(s =>
+    `<button class="ctx-menu-item" onclick="ctxMoveTask('${taskId}','${s}')">Move → ${s.replace('_',' ')}</button>`
+  ).join('');
+
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.innerHTML = `
+    <button class="ctx-menu-item" onclick="openTaskPanel('${esc(taskId)}')">Open details</button>
+    <button class="ctx-menu-item" onclick="quickClaim('${esc(taskId)}');closeCtxMenu()">Assign...</button>
+    <div class="ctx-menu-sep"></div>
+    ${moveItems}
+    <div class="ctx-menu-sep"></div>
+    <button class="ctx-menu-item" onclick="duplicateTask('${esc(taskId)}');closeCtxMenu()">Duplicate</button>
+    <button class="ctx-menu-item danger" onclick="deleteTask('${esc(taskId)}');closeCtxMenu()">Delete</button>
+  `;
+  document.body.appendChild(menu);
+
+  // Keep menu in viewport
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+  if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+
+  setTimeout(() => {
+    const closer = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', closer); } };
+    document.addEventListener('click', closer);
+  }, 0);
+}
+
+function closeCtxMenu() { document.querySelectorAll('.ctx-menu').forEach(el => el.remove()); }
+
+async function ctxMoveTask(taskId, status) {
+  closeCtxMenu();
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status}),
+  });
+  showToast(`Moved → ${status.replace('_',' ')}`, 'var(--green)');
+  await fetchAll();
+}
+
+async function duplicateTask(taskId) {
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const resp = await fetch('/api/tasks', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({title: task.title + ' (copy)', description: task.description, status: task.status, priority: task.priority, tags: task.tags, project_id: task.project_id, task_type: task.task_type}),
+  });
+  if (resp.ok) { showToast('Task duplicated', 'var(--green)'); await fetchAll(); }
 }
 
 // ── INLINE TITLE EDIT ──
