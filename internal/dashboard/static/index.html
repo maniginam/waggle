@@ -1365,6 +1365,49 @@ select.form-input { cursor: pointer; }
 .command-target-option:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .command-target-option.active { color: var(--amber); }
 
+/* ── SESSIONS GRID ── */
+.sessions-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 12px; padding: 20px 24px;
+}
+.session-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); overflow: hidden; transition: border-color 0.15s;
+}
+.session-card:hover { border-color: var(--border); }
+.session-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; background: var(--bg-elevated); border-bottom: 1px solid var(--border);
+}
+.session-card-name { font-size: 0.8rem; font-weight: 600; color: var(--cyan); }
+.session-card-actions { display: flex; gap: 4px; }
+.session-card-output {
+  height: 200px; overflow-y: auto; padding: 6px 10px;
+  font-family: var(--font-mono); font-size: 0.6rem; line-height: 1.4;
+  color: var(--text-dim); white-space: pre-wrap; word-break: break-all;
+  background: var(--bg-deep);
+}
+.session-card-output::-webkit-scrollbar { width: 3px; }
+.session-card-output::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.session-card-input {
+  display: flex; gap: 4px; padding: 6px 8px; border-top: 1px solid var(--border);
+}
+.session-card-input input {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 8px; color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 0.65rem; outline: none;
+}
+.session-card-input input:focus { border-color: var(--amber-dim); }
+.session-card-input button {
+  padding: 4px 8px; background: var(--amber); color: var(--bg-deep);
+  border: none; border-radius: 4px; font-family: var(--font-mono);
+  font-size: 0.6rem; font-weight: 700; cursor: pointer;
+}
+@media (max-width: 900px) {
+  .sessions-grid { grid-template-columns: 1fr; padding: 12px; }
+  .session-card-output { height: 150px; }
+}
+
 /* ── TERMINAL VIEWER ── */
 #term-output::-webkit-scrollbar { width: 4px; }
 #term-output::-webkit-scrollbar-track { background: transparent; }
@@ -1482,6 +1525,7 @@ select.form-input { cursor: pointer; }
     <!-- Overview, Inbox, or Project board rendered here -->
     <div id="overview-view" class="overview"></div>
     <div id="inbox-view" class="inbox" style="display:none"></div>
+    <div id="sessions-view" style="display:none"></div>
     <div id="board-view" style="display:none">
       <div class="board-header" id="board-header"></div>
       <div class="main-panel">
@@ -3097,6 +3141,8 @@ async function fetchAll() {
       renderOverview();
     } else if (currentView === 'inbox') {
       renderInbox();
+    } else if (currentView === 'sessions') {
+      renderSessions();
     } else {
       renderBoardHeader();
       renderFilterBar();
@@ -3125,6 +3171,11 @@ function renderProjectNav() {
     <div class="nav-icon" style="background:var(--purple-dim);border-color:var(--purple)"></div>
     <span class="project-nav-name">Inbox</span>
     ${unreadCount > 0 ? `<span class="project-nav-count" style="background:var(--amber-glow-strong);color:var(--amber)">${unreadCount}</span>` : `<span class="project-nav-count">${inboxMessages.length}</span>`}
+  </button>
+  <button class="project-nav-item${currentView==='sessions'?' active':''}" data-view="sessions">
+    <div class="nav-icon" style="background:var(--cyan-dim);border-color:var(--cyan)"></div>
+    <span class="project-nav-name">Sessions</span>
+    <span class="project-nav-count">${tmuxSessions.length}</span>
   </button>`;
 
   for (const p of projects) {
@@ -3167,24 +3218,25 @@ function navigateTo(view) {
   const overviewEl = document.getElementById('overview-view');
   const boardEl = document.getElementById('board-view');
   const inboxEl = document.getElementById('inbox-view');
+  const sessEl = document.getElementById('sessions-view');
+
+  const hideAll = () => { overviewEl.style.display='none'; boardEl.style.display='none'; inboxEl.style.display='none'; sessEl.style.display='none'; };
 
   if (view === 'overview') {
     selectedProject = '';
-    overviewEl.style.display = '';
-    boardEl.style.display = 'none';
-    inboxEl.style.display = 'none';
+    hideAll(); overviewEl.style.display = '';
     renderOverview();
   } else if (view === 'inbox') {
     selectedProject = '';
-    overviewEl.style.display = 'none';
-    boardEl.style.display = 'none';
-    inboxEl.style.display = '';
+    hideAll(); inboxEl.style.display = '';
     renderInbox();
+  } else if (view === 'sessions') {
+    selectedProject = '';
+    hideAll(); sessEl.style.display = '';
+    renderSessions();
   } else {
     selectedProject = view === 'none' ? 'none' : view;
-    overviewEl.style.display = 'none';
-    boardEl.style.display = '';
-    inboxEl.style.display = 'none';
+    hideAll(); boardEl.style.display = '';
     renderBoardHeader();
     renderBoard();
     renderFilterBar();
@@ -3462,6 +3514,97 @@ function renderInbox() {
       </div>`;
     }).join('')}
   `;
+}
+
+// ── SESSIONS VIEW ──
+
+let sessionsRefreshTimer = null;
+
+async function renderSessions() {
+  const el = document.getElementById('sessions-view');
+  if (!el) return;
+
+  if (tmuxSessions.length === 0) {
+    el.innerHTML = '<div class="inbox" style="padding:40px"><div class="empty-state"><p>No tmux sessions running. Spawn an agent to get started.</p><button class="btn" onclick="openSpawnPanel()" style="margin-top:12px">+ Spawn Agent</button></div></div>';
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="padding:16px 24px 0;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:var(--font-sans);font-size:1.3rem;font-weight:700">Sessions</div>
+        <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">${tmuxSessions.length} tmux sessions</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-ghost btn-sm" onclick="openSpawnPanel()">+ Spawn</button>
+        <button class="btn-ghost btn-sm" onclick="refreshAllSessions()">Refresh All</button>
+      </div>
+    </div>
+    <div class="sessions-grid">
+      ${tmuxSessions.map(s => `
+        <div class="session-card" data-session="${esc(s.agent)}">
+          <div class="session-card-header">
+            <span class="session-card-name">${esc(s.agent)}</span>
+            <div class="session-card-actions">
+              <button class="msg-btn" onclick="setCommandTarget('${esc(s.agent)}');document.getElementById('cmd-input').focus()">msg</button>
+              <button class="msg-btn" onclick="openAgentTerminal('${esc(s.agent)}')">expand</button>
+              <button class="poke-btn" onclick="killSession('${esc(s.agent)}')">kill</button>
+            </div>
+          </div>
+          <div class="session-card-output" id="sess-out-${esc(s.agent)}">Loading...</div>
+          <div class="session-card-input">
+            <input placeholder="Send to ${esc(s.agent)}..." onkeydown="if(event.key==='Enter'){sendToSession('${esc(s.agent)}',this);}" id="sess-in-${esc(s.agent)}">
+            <button onclick="sendToSession('${esc(s.agent)}',document.getElementById('sess-in-${esc(s.agent)}'))">Send</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  // Load initial output for all sessions
+  refreshAllSessions();
+
+  // Auto-refresh every 5 seconds while on sessions view
+  if (sessionsRefreshTimer) clearInterval(sessionsRefreshTimer);
+  sessionsRefreshTimer = setInterval(() => {
+    if (currentView !== 'sessions') { clearInterval(sessionsRefreshTimer); sessionsRefreshTimer = null; return; }
+    refreshAllSessions();
+  }, 5000);
+}
+
+async function refreshAllSessions() {
+  for (const s of tmuxSessions) {
+    const el = document.getElementById('sess-out-' + s.agent);
+    if (!el) continue;
+    try {
+      const resp = await fetch(`/api/sessions/${encodeURIComponent(s.agent)}/output?lines=30`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+        el.textContent = data.output || '(empty)';
+        if (wasAtBottom) el.scrollTop = el.scrollHeight;
+      }
+    } catch {}
+  }
+}
+
+async function sendToSession(agentName, inputEl) {
+  const keys = inputEl ? inputEl.value.trim() : '';
+  if (!keys) return;
+  inputEl.value = '';
+  await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({keys}),
+  }).catch(() => {});
+  setTimeout(() => {
+    const el = document.getElementById('sess-out-' + agentName);
+    if (el) {
+      fetch(`/api/sessions/${encodeURIComponent(agentName)}/output?lines=30`)
+        .then(r => r.json()).then(d => { el.textContent = d.output || '(empty)'; el.scrollTop = el.scrollHeight; })
+        .catch(() => {});
+    }
+  }, 500);
 }
 
 // ── COMMAND BAR ──
@@ -4272,6 +4415,12 @@ if (currentView === 'inbox') {
   document.getElementById('overview-view').style.display = 'none';
   document.getElementById('inbox-view').style.display = '';
   document.getElementById('board-view').style.display = 'none';
+  document.getElementById('sessions-view').style.display = 'none';
+} else if (currentView === 'sessions') {
+  document.getElementById('overview-view').style.display = 'none';
+  document.getElementById('inbox-view').style.display = 'none';
+  document.getElementById('board-view').style.display = 'none';
+  document.getElementById('sessions-view').style.display = '';
 } else if (currentView !== 'overview') {
   selectedProject = currentView === 'none' ? 'none' : currentView;
   document.getElementById('overview-view').style.display = 'none';
