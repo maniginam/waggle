@@ -177,6 +177,7 @@ func (s *Server) pushNotificationLoop() {
 		model.EventMessage:             "New message",
 		model.EventAgentJoined:         "Agent connected",
 		model.EventAgentLeft:           "Agent disconnected",
+		"review_submitted":             "Review needs attention",
 	}
 
 	for {
@@ -190,14 +191,29 @@ func (s *Server) pushNotificationLoop() {
 				continue
 			}
 			body := ""
-			if evt.AgentID != "" {
-				body = evt.AgentID
-			}
-			if evt.TaskID != "" {
-				if body != "" {
-					body += " — "
+			// Extract richer details from payload
+			if payload, ok := evt.Payload.(map[string]any); ok {
+				if msgBody, ok := payload["body"].(string); ok && evt.Type == model.EventMessage {
+					from, _ := payload["from"].(string)
+					if from != "" {
+						body = from + ": " + msgBody
+					} else {
+						body = msgBody
+					}
+				} else if taskTitle, ok := payload["title"].(string); ok {
+					body = taskTitle
 				}
-				body += evt.TaskID
+			}
+			if body == "" {
+				if evt.AgentID != "" {
+					body = evt.AgentID
+				}
+				if evt.TaskID != "" {
+					if body != "" {
+						body += " — "
+					}
+					body += evt.TaskID
+				}
 			}
 			s.push.Send(push.PushPayload{
 				Title: title,
