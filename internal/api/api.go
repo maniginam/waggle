@@ -542,6 +542,27 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 		a.eventHub.Publish(&model.Event{Type: model.EventMessage, AgentID: msg.From, Payload: msg})
 		writeJSON(w, http.StatusCreated, msg)
 
+	case http.MethodPatch:
+		var req struct {
+			IDs     []string `json:"ids"`
+			MarkAll bool     `json:"mark_all"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		var err error
+		if req.MarkAll {
+			err = a.store.MarkAllMessagesRead()
+		} else {
+			err = a.store.MarkMessagesRead(req.IDs)
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "mark_read_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
