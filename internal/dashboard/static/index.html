@@ -3556,6 +3556,13 @@ function connectSSE() {
           detail = ` from ${p.from || evt.agent_id}${preview ? ': '+preview : ''}`;
         }
         showToast(toastLabel + detail, toastColors[evt.type]);
+        // Browser notification for important events when tab not focused
+        if (document.hidden && Notification.permission === 'granted') {
+          const important = ['task_completed','message','review_submitted','agent_joined','agent_disconnected'];
+          if (important.includes(evt.type)) {
+            new Notification('waggle: ' + toastLabel, {body: detail.replace(/^ — | from /, ''), icon: '/favicon.ico', tag: evt.type + (evt.task_id || evt.agent_id || '')});
+          }
+        }
       }
       // Refresh chat if agent panel is open with messages tab visible
       if (currentPanel && currentPanel.type === 'agent') {
@@ -4184,7 +4191,9 @@ function updatePageTitle() {
   }
   if (inProg > 0) parts.push(`${inProg} active`);
   if (activeAgents > 0) parts.push(`${activeAgents} agents`);
-  document.title = parts.length > 0 ? `waggle \u00b7 ${parts.join(' \u00b7 ')}` : 'waggle';
+  const unread = inboxMessages.filter(m => !m.read).length;
+  const prefix = unread > 0 ? `(${unread}) ` : '';
+  document.title = prefix + (parts.length > 0 ? `waggle \u00b7 ${parts.join(' \u00b7 ')}` : 'waggle');
 }
 
 // ── UTILS ──
@@ -4213,6 +4222,10 @@ if (currentView === 'inbox') {
   selectedProject = currentView === 'none' ? 'none' : currentView;
   document.getElementById('overview-view').style.display = 'none';
   document.getElementById('board-view').style.display = '';
+}
+// Request notification permission
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
 }
 fetchAll();
 connectSSE();
