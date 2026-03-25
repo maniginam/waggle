@@ -1095,11 +1095,16 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 
 	// Write a launch script to avoid shell escaping issues entirely
 	launchScript := filepath.Join(os.TempDir(), "waggle-launch-"+req.Name+".sh")
-	os.WriteFile(launchScript, []byte("#!/bin/sh\n"+shellCmd+"\nexec $SHELL"), 0755)
+	os.WriteFile(launchScript, []byte("#!/bin/sh\nunset CLAUDECODE\n"+shellCmd+"\nexec $SHELL"), 0755)
 
 	// Spawn tmux session with the launch script
 	tmuxCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName, "-c", workDir, launchScript)
-	tmuxCmd.Env = os.Environ()
+	// Filter out CLAUDECODE env var to allow nested Claude Code sessions
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "CLAUDECODE=") {
+			tmuxCmd.Env = append(tmuxCmd.Env, e)
+		}
+	}
 
 	if out, err := tmuxCmd.CombinedOutput(); err != nil {
 		writeError(w, http.StatusInternalServerError, "spawn_failed",
