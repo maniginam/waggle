@@ -3749,6 +3749,8 @@ const SLASH_COMMANDS = [
   {cmd: '/task', args: '<title>', desc: 'Quick-create a backlog task', fn: slashTask},
   {cmd: '/assign', args: '<task-id> <agent>', desc: 'Assign a task to an agent', fn: slashAssign},
   {cmd: '/move', args: '<task-id> <status>', desc: 'Move task to status column', fn: slashMove},
+  {cmd: '/find', args: '<query>', desc: 'Search tasks by title or ID', fn: slashFind},
+  {cmd: '/done', args: '<task-id>', desc: 'Mark a task as done', fn: slashDone},
   {cmd: '/help', args: '', desc: 'Show all commands', fn: slashHelp},
 ];
 let slashHintIdx = -1;
@@ -3989,6 +3991,34 @@ async function slashMove(args) {
   });
   if (resp.ok) { showToast(`Moved ${task.id} → ${status}`, 'var(--green)'); await fetchAll(); }
   else { showToast('Move failed', 'var(--red)'); }
+}
+
+function slashFind(args) {
+  const q = args.trim().toLowerCase();
+  if (!q) { showToast('Usage: /find <query>', 'var(--amber)'); return; }
+  const matches = tasks.filter(t =>
+    t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q) ||
+    (t.tags||[]).some(tag => tag.toLowerCase().includes(q))
+  );
+  if (matches.length === 0) { showToast('No tasks match: ' + q, 'var(--text-dim)'); return; }
+  if (matches.length === 1) { openTaskPanel(matches[0].id); return; }
+  // Show results as toast with count, focus search
+  const searchEl = document.querySelector('.search-input');
+  if (searchEl) { searchEl.value = args.trim(); searchEl.dispatchEvent(new Event('input')); }
+  showToast(`${matches.length} tasks match "${q}"`, 'var(--cyan)');
+}
+
+async function slashDone(args) {
+  const taskId = args.trim();
+  if (!taskId) { showToast('Usage: /done <task-id>', 'var(--amber)'); return; }
+  const task = tasks.find(t => t.id === taskId || t.id.startsWith(taskId));
+  if (!task) { showToast('Task not found: ' + taskId, 'var(--red)'); return; }
+  const resp = await fetch(`/api/tasks/${task.id}`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status: 'done'}),
+  });
+  if (resp.ok) { showToast(`Completed: ${task.title}`, 'var(--green)'); await fetchAll(); }
+  else { showToast('Failed to complete task', 'var(--red)'); }
 }
 
 function slashHelp() {
