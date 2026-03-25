@@ -442,9 +442,11 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 	// POST /api/agents/register
 	if name == "register" && r.Method == http.MethodPost {
 		var req struct {
-			Name      string `json:"name"`
-			Type      string `json:"type"`
-			ProjectID string `json:"project_id"`
+			Name        string          `json:"name"`
+			Type        string          `json:"type"`
+			ProjectID   string          `json:"project_id"`
+			Role        model.AgentRole `json:"role"`
+			ParentAgent string          `json:"parent_agent"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
@@ -457,7 +459,18 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		if req.Type == "" {
 			req.Type = "custom"
 		}
-		agent, err := a.store.RegisterAgent(req.Name, req.Type, req.ProjectID)
+		// Auto-assign leader role if project has no leader yet
+		if req.Role == "" && req.ProjectID != "" {
+			proj, _ := a.store.GetProject(req.ProjectID)
+			if proj != nil && proj.LeaderAgent == "" {
+				req.Role = model.AgentRoleLeader
+			}
+		}
+		agent, err := a.store.RegisterAgent(req.Name, req.Type, req.ProjectID, req.Role, req.ParentAgent)
+		// If registered as leader, update the project
+		if err == nil && agent.Role == model.AgentRoleLeader && req.ProjectID != "" {
+			a.store.UpdateProject(req.ProjectID, map[string]any{"leader_agent": agent.Name})
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "register_failed", err.Error())
 			return

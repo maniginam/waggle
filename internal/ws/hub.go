@@ -132,16 +132,18 @@ func (c *Client) handleAction(action string, data json.RawMessage) {
 	switch action {
 	case "register":
 		var req struct {
-			Name      string `json:"name"`
-			Type      string `json:"type"`
-			ProjectID string `json:"project_id"`
+			Name        string          `json:"name"`
+			Type        string          `json:"type"`
+			ProjectID   string          `json:"project_id"`
+			Role        model.AgentRole `json:"role"`
+			ParentAgent string          `json:"parent_agent"`
 		}
 		json.Unmarshal(data, &req)
 		if req.Name == "" {
 			return
 		}
 		c.agentName = req.Name
-		agent, err := c.hub.store.RegisterAgent(req.Name, req.Type, req.ProjectID)
+		agent, err := c.hub.store.RegisterAgent(req.Name, req.Type, req.ProjectID, req.Role, req.ParentAgent)
 		if err != nil {
 			log.Printf("register agent error: %v", err)
 			return
