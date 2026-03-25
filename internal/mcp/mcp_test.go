@@ -508,6 +508,102 @@ func TestCommentsViaMCP(t *testing.T) {
 	}
 }
 
+func TestPokeAgent(t *testing.T) {
+	_, ts := setupMCP(t)
+	poker := registeredAdapter(t, ts, "poker-agent")
+	registeredAdapter(t, ts, "target-agent")
+
+	resp := callMCP(t, poker, "tools/call", 44, map[string]any{
+		"name":      "waggle_poke_agent",
+		"arguments": map[string]any{"agent": "target-agent"},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("poke failed: %v", result)
+	}
+
+	// Verify message was sent
+	reader := registeredAdapter(t, ts, "target-agent")
+	resp2 := callMCP(t, reader, "tools/call", 45, map[string]any{
+		"name":      "waggle_read_messages",
+		"arguments": map[string]any{"limit": 10},
+	})
+	result2 := resp2["result"].(map[string]any)
+	content := result2["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "POKE") {
+		t.Errorf("expected POKE message, got %s", text)
+	}
+}
+
+func TestHeartbeat(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "heartbeat-agent")
+
+	resp := callMCP(t, adapter, "tools/call", 40, map[string]any{
+		"name":      "waggle_heartbeat",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("heartbeat failed: %v", result)
+	}
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "updated") {
+		t.Errorf("expected 'updated' in heartbeat response, got %s", text)
+	}
+}
+
+func TestHeartbeatWithoutRegister(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	resp := callMCP(t, adapter, "tools/call", 41, map[string]any{
+		"name":      "waggle_heartbeat",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] == nil || !result["isError"].(bool) {
+		t.Error("expected error when heartbeat without registration")
+	}
+}
+
+func TestDisconnect(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "disconnect-agent")
+
+	resp := callMCP(t, adapter, "tools/call", 42, map[string]any{
+		"name":      "waggle_disconnect",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("disconnect failed: %v", result)
+	}
+
+	// Verify agent is now disconnected via REST
+	agentResp, _ := ts.Client().Get(ts.URL + "/api/agents/disconnect-agent")
+	var agent map[string]any
+	json.NewDecoder(agentResp.Body).Decode(&agent)
+	agentResp.Body.Close()
+	if agent["status"] != "disconnected" {
+		t.Errorf("expected disconnected status, got %v", agent["status"])
+	}
+}
+
+func TestDisconnectWithoutRegister(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	resp := callMCP(t, adapter, "tools/call", 43, map[string]any{
+		"name":      "waggle_disconnect",
+		"arguments": map[string]any{},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] == nil || !result["isError"].(bool) {
+		t.Error("expected error when disconnecting without registration")
+	}
+}
+
 func TestSearchViaMCP(t *testing.T) {
 	adapter, ts := setupMCP(t)
 

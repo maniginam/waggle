@@ -456,12 +456,21 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 			return
 		}
-		if err := a.store.UpdateAgentStatus(name, model.AgentStatus(req.Status), req.CurrentTask); err != nil {
-			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
-			return
+		if req.Status == string(model.AgentDisconnected) {
+			if err := a.store.DisconnectAgent(name); err != nil {
+				writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+				return
+			}
+			a.store.RecordEvent(&model.Event{Type: model.EventAgentLeft, AgentID: name})
+			a.eventHub.Publish(&model.Event{Type: model.EventAgentLeft, AgentID: name})
+		} else {
+			if err := a.store.UpdateAgentStatus(name, model.AgentStatus(req.Status), req.CurrentTask); err != nil {
+				writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+				return
+			}
+			a.store.RecordEvent(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
+			a.eventHub.Publish(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
 		}
-		a.store.RecordEvent(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
-		a.eventHub.Publish(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
 		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 		return
 	}

@@ -292,6 +292,22 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			"properties": map[string]any{"id": prop("string", "Project ID")},
 			"required":   []string{"id"},
 		}),
+		toolDef("waggle_poke_agent", "Send a poke/check-in request to a stale or unresponsive agent. Use when an agent hasn't responded in 3+ minutes.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"agent": prop("string", "Name of the agent to poke"),
+				"message": prop("string", "Optional message to include with the poke"),
+			},
+			"required": []string{"agent"},
+		}),
+		toolDef("waggle_heartbeat", "Send a heartbeat to keep this agent marked as active. Call periodically (every 30-60 seconds) to prevent being marked stale.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}),
+		toolDef("waggle_disconnect", "Gracefully disconnect this agent. Call before shutting down to mark yourself as disconnected and release claimed tasks.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}),
 		toolDef("waggle_report_usage", "Report token usage for this agent. Call periodically to track costs.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -671,6 +687,40 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("id is required")
 		}
 		return a.deleteJSON("/api/projects/" + id)
+
+	case "waggle_poke_agent":
+		if a.agentName == "" {
+			return nil, fmt.Errorf("must call waggle_register_agent first")
+		}
+		agent, _ := args["agent"].(string)
+		if agent == "" {
+			return nil, fmt.Errorf("agent name is required")
+		}
+		msg, _ := args["message"].(string)
+		if msg == "" {
+			msg = "[POKE] You appear to be stalled or inactive. Please check in immediately: report your current status, what you are working on, and whether you are blocked. If blocked, describe what is blocking you."
+		}
+		return a.postJSON("/api/messages", map[string]string{
+			"from": a.agentName,
+			"to":   agent,
+			"body": msg,
+		})
+
+	case "waggle_heartbeat":
+		if a.agentName == "" {
+			return nil, fmt.Errorf("must call waggle_register_agent first")
+		}
+		return a.postJSON("/api/agents/"+url.PathEscape(a.agentName)+"/status", map[string]string{
+			"status": "connected",
+		})
+
+	case "waggle_disconnect":
+		if a.agentName == "" {
+			return nil, fmt.Errorf("must call waggle_register_agent first")
+		}
+		return a.postJSON("/api/agents/"+url.PathEscape(a.agentName)+"/status", map[string]string{
+			"status": "disconnected",
+		})
 
 	case "waggle_report_usage":
 		agentName := a.agentName
