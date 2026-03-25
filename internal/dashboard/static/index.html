@@ -1722,7 +1722,7 @@ function renderBoard() {
     col.innerHTML = `
       <div class="column-header" ${isCollapsed ? `onclick="toggleColumn('${status}')"` : ''}>
         <span class="column-title">${STATUS_LABELS[status]}</span>
-        <span class="column-count">${colTasks.length}</span>
+        <span class="column-count" ${(status === 'in_progress' || status === 'review') && colTasks.length > Math.max(agents.filter(a=>a.status!=='disconnected').length, 3) ? 'style="background:var(--amber-glow-strong);color:var(--amber)" title="WIP limit exceeded"' : ''}>${colTasks.length}</span>
         <button class="column-add" data-add-status="${status}" title="New task in ${STATUS_LABELS[status]}">+</button>
         ${collapseBtn}
       </div>
