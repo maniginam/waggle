@@ -1882,7 +1882,7 @@ function renderCard(t, childrenByParent, tasksById) {
         <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${esc(t.id)}</span>
         ${projBadge}
       </div>
-      <div class="card-title">${esc(t.title)}</div>
+      <div class="card-title" ondblclick="event.stopPropagation();inlineEditTitle(this,'${esc(t.id)}')">${esc(t.title)}</div>
       <div class="card-meta">
         <span class="priority-badge priority-${t.priority}">${t.priority}</span>
         ${t.assignee ? `<span class="card-assignee">${esc(t.assignee)}</span>` : ''}
@@ -4413,6 +4413,36 @@ function showSearchResults() {
 function hideSearchResults() {
   document.getElementById('search-results').classList.remove('visible');
   searchHighlight = -1;
+}
+
+// ── INLINE TITLE EDIT ──
+
+function inlineEditTitle(el, taskId) {
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const oldTitle = task.title;
+  const input = document.createElement('input');
+  input.value = oldTitle;
+  input.className = 'inline-title-edit';
+  input.style.cssText = 'width:100%;padding:2px 4px;background:var(--bg-elevated);border:1px solid var(--amber);border-radius:3px;color:var(--text-primary);font-family:var(--font-sans);font-size:0.85rem;font-weight:500;outline:none';
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+  const save = async () => {
+    const newTitle = input.value.trim();
+    if (newTitle && newTitle !== oldTitle) {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: newTitle}),
+      });
+    }
+    await fetchAll();
+  };
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { input.blur(); }
+    if (e.key === 'Escape') { input.value = oldTitle; input.blur(); }
+  });
 }
 
 // ── INLINE ASSIGNEE EDIT ──
