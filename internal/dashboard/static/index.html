@@ -944,6 +944,20 @@ select.form-input { cursor: pointer; }
 .add-btn:active { transform: scale(0.93); }
 
 /* ── DRAG AND DROP ── */
+.card-quick-move {
+  position: absolute; top: 4px; right: 4px;
+  display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s;
+}
+.card:hover .card-quick-move { opacity: 1; }
+.card-move-btn {
+  width: 20px; height: 20px; border-radius: 3px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  color: var(--text-dim); font-size: 0.55rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; padding: 0;
+}
+.card-move-btn:hover { color: var(--amber); border-color: var(--amber-dim); background: var(--amber-glow); }
+
 .card.dragging { opacity: 0.4; transform: scale(0.95); }
 .column-body.drag-over {
   background: var(--amber-glow); border: 1px dashed var(--amber-dim);
@@ -1546,6 +1560,7 @@ let bulkSelected = new Set();
 let pendingReviews = [];
 let inboxMessages = [];
 let commandTarget = 'broadcast'; // 'broadcast' or agent name
+let projectPaths = JSON.parse(localStorage.getItem('waggle_project_paths') || '{}');
 
 // ── BOARD PROGRESS ──
 
@@ -1769,9 +1784,19 @@ function renderCard(t, childrenByParent, tasksById) {
     }
   }
 
+  // Quick move buttons (prev/next status)
+  const si = STATUSES.indexOf(t.status);
+  const prevStatus = si > 0 ? STATUSES[si-1] : null;
+  const nextStatus = si < STATUSES.length - 1 ? STATUSES[si+1] : null;
+  const quickMoveHtml = `<div class="card-quick-move">
+    ${prevStatus ? `<button class="card-move-btn" onclick="event.stopPropagation();updateTaskStatus('${esc(t.id)}','${prevStatus}')" title="Move to ${STATUS_LABELS[prevStatus]}">&#9664;</button>` : ''}
+    ${nextStatus ? `<button class="card-move-btn" onclick="event.stopPropagation();updateTaskStatus('${esc(t.id)}','${nextStatus}')" title="Move to ${STATUS_LABELS[nextStatus]}">&#9654;</button>` : ''}
+  </div>`;
+
   return `
     <div class="card${sel}${overdueClass}" data-id="${esc(t.id)}">
       ${claimBtn}
+      ${quickMoveHtml}
       <div class="card-id">
         <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${esc(t.id)}</span>
         ${projBadge}
@@ -2421,7 +2446,7 @@ async function openSpawnPanel() {
       </div>
       <div class="spawn-field">
         <label class="spawn-label">Project</label>
-        <select class="spawn-select" id="spawn-project">
+        <select class="spawn-select" id="spawn-project" onchange="onSpawnProjectChange()">
           <option value="">None</option>
           ${projectOpts}
         </select>
@@ -2429,7 +2454,7 @@ async function openSpawnPanel() {
       <div class="spawn-field">
         <label class="spawn-label">Working Directory</label>
         <input class="spawn-input" id="spawn-workdir" placeholder="/Users/maniginam/projects/...">
-        <div class="spawn-hint">Absolute path to the project directory</div>
+        <div class="spawn-hint">Absolute path — auto-fills if project path was saved before</div>
       </div>
       <div class="spawn-field">
         <label class="spawn-label">Model</label>
@@ -2475,6 +2500,14 @@ async function openSpawnPanel() {
   panel.classList.add('open');
 }
 
+function onSpawnProjectChange() {
+  const pid = document.getElementById('spawn-project').value;
+  const wdInput = document.getElementById('spawn-workdir');
+  if (pid && projectPaths[pid] && !wdInput.value) {
+    wdInput.value = projectPaths[pid];
+  }
+}
+
 async function doSpawn() {
   const name = document.getElementById('spawn-name').value.trim();
   const projectId = document.getElementById('spawn-project').value;
@@ -2500,6 +2533,11 @@ async function doSpawn() {
     return;
   }
 
+  // Remember project path for next time
+  if (projectId && workDir) {
+    projectPaths[projectId] = workDir;
+    localStorage.setItem('waggle_project_paths', JSON.stringify(projectPaths));
+  }
   showToast(`Spawned ${name} in ${result.session}`, 'var(--cyan)');
   closePanel();
   await fetchAll();
@@ -3405,10 +3443,16 @@ function connectSSE() {
         agent_disconnected:'Agent disconnected',message_sent:'Message sent',
         review_submitted:'Review needs approval',review_approved:'Review approved',review_rejected:'Review rejected',
       };
-      const label = toastMsgs[evt.type];
-      if (label) {
-        const detail = evt.task_id ? ` (${evt.task_id})` : (evt.agent_id ? ` — ${evt.agent_id}` : '');
-        showToast(label + detail, toastColors[evt.type]);
+      const toastLabel = toastMsgs[evt.type];
+      if (toastLabel) {
+        let detail = evt.task_id ? ` (${evt.task_id})` : (evt.agent_id ? ` — ${evt.agent_id}` : '');
+        // For message events, show sender and preview
+        if (evt.type === 'message' && evt.payload) {
+          const p = evt.payload;
+          const preview = p.body ? (p.body.length > 60 ? p.body.slice(0,60)+'...' : p.body) : '';
+          detail = ` from ${p.from || evt.agent_id}${preview ? ': '+preview : ''}`;
+        }
+        showToast(toastLabel + detail, toastColors[evt.type]);
       }
       // Refresh chat if agent panel is open with messages tab visible
       if (currentPanel && currentPanel.type === 'agent') {
