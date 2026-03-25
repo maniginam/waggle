@@ -3029,6 +3029,58 @@ function onCreateTypeChange() {
   parentGroup.style.display = (type === 'story' || type === 'issue') ? '' : 'none';
 }
 
+function editProjectDetails(projectId) {
+  const project = projects.find(p => p.id === projectId);
+  if (!project) return;
+  currentPanel = {type: 'edit-project'};
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+  document.getElementById('panel-title').textContent = 'Edit Project';
+  document.getElementById('panel-subtitle').textContent = project.id;
+  document.getElementById('panel-content').innerHTML = `
+    <div class="create-form">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input class="form-input" id="edit-proj-name" value="${esc(project.name)}" autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="form-input" id="edit-proj-desc" style="min-height:80px">${esc(project.description || '')}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Working Directory</label>
+        <input class="form-input" id="edit-proj-path" placeholder="/Users/maniginam/projects/..." value="${esc(projectPaths[projectId] || '')}">
+        <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">Used when spawning agents for this project</div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-ghost btn-sm" onclick="closePanel()">Cancel</button>
+        <button class="btn" onclick="saveProjectDetails('${esc(projectId)}')">Save</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('open');
+  panel.classList.add('open');
+}
+
+async function saveProjectDetails(projectId) {
+  const name = document.getElementById('edit-proj-name').value.trim();
+  const desc = document.getElementById('edit-proj-desc').value.trim();
+  const path = document.getElementById('edit-proj-path').value.trim();
+  if (!name) { showToast('Name required', 'var(--red)'); return; }
+  await fetch(`/api/projects/${projectId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, description: desc}),
+  });
+  if (path) {
+    projectPaths[projectId] = path;
+    localStorage.setItem('waggle_project_paths', JSON.stringify(projectPaths));
+  }
+  showToast('Project updated', 'var(--green)');
+  closePanel();
+  await fetchAll();
+}
+
 async function deleteProject(projectId, projectName) {
   const taskCount = tasks.filter(t => t.project_id === projectId).length;
   const msg = taskCount > 0
@@ -3269,6 +3321,7 @@ function renderBoardHeader() {
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn-ghost btn-sm" onclick="toggleBulkMode()" title="Select multiple tasks">${bulkMode ? 'Exit Select' : 'Select'}</button>
       <button class="btn-ghost btn-sm" onclick="openCreatePanel('task')">+ Task</button>
+      ${project ? `<button class="btn-ghost btn-sm" onclick="editProjectDetails('${esc(project.id)}')" title="Edit project">Edit</button>` : ''}
       ${project ? `<button class="btn-ghost btn-sm" style="color:var(--red)" onclick="deleteProject('${esc(project.id)}','${esc(project.name)}')" title="Delete project">Delete</button>` : ''}
     </div>
   `;
