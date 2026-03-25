@@ -1628,6 +1628,7 @@ let draggedTaskId = null;
 let filterPriority = '';
 let filterAssignee = '';
 let filterType = '';
+let filterTag = '';
 let usageData = null;
 let collapsedColumns = new Set(JSON.parse(localStorage.getItem('waggle_collapsed') || '[]'));
 let navCollapsed = localStorage.getItem('waggle_nav_collapsed') === 'true';
@@ -1688,6 +1689,7 @@ function renderBoard() {
     else filteredTasks = filteredTasks.filter(t => t.assignee === filterAssignee);
   }
   if (filterType) filteredTasks = filteredTasks.filter(t => (t.task_type||'task') === filterType);
+  if (filterTag) filteredTasks = filteredTasks.filter(t => (t.tags||[]).includes(filterTag));
   // Build lookup maps to avoid O(n²) in renderCard
   const childrenByParent = {};
   const tasksById = {};
@@ -1811,7 +1813,7 @@ function renderBoard() {
 }
 
 function renderCard(t, childrenByParent, tasksById) {
-  const tags = (t.tags||[]).map(tag => `<span class="tag">${esc(tag)}</span>`).join('');
+  const tags = (t.tags||[]).map(tag => `<span class="tag" onclick="event.stopPropagation();toggleFilter('tag','${esc(tag)}')" style="cursor:pointer" title="Filter by tag">${esc(tag)}</span>`).join('');
   const sel = currentPanel && currentPanel.type === 'task' && currentPanel.id === t.id ? ' selected' : '';
   const taskType = t.task_type || 'task';
   const showType = taskType !== 'task';
@@ -4006,12 +4008,14 @@ function connectSSE() {
 
 function renderFilterBar() {
   const bar = document.getElementById('filter-bar');
-  const hasFilters = filterPriority || filterAssignee || filterType;
+  const hasFilters = filterPriority || filterAssignee || filterType || filterTag;
 
   // Get unique assignees from tasks
   const assignees = [...new Set(tasks.map(t => t.assignee).filter(Boolean))].sort();
   // Get unique types
   const types = [...new Set(tasks.map(t => t.task_type || 'task'))].sort();
+  // Get unique tags
+  const allTags = [...new Set(tasks.flatMap(t => t.tags || []))].sort();
 
   bar.innerHTML = `
     <div class="filter-group">
@@ -4037,6 +4041,15 @@ function renderFilterBar() {
         ).join('')}
       </div>
     ` : ''}
+    ${allTags.length > 0 ? `
+      <div class="filter-divider"></div>
+      <div class="filter-group">
+        <span class="filter-label">Tag</span>
+        ${allTags.slice(0, 10).map(t =>
+          `<button class="filter-chip${filterTag===t?' active':''}" onclick="toggleFilter('tag','${esc(t)}')">${esc(t)}</button>`
+        ).join('')}
+      </div>
+    ` : ''}
     ${hasFilters ? `<div class="filter-divider"></div><button class="filter-clear" onclick="clearFilters()">clear filters</button>` : ''}
     <div class="filter-divider"></div>
     <div class="filter-group">
@@ -4052,6 +4065,7 @@ function toggleFilter(type, val) {
   if (type === 'priority') filterPriority = filterPriority === val ? '' : val;
   else if (type === 'assignee') filterAssignee = filterAssignee === val ? '' : val;
   else if (type === 'type') filterType = filterType === val ? '' : val;
+  else if (type === 'tag') filterTag = filterTag === val ? '' : val;
   renderFilterBar();
   renderBoard();
 }
@@ -4060,6 +4074,7 @@ function clearFilters() {
   filterPriority = '';
   filterAssignee = '';
   filterType = '';
+  filterTag = '';
   renderFilterBar();
   renderBoard();
 }
