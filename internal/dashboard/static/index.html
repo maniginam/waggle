@@ -1668,6 +1668,15 @@ function renderBoardProgress() {
     </div>
     <div class="board-progress-labels">
       ${STATUSES.filter(s => counts[s] > 0).map(s => `<span class="board-progress-label"><span class="board-progress-dot" style="background:${STATUS_COLORS[s]}"></span>${counts[s]} ${STATUS_LABELS[s].toLowerCase()}</span>`).join('')}
+      ${(() => {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const weekStart = new Date(todayStart); weekStart.setDate(weekStart.getDate() - 7);
+        const doneTasks = ft.filter(t => t.status === 'done' && t.updated_at);
+        const doneToday = doneTasks.filter(t => new Date(t.updated_at) >= todayStart).length;
+        const doneWeek = doneTasks.filter(t => new Date(t.updated_at) >= weekStart).length;
+        return doneToday > 0 || doneWeek > 0 ? `<span class="board-progress-label" style="margin-left:auto;color:var(--green)">${doneToday > 0 ? doneToday + ' today' : ''}${doneToday > 0 && doneWeek > 0 ? ' · ' : ''}${doneWeek > 0 ? doneWeek + '/wk' : ''}</span>` : '';
+      })()}
     </div>
   `;
 }
