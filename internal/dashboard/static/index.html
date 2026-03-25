@@ -1515,6 +1515,9 @@ select.form-input { cursor: pointer; }
     <div class="shortcut-row"><span class="shortcut-desc">Refresh data</span><span class="shortcut-key">r</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Toggle sidebar</span><span class="shortcut-key">[</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Bulk select mode</span><span class="shortcut-key">b</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Messages inbox</span><span class="shortcut-key">m</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Spawn agent</span><span class="shortcut-key">a</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Command bar</span><span class="shortcut-key">&#8984;K</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Overview / projects 1-8</span><span class="shortcut-key">1-9</span></div>
   </div>
 </div>
@@ -1937,6 +1940,7 @@ function renderStats() {
   document.getElementById('header-stats').innerHTML = `
     <div class="header-stat"><span class="val">${taskCount}</span> tasks${scopeLabel ? ` <span style="color:var(--amber);font-size:0.7rem">${esc(scopeLabel)}</span>` : ''}</div>
     <div class="header-stat"><span class="val">${s.total_agents}</span> agents</div>
+    ${tmuxSessions.length > 0 ? `<div class="header-stat"><span class="val" style="color:var(--purple)">${tmuxSessions.length}</span> sessions</div>` : ''}
     ${costStr}
     ${pendingReviews.length > 0 ? `<div class="header-stat" style="cursor:pointer" onclick="navigateTo('overview')"><span class="val" style="color:var(--amber)">${pendingReviews.length}</span> review${pendingReviews.length !== 1 ? 's' : ''}</div>` : ''}
     <div class="header-stat"><div class="pulse-dot"></div> live</div>
@@ -3979,6 +3983,12 @@ async function saveAssignee(taskId) {
 // ── KEYBOARD SHORTCUTS ──
 
 document.addEventListener('keydown', e => {
+  // Cmd+K / Ctrl+K — focus command bar (works even from inputs)
+  if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    document.getElementById('cmd-input').focus();
+    return;
+  }
   // Don't trigger shortcuts when typing in inputs
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
 
@@ -4022,6 +4032,16 @@ document.addEventListener('keydown', e => {
   if (e.key === 'b' && !e.ctrlKey && !e.metaKey && currentView !== 'overview') {
     e.preventDefault();
     toggleBulkMode();
+    return;
+  }
+  if (e.key === 'm' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    navigateTo('inbox');
+    return;
+  }
+  if (e.key === 'a' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    openSpawnPanel();
     return;
   }
   // Number keys 1-9 to jump to projects
