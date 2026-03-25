@@ -106,6 +106,77 @@ func TestServerFullWorkflow(t *testing.T) {
 	}
 }
 
+func TestAgentHeartbeatLifecycle(t *testing.T) {
+	base, srv := startTestServer(t)
+
+	// 1. Register agent — should be connected
+	resp, _ := http.Post(base+"/api/agents/register", "application/json",
+		strings.NewReader(`{"name":"lifecycle-agent","type":"claude-code"}`))
+	var agent map[string]any
+	json.NewDecoder(resp.Body).Decode(&agent)
+	resp.Body.Close()
+
+	if agent["status"] != "connected" {
+		t.Fatalf("expected connected after register, got %v", agent["status"])
+	}
+	firstSeen := agent["last_seen"].(string)
+
+	// Create and claim a task so we can verify it's released on disconnect
+	resp, _ = http.Post(base+"/api/tasks", "application/json",
+		strings.NewReader(`{"title":"Lifecycle task","status":"ready"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	resp, _ = http.Post(base+"/api/tasks/"+taskID+"/claim", "application/json",
+		strings.NewReader(`{"agent":"lifecycle-agent"}`))
+	resp.Body.Close()
+
+	// 2. Heartbeat updates last_seen — POST status=connected acts as heartbeat
+	// Sleep >1s because last_seen timestamps use RFC3339 (second precision)
+	time.Sleep(1100 * time.Millisecond)
+	resp, _ = http.Post(base+"/api/agents/lifecycle-agent/status", "application/json",
+		strings.NewReader(`{"status":"connected"}`))
+	resp.Body.Close()
+
+	resp, _ = http.Get(base + "/api/agents/lifecycle-agent")
+	var afterHeartbeat map[string]any
+	json.NewDecoder(resp.Body).Decode(&afterHeartbeat)
+	resp.Body.Close()
+
+	if afterHeartbeat["last_seen"] == firstSeen {
+		t.Error("expected last_seen to update after heartbeat")
+	}
+
+	// 3 & 4. Stale detection: reap agents whose last_seen is before now+1s
+	// (simulates 90s elapsing without a heartbeat)
+	cutoff := time.Now().UTC().Add(time.Second)
+	srv.reapAgentsStaleBefore(cutoff)
+
+	resp, _ = http.Get(base + "/api/agents/lifecycle-agent")
+	var reaped map[string]any
+	json.NewDecoder(resp.Body).Decode(&reaped)
+	resp.Body.Close()
+
+	if reaped["status"] != "disconnected" {
+		t.Errorf("expected disconnected after stale reap, got %v", reaped["status"])
+	}
+
+	// Verify the claimed task was released back to ready
+	resp, _ = http.Get(base + "/api/tasks/" + taskID)
+	var releasedTask map[string]any
+	json.NewDecoder(resp.Body).Decode(&releasedTask)
+	resp.Body.Close()
+
+	if releasedTask["status"] != "ready" {
+		t.Errorf("expected task status ready after agent disconnect, got %v", releasedTask["status"])
+	}
+	if releasedTask["assignee"] != nil && releasedTask["assignee"] != "" {
+		t.Errorf("expected task assignee cleared after disconnect, got %v", releasedTask["assignee"])
+	}
+}
+
 func TestServerCORS(t *testing.T) {
 	base, _ := startTestServer(t)
 

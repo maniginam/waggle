@@ -122,29 +122,32 @@ func (s *Server) reapStaleAgents() {
 		case <-s.stopReaper:
 			return
 		case <-ticker.C:
-			agents, err := s.store.ListAgents("")
-			if err != nil {
-				continue
-			}
-			cutoff := time.Now().UTC().Add(-staleTimeout)
-			for _, agent := range agents {
-				if agent.Status == model.AgentDisconnected {
-					continue
-				}
-				if agent.LastSeen.Before(cutoff) {
-					log.Printf("reaping stale agent: %s (last seen %s)", agent.Name, agent.LastSeen)
-					s.store.DisconnectAgent(agent.Name)
-					s.eventHub.Publish(&model.Event{
-						Type:    model.EventAgentLeft,
-						AgentID: agent.Name,
-					})
-				}
-			}
-			// Purge agents disconnected for 24+ hours
-			if purged, err := s.store.PurgeStaleAgents(24 * time.Hour); err == nil && purged > 0 {
-				log.Printf("purged %d agents disconnected for 24+ hours", purged)
-			}
+			s.reapAgentsStaleBefore(time.Now().UTC().Add(-staleTimeout))
 		}
+	}
+}
+
+func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
+	agents, err := s.store.ListAgents("")
+	if err != nil {
+		return
+	}
+	for _, agent := range agents {
+		if agent.Status == model.AgentDisconnected {
+			continue
+		}
+		if agent.LastSeen.Before(cutoff) {
+			log.Printf("reaping stale agent: %s (last seen %s)", agent.Name, agent.LastSeen)
+			s.store.DisconnectAgent(agent.Name)
+			s.eventHub.Publish(&model.Event{
+				Type:    model.EventAgentLeft,
+				AgentID: agent.Name,
+			})
+		}
+	}
+	// Purge agents disconnected for 24+ hours
+	if purged, err := s.store.PurgeStaleAgents(24 * time.Hour); err == nil && purged > 0 {
+		log.Printf("purged %d agents disconnected for 24+ hours", purged)
 	}
 }
 
