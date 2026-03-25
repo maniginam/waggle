@@ -1516,6 +1516,7 @@ select.form-input { cursor: pointer; }
     <button class="add-btn" onclick="openCreatePanel('task')" title="New task (n)">+</button>
     <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')" title="New project">+ Project</button>
     <button class="btn-ghost btn-sm" onclick="openSpawnPanel()" title="Spawn agent" style="color:var(--cyan);border-color:var(--cyan-dim)">+ Agent</button>
+    <button class="btn-ghost btn-sm" id="sound-toggle" onclick="toggleSound()" title="Toggle notification sounds" style="font-size:0.7rem;padding:2px 6px">&#x1F50A;</button>
     <div class="sse-status">
       <div class="sse-dot" id="sse-dot"></div>
       <span id="sse-label">connecting</span>
@@ -4075,6 +4076,9 @@ function connectSSE() {
           detail = ` from ${p.from || evt.agent_id}${preview ? ': '+preview : ''}`;
         }
         showToast(toastLabel + detail, toastColors[evt.type]);
+        // Sound notification when tab not focused
+        const soundTypes = {task_completed:'success',review_approved:'success',message:'alert',review_rejected:'error',agent_disconnected:'error'};
+        if (soundTypes[evt.type]) playNotifSound(soundTypes[evt.type]);
         // Browser notification for important events when tab not focused
         if (document.hidden && Notification.permission === 'granted') {
           const important = ['task_completed','message','review_submitted','agent_joined','agent_disconnected'];
@@ -4251,6 +4255,37 @@ function showToast(message, color) {
   toast.innerHTML = `<div class="toast-dot" style="background:${color||'var(--text-dim)'}"></div>${esc(message)}`;
   container.appendChild(toast);
   setTimeout(() => { if (toast.parentElement) toast.remove(); }, 4000);
+}
+
+// ── NOTIFICATION SOUNDS ──
+
+let soundEnabled = localStorage.getItem('waggle_sound') !== 'off';
+let audioCtx = null;
+
+function playNotifSound(type) {
+  if (!soundEnabled || document.hasFocus()) return;
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.value = 0.08;
+  if (type === 'success') { osc.frequency.value = 880; gain.gain.value = 0.06; }
+  else if (type === 'alert') { osc.frequency.value = 660; }
+  else if (type === 'error') { osc.frequency.value = 330; }
+  else { osc.frequency.value = 520; }
+  osc.type = 'sine';
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+  osc.stop(audioCtx.currentTime + 0.15);
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  localStorage.setItem('waggle_sound', soundEnabled ? 'on' : 'off');
+  const btn = document.getElementById('sound-toggle');
+  if (btn) btn.innerHTML = soundEnabled ? '&#x1F50A;' : '&#x1F507;';
+  showToast(soundEnabled ? 'Sounds enabled' : 'Sounds muted', 'var(--text-dim)');
 }
 
 // ── MODAL SYSTEM ──
@@ -4813,6 +4848,11 @@ function esc(s) {
 
 // ── INIT ──
 
+// Restore sound toggle state
+if (!soundEnabled) {
+  const btn = document.getElementById('sound-toggle');
+  if (btn) btn.innerHTML = '&#x1F507;';
+}
 // Restore nav state
 if (navCollapsed) {
   document.querySelector('.app-shell').classList.add('nav-collapsed');
