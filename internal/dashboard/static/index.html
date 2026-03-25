@@ -5109,8 +5109,54 @@ function esc(s) {
   return d.innerHTML;
 }
 
+// ── PUSH NOTIFICATIONS ──
+
+async function setupPushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) return; // Already subscribed
+
+    // Get VAPID key from server
+    const resp = await fetch('/api/push/subscribe');
+    if (!resp.ok) return;
+    const {public_key} = await resp.json();
+    if (!public_key) return;
+
+    // Convert VAPID key
+    const urlBase64ToUint8Array = (base64String) => {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = atob(base64);
+      return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+    };
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(public_key),
+    });
+
+    const key = sub.getKey('p256dh');
+    const auth = sub.getKey('auth');
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        endpoint: sub.endpoint,
+        p256dh: btoa(String.fromCharCode(...new Uint8Array(key))),
+        auth: btoa(String.fromCharCode(...new Uint8Array(auth))),
+      }),
+    });
+    console.log('Push notifications enabled');
+  } catch (err) {
+    console.log('Push setup failed:', err.message);
+  }
+}
+
 // ── INIT ──
 
+setupPushNotifications();
 // Restore sound toggle state
 if (!soundEnabled) {
   const btn = document.getElementById('sound-toggle');

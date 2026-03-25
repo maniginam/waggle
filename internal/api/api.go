@@ -7,20 +7,31 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/maniginam/waggle/internal/event"
 	"github.com/maniginam/waggle/internal/model"
+	"github.com/maniginam/waggle/internal/push"
 	"github.com/maniginam/waggle/internal/store"
 )
+
+const maxBodySize = 1 << 20 // 1MB
+
+var safeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
 type API struct {
 	store    *store.Store
 	eventHub *event.Hub
+	push     *push.Notifier
 }
 
 func New(s *store.Store, eh *event.Hub) *API {
-	return &API{store: s, eventHub: eh}
+	a := &API{store: s, eventHub: eh}
+	if p, err := push.NewNotifier(s); err == nil {
+		a.push = p
+	}
+	return a
 }
 
 func (a *API) Handler() http.Handler {
@@ -40,7 +51,14 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/spawn", a.handleSpawn)
 	mux.HandleFunc("/api/sessions", a.handleSessions)
 	mux.HandleFunc("/api/sessions/", a.handleSessionAction)
-	return mux
+	mux.HandleFunc("/api/push/subscribe", a.handlePushSubscribe)
+	// Wrap with body size limit for non-SSE/WebSocket requests
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost || r.Method == http.MethodPatch {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
@@ -941,6 +959,10 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing_name", "agent name is required")
 		return
 	}
+	if !safeNameRe.MatchString(req.Name) {
+		writeError(w, http.StatusBadRequest, "invalid_name", "name must be alphanumeric with .-_ only, max 64 chars")
+		return
+	}
 	if req.WorkDir == "" {
 		writeError(w, http.StatusBadRequest, "missing_work_dir", "work_dir is required")
 		return
@@ -1146,11 +1168,17 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 
 	case action == "send" && r.Method == http.MethodPost:
 		// Send keys to tmux session (type into the terminal)
+		limitBody(r)
 		var req struct {
 			Keys string `json:"keys"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Keys == "" {
 			writeError(w, http.StatusBadRequest, "missing_keys", "keys field required")
+			return
+		}
+		// Limit key length to prevent abuse
+		if len(req.Keys) > 10000 {
+			writeError(w, http.StatusBadRequest, "keys_too_long", "keys must be under 10000 chars")
 			return
 		}
 		if err := exec.Command("tmux", "send-keys", "-t", sessionName, req.Keys, "Enter").Run(); err != nil {
@@ -1169,6 +1197,61 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (a *API) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		// Return VAPID public key
+		key := ""
+		if a.push != nil {
+			key = a.push.PublicKey()
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"public_key": key})
+
+	case http.MethodPost:
+		var req struct {
+			Endpoint string `json:"endpoint"`
+			Auth     string `json:"auth"`
+			P256dh   string `json:"p256dh"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if req.Endpoint == "" || req.Auth == "" || req.P256dh == "" {
+			writeError(w, http.StatusBadRequest, "missing_fields", "endpoint, auth, and p256dh required")
+			return
+		}
+		sub := &store.PushSubscription{
+			Endpoint: req.Endpoint,
+			Auth:     req.Auth,
+			P256dh:   req.P256dh,
+		}
+		if err := a.store.SavePushSubscription(sub); err != nil {
+			writeError(w, http.StatusInternalServerError, "save_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{"status": "subscribed"})
+
+	case http.MethodDelete:
+		var req struct {
+			Endpoint string `json:"endpoint"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Endpoint == "" {
+			writeError(w, http.StatusBadRequest, "missing_endpoint", "endpoint required")
+			return
+		}
+		a.store.DeletePushSubscription(req.Endpoint)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "unsubscribed"})
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func limitBody(r *http.Request) {
+	r.Body = http.MaxBytesReader(nil, r.Body, maxBodySize)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
