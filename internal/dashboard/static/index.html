@@ -3604,6 +3604,7 @@ function renderInbox() {
         <button class="btn-ghost btn-sm${inboxFilter==='all'?' active':''}" onclick="inboxFilter='all';renderInbox()" style="${inboxFilter==='all'?'color:var(--amber);border-color:var(--amber-dim)':''}">All</button>
         <button class="btn-ghost btn-sm${inboxFilter==='sent'?' active':''}" onclick="inboxFilter='sent';renderInbox()" style="${inboxFilter==='sent'?'color:var(--amber);border-color:var(--amber-dim)':''}">Sent</button>
         <button class="btn-ghost btn-sm${inboxFilter==='received'?' active':''}" onclick="inboxFilter='received';renderInbox()" style="${inboxFilter==='received'?'color:var(--amber);border-color:var(--amber-dim)':''}">Received</button>
+        ${inboxMessages.some(m => !m.read) ? `<button class="btn-ghost btn-sm" onclick="markAllRead()" style="color:var(--green)">Mark all read</button>` : ''}
       </div>
     </div>
     ${msgs.length === 0 ? '<div class="empty-state"><p>No messages</p></div>' : msgs.map(m => {
@@ -3624,6 +3625,18 @@ function renderInbox() {
       </div>`;
     }).join('')}
   `;
+}
+
+async function markAllRead() {
+  await fetch('/api/messages', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mark_all: true}),
+  });
+  inboxMessages.forEach(m => m.read = true);
+  renderInbox();
+  renderNav();
+  showToast('All messages marked as read', 'var(--green)');
 }
 
 // ── SESSIONS VIEW ──

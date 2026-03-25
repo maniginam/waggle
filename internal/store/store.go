@@ -745,6 +745,28 @@ func (s *Store) ListAllMessages(limit int) ([]*model.Message, error) {
 	return messages, rows.Err()
 }
 
+func (s *Store) MarkMessagesRead(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, id := range ids {
+		if _, err := tx.Exec(`UPDATE messages SET read = 1 WHERE id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) MarkAllMessagesRead() error {
+	_, err := s.db.Exec(`UPDATE messages SET read = 1 WHERE read = 0`)
+	return err
+}
+
 // --- Helpers ---
 
 func (s *Store) checkCycleDeps(taskID string, deps []string) error {
