@@ -176,6 +176,9 @@ func (s *Store) migrate() error {
 		{"agents", "project_id", "TEXT DEFAULT ''"},
 		{"tasks", "issue_number", "INTEGER DEFAULT 0"},
 		{"tasks", "issue_url", "TEXT DEFAULT ''"},
+		{"agents", "role", "TEXT DEFAULT 'worker'"},
+		{"agents", "parent_agent", "TEXT DEFAULT ''"},
+		{"projects", "leader_agent", "TEXT DEFAULT ''"},
 	} {
 		var count int
 		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
@@ -518,24 +521,32 @@ func (s *Store) CompleteTask(taskID string) error {
 
 // --- Agents ---
 
-func (s *Store) RegisterAgent(name, agentType, projectID string) (*model.Agent, error) {
+func (s *Store) RegisterAgent(name, agentType, projectID string, role model.AgentRole, parentAgent string) (*model.Agent, error) {
 	now := time.Now().UTC()
+	if role == "" {
+		role = model.AgentRoleWorker
+	}
 	a := &model.Agent{
 		ID:          id.New(),
 		Name:        name,
 		Type:        agentType,
+		Role:        role,
 		Status:      model.AgentConnected,
 		ProjectID:   projectID,
+		ParentAgent: parentAgent,
 		ConnectedAt: now,
 		LastSeen:    now,
 	}
 
-	_, err := s.db.Exec(`INSERT INTO agents (id, name, type, status, current_task, project_id, connected_at, last_seen)
-		VALUES (?, ?, ?, ?, '', ?, ?, ?)
-		ON CONFLICT(name) DO UPDATE SET status = 'connected', last_seen = ?, connected_at = ?, project_id = CASE WHEN ? != '' THEN ? ELSE agents.project_id END`,
-		a.ID, a.Name, a.Type, string(a.Status), a.ProjectID,
+	_, err := s.db.Exec(`INSERT INTO agents (id, name, type, status, current_task, project_id, role, parent_agent, connected_at, last_seen)
+		VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET status = 'connected', last_seen = ?, connected_at = ?, role = ?,
+		parent_agent = CASE WHEN ? != '' THEN ? ELSE agents.parent_agent END,
+		project_id = CASE WHEN ? != '' THEN ? ELSE agents.project_id END`,
+		a.ID, a.Name, a.Type, string(a.Status), a.ProjectID, string(role), parentAgent,
 		now.Format(time.RFC3339), now.Format(time.RFC3339),
-		now.Format(time.RFC3339), now.Format(time.RFC3339),
+		now.Format(time.RFC3339), now.Format(time.RFC3339), string(role),
+		parentAgent, parentAgent,
 		projectID, projectID)
 	if err != nil {
 		return nil, err
@@ -544,17 +555,17 @@ func (s *Store) RegisterAgent(name, agentType, projectID string) (*model.Agent, 
 }
 
 func (s *Store) GetAgent(id string) (*model.Agent, error) {
-	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, connected_at, last_seen FROM agents WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, role, parent_agent, connected_at, last_seen FROM agents WHERE id = ?`, id)
 	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByName(name string) (*model.Agent, error) {
-	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, connected_at, last_seen FROM agents WHERE name = ?`, name)
+	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, role, parent_agent, connected_at, last_seen FROM agents WHERE name = ?`, name)
 	return scanAgent(row)
 }
 
 func (s *Store) ListAgents(statusFilter string) ([]*model.Agent, error) {
-	query := `SELECT id, name, type, status, current_task, project_id, connected_at, last_seen FROM agents`
+	query := `SELECT id, name, type, status, current_task, project_id, role, parent_agent, connected_at, last_seen FROM agents`
 	var args []any
 	if statusFilter != "" {
 		query += " WHERE status = ?"
@@ -850,7 +861,7 @@ func scanTaskRows(rows *sql.Rows) (*model.Task, error) {
 func scanAgent(row scanner) (*model.Agent, error) {
 	var a model.Agent
 	var connStr, seenStr string
-	err := row.Scan(&a.ID, &a.Name, &a.Type, &a.Status, &a.CurrentTask, &a.ProjectID, &connStr, &seenStr)
+	err := row.Scan(&a.ID, &a.Name, &a.Type, &a.Status, &a.CurrentTask, &a.ProjectID, &a.Role, &a.ParentAgent, &connStr, &seenStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -859,6 +870,9 @@ func scanAgent(row scanner) (*model.Agent, error) {
 	}
 	a.ConnectedAt, _ = time.Parse(time.RFC3339, connStr)
 	a.LastSeen, _ = time.Parse(time.RFC3339, seenStr)
+	if a.Role == "" {
+		a.Role = model.AgentRoleWorker
+	}
 	return &a, nil
 }
 
@@ -946,16 +960,16 @@ func (s *Store) CreateProject(p *model.Project) error {
 	now := time.Now().UTC()
 	p.CreatedAt = now
 	p.UpdatedAt = now
-	_, err := s.db.Exec(`INSERT INTO projects (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339))
+	_, err := s.db.Exec(`INSERT INTO projects (id, name, description, leader_agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.LeaderAgent, p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339))
 	return err
 }
 
 func (s *Store) GetProject(id string) (*model.Project, error) {
 	var p model.Project
 	var createdStr, updatedStr string
-	err := s.db.QueryRow(`SELECT id, name, description, created_at, updated_at FROM projects WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Description, &createdStr, &updatedStr)
+	err := s.db.QueryRow(`SELECT id, name, description, leader_agent, created_at, updated_at FROM projects WHERE id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &createdStr, &updatedStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -968,7 +982,7 @@ func (s *Store) GetProject(id string) (*model.Project, error) {
 }
 
 func (s *Store) ListProjects() ([]*model.Project, error) {
-	rows, err := s.db.Query(`SELECT id, name, description, created_at, updated_at FROM projects ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, name, description, leader_agent, created_at, updated_at FROM projects ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -977,7 +991,7 @@ func (s *Store) ListProjects() ([]*model.Project, error) {
 	for rows.Next() {
 		var p model.Project
 		var createdStr, updatedStr string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &createdStr, &updatedStr); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &createdStr, &updatedStr); err != nil {
 			return nil, err
 		}
 		p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
@@ -1001,6 +1015,9 @@ func (s *Store) UpdateProject(id string, updates map[string]any) (*model.Project
 			args = append(args, v)
 		case "description":
 			sets = append(sets, "description = ?")
+			args = append(args, v)
+		case "leader_agent":
+			sets = append(sets, "leader_agent = ?")
 			args = append(args, v)
 		}
 	}

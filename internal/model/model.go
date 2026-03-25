@@ -69,13 +69,23 @@ type Task struct {
 	IssueURL    string     `json:"issue_url,omitempty"`
 }
 
+type AgentRole string
+
+const (
+	AgentRoleAlpha  AgentRole = "alpha"
+	AgentRoleLeader AgentRole = "leader"
+	AgentRoleWorker AgentRole = "worker"
+)
+
 type Agent struct {
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
 	Type        string      `json:"type"`
+	Role        AgentRole   `json:"role"`
 	Status      AgentStatus `json:"status"`
 	CurrentTask string      `json:"current_task,omitempty"`
 	ProjectID   string      `json:"project_id,omitempty"`
+	ParentAgent string      `json:"parent_agent,omitempty"`
 	ConnectedAt time.Time   `json:"connected_at"`
 	LastSeen    time.Time   `json:"last_seen"`
 }
@@ -125,6 +135,7 @@ type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
+	LeaderAgent string    `json:"leader_agent,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

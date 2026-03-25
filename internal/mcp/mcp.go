@@ -109,9 +109,11 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 		toolDef("waggle_register_agent", "Register this agent with the Waggle server. Must be called first.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"name":       prop("string", "Agent name (e.g. 'backend-agent')"),
-				"type":       prop("string", "Agent type (e.g. 'claude-code', 'cursor', 'aider')"),
-				"project_id": prop("string", "Project ID to assign this agent to (optional)"),
+				"name":         prop("string", "Agent name (e.g. 'backend-agent')"),
+				"type":         prop("string", "Agent type (e.g. 'claude-code', 'cursor', 'aider')"),
+				"project_id":   prop("string", "Project ID to assign this agent to (optional)"),
+				"role":         prop("string", "Agent role: 'alpha', 'leader', or 'worker' (default: 'worker')"),
+				"parent_agent": prop("string", "Name of the parent agent (leader or alpha) that manages this agent"),
 			},
 			"required": []string{"name", "type"},
 		}),
@@ -374,9 +376,17 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		}
 		a.agentName = agentName
 		projectID, _ := args["project_id"].(string)
+		role, _ := args["role"].(string)
+		parentAgent, _ := args["parent_agent"].(string)
 		regPayload := map[string]string{"name": agentName, "type": agentType}
 		if projectID != "" {
 			regPayload["project_id"] = projectID
+		}
+		if role != "" {
+			regPayload["role"] = role
+		}
+		if parentAgent != "" {
+			regPayload["parent_agent"] = parentAgent
 		}
 		body, _ := json.Marshal(regPayload)
 		resp, err := http.Post(a.baseURL+"/api/agents/register", "application/json", bytes.NewReader(body))

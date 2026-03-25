@@ -129,7 +129,7 @@ func TestClaimAndUnclaimTask(t *testing.T) {
 	s := tempStore(t)
 	task := &model.Task{Title: "Claimable", Status: model.TaskReady}
 	s.CreateTask(task)
-	s.RegisterAgent("agent-1", "claude-code", "")
+	s.RegisterAgent("agent-1", "claude-code", "", "", "")
 
 	if err := s.ClaimTask(task.ID, "agent-1"); err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestClaimAndUnclaimTask(t *testing.T) {
 	}
 
 	// Double claim should fail
-	s.RegisterAgent("agent-2", "cursor", "")
+	s.RegisterAgent("agent-2", "cursor", "", "", "")
 	err := s.ClaimTask(task.ID, "agent-2")
 	if err != ErrAlreadyClaimed {
 		t.Errorf("expected ErrAlreadyClaimed, got %v", err)
@@ -203,7 +203,7 @@ func TestCyclicDependencyRejected(t *testing.T) {
 
 func TestRegisterAgent(t *testing.T) {
 	s := tempStore(t)
-	agent, err := s.RegisterAgent("test-agent", "claude-code", "")
+	agent, err := s.RegisterAgent("test-agent", "claude-code", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestRegisterAgent(t *testing.T) {
 	}
 
 	// Re-register should upsert
-	agent2, err := s.RegisterAgent("test-agent", "cursor", "")
+	agent2, err := s.RegisterAgent("test-agent", "cursor", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,8 +226,8 @@ func TestRegisterAgent(t *testing.T) {
 
 func TestListAgents(t *testing.T) {
 	s := tempStore(t)
-	s.RegisterAgent("a1", "claude-code", "")
-	s.RegisterAgent("a2", "cursor", "")
+	s.RegisterAgent("a1", "claude-code", "", "", "")
+	s.RegisterAgent("a2", "cursor", "", "", "")
 
 	agents, err := s.ListAgents("")
 	if err != nil {
@@ -240,7 +240,7 @@ func TestListAgents(t *testing.T) {
 
 func TestDisconnectAgentUnassignsTasks(t *testing.T) {
 	s := tempStore(t)
-	s.RegisterAgent("agent-1", "claude-code", "")
+	s.RegisterAgent("agent-1", "claude-code", "", "", "")
 	task := &model.Task{Title: "Work", Status: model.TaskReady}
 	s.CreateTask(task)
 	s.ClaimTask(task.ID, "agent-1")
@@ -464,7 +464,7 @@ func TestStats(t *testing.T) {
 	s.CreateTask(&model.Task{Title: "Task 1", Status: model.TaskReady, Priority: model.PriorityHigh})
 	s.CreateTask(&model.Task{Title: "Task 2", Status: model.TaskReady, Priority: model.PriorityCritical})
 	s.CreateTask(&model.Task{Title: "Task 3", Status: model.TaskDone, Priority: model.PriorityLow})
-	s.RegisterAgent("agent-1", "test", "")
+	s.RegisterAgent("agent-1", "test", "", "", "")
 
 	stats, err := s.Stats()
 	if err != nil {
