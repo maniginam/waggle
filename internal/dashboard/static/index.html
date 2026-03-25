@@ -3620,6 +3620,7 @@ function renderInbox() {
           </div>
           <div class="inbox-msg-text">${esc(m.body)}</div>
         </div>
+        ${!isMine ? `<button class="msg-btn" style="align-self:center;flex-shrink:0" onclick="setCommandTarget('${esc(m.from)}');document.getElementById('cmd-input').focus()">Reply</button>` : ''}
       </div>`;
     }).join('')}
   `;
