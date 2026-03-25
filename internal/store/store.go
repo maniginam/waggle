@@ -146,6 +146,14 @@ func (s *Store) migrate() error {
 			updated_at TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS push_subscriptions (
+			id         TEXT PRIMARY KEY,
+			endpoint   TEXT UNIQUE NOT NULL,
+			auth       TEXT NOT NULL,
+			p256dh     TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+
 		CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id);
 		CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
 		CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
@@ -1230,4 +1238,47 @@ func (s *Store) Stats() (*Stats, error) {
 	}
 
 	return stats, nil
+}
+
+// --- Push Subscriptions ---
+
+type PushSubscription struct {
+	ID       string `json:"id"`
+	Endpoint string `json:"endpoint"`
+	Auth     string `json:"auth"`
+	P256dh   string `json:"p256dh"`
+}
+
+func (s *Store) SavePushSubscription(sub *PushSubscription) error {
+	if sub.ID == "" {
+		sub.ID = id.New()
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO push_subscriptions (id, endpoint, auth, p256dh, created_at) VALUES (?, ?, ?, ?, ?)`,
+		sub.ID, sub.Endpoint, sub.Auth, sub.P256dh, now,
+	)
+	return err
+}
+
+func (s *Store) ListPushSubscriptions() ([]*PushSubscription, error) {
+	rows, err := s.db.Query(`SELECT id, endpoint, auth, p256dh FROM push_subscriptions`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var subs []*PushSubscription
+	for rows.Next() {
+		var sub PushSubscription
+		if err := rows.Scan(&sub.ID, &sub.Endpoint, &sub.Auth, &sub.P256dh); err != nil {
+			return nil, err
+		}
+		subs = append(subs, &sub)
+	}
+	return subs, rows.Err()
+}
+
+func (s *Store) DeletePushSubscription(endpoint string) error {
+	_, err := s.db.Exec(`DELETE FROM push_subscriptions WHERE endpoint = ?`, endpoint)
+	return err
 }

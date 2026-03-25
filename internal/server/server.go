@@ -11,6 +11,7 @@ import (
 	"github.com/maniginam/waggle/internal/dashboard"
 	"github.com/maniginam/waggle/internal/event"
 	"github.com/maniginam/waggle/internal/model"
+	"github.com/maniginam/waggle/internal/push"
 	"github.com/maniginam/waggle/internal/store"
 	"github.com/maniginam/waggle/internal/ws"
 )
@@ -21,6 +22,7 @@ type Server struct {
 	eventHub   *event.Hub
 	wsHub      *ws.Hub
 	api        *api.API
+	push       *push.Notifier
 	stopReaper chan struct{}
 }
 
@@ -45,6 +47,13 @@ func New(cfg Config) (*Server, error) {
 	eh := event.NewHub()
 	wsHub := ws.NewHub(s, eh)
 	restAPI := api.New(s, eh)
+
+	var pushNotifier *push.Notifier
+	if p, err := push.NewNotifier(s); err == nil {
+		pushNotifier = p
+	} else {
+		log.Printf("push notifications disabled: %v", err)
+	}
 
 	mux := http.NewServeMux()
 
@@ -79,6 +88,7 @@ func New(cfg Config) (*Server, error) {
 		eventHub:   eh,
 		wsHub:      wsHub,
 		api:        restAPI,
+		push:       pushNotifier,
 	}, nil
 }
 
@@ -86,6 +96,9 @@ func (s *Server) Start() error {
 	s.stopReaper = make(chan struct{})
 	go s.reapStaleAgents()
 	go s.retentionCleanup()
+	if s.push != nil {
+		go s.pushNotificationLoop()
+	}
 	log.Printf("waggle server listening on %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
@@ -150,6 +163,50 @@ func (s *Server) retentionCleanup() {
 			if n, err := s.store.CleanupMessages(7); err == nil && n > 0 {
 				log.Printf("cleaned up %d old read messages", n)
 			}
+		}
+	}
+}
+
+func (s *Server) pushNotificationLoop() {
+	sub := s.eventHub.Subscribe("", "")
+	defer s.eventHub.Unsubscribe(sub)
+
+	pushEvents := map[model.EventType]string{
+		model.EventTaskCompleted:       "Task completed",
+		model.EventTaskClaimed:         "Task claimed",
+		model.EventMessage:             "New message",
+		model.EventAgentJoined:         "Agent connected",
+		model.EventAgentLeft:           "Agent disconnected",
+	}
+
+	for {
+		select {
+		case evt, ok := <-sub.Ch:
+			if !ok {
+				return
+			}
+			title, shouldPush := pushEvents[evt.Type]
+			if !shouldPush {
+				continue
+			}
+			body := ""
+			if evt.AgentID != "" {
+				body = evt.AgentID
+			}
+			if evt.TaskID != "" {
+				if body != "" {
+					body += " — "
+				}
+				body += evt.TaskID
+			}
+			s.push.Send(push.PushPayload{
+				Title: title,
+				Body:  body,
+				Tag:   string(evt.Type),
+				URL:   "/",
+			})
+		case <-s.stopReaper:
+			return
 		}
 	}
 }
