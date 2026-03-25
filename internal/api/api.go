@@ -1051,6 +1051,8 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	showAll := r.URL.Query().Get("all") == "true"
+
 	var sessions []map[string]string
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line == "" {
@@ -1058,10 +1060,14 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		parts := strings.SplitN(line, "|", 4)
 		name := parts[0]
-		if !strings.HasPrefix(name, "waggle-") {
+		if !showAll && !strings.HasPrefix(name, "waggle-") {
 			continue
 		}
-		s := map[string]string{"name": name, "agent": strings.TrimPrefix(name, "waggle-")}
+		agent := strings.TrimPrefix(name, "waggle-")
+		if !strings.HasPrefix(name, "waggle-") {
+			agent = name
+		}
+		s := map[string]string{"name": name, "agent": agent}
 		if len(parts) > 1 {
 			s["created"] = parts[1]
 		}
@@ -1077,20 +1083,68 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	parts := strings.SplitN(path, "/", 2)
+	name := parts[0]
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "missing_name", "session name required")
 		return
 	}
 
-	switch r.Method {
-	case http.MethodDelete:
-		sessionName := "waggle-" + name
+	// Try waggle-prefixed first, fall back to bare name
+	sessionName := "waggle-" + name
+	if out, err := exec.Command("tmux", "has-session", "-t", sessionName).CombinedOutput(); err != nil {
+		// Try bare name (for existing non-waggle sessions)
+		if out2, err2 := exec.Command("tmux", "has-session", "-t", name).CombinedOutput(); err2 != nil {
+			_ = out
+			_ = out2
+			writeError(w, http.StatusNotFound, "session_not_found", "no tmux session: "+sessionName+" or "+name)
+			return
+		}
+		sessionName = name
+	}
+
+	switch {
+	case action == "output" && r.Method == http.MethodGet:
+		// Capture tmux pane output
+		lines := 100
+		if l := r.URL.Query().Get("lines"); l != "" {
+			fmt.Sscanf(l, "%d", &lines)
+		}
+		out, err := exec.Command("tmux", "capture-pane", "-t", sessionName, "-p", "-S", fmt.Sprintf("-%d", lines)).Output()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "capture_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"output": string(out), "session": sessionName})
+
+	case action == "send" && r.Method == http.MethodPost:
+		// Send keys to tmux session (type into the terminal)
+		var req struct {
+			Keys string `json:"keys"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Keys == "" {
+			writeError(w, http.StatusBadRequest, "missing_keys", "keys field required")
+			return
+		}
+		if err := exec.Command("tmux", "send-keys", "-t", sessionName, req.Keys, "Enter").Run(); err != nil {
+			writeError(w, http.StatusInternalServerError, "send_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+
+	case action == "" && r.Method == http.MethodDelete:
 		if err := exec.Command("tmux", "kill-session", "-t", sessionName).Run(); err != nil {
 			writeError(w, http.StatusInternalServerError, "kill_failed", err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "killed", "session": sessionName})
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
