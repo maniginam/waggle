@@ -1564,6 +1564,7 @@ let bulkMode = false;
 let bulkSelected = new Set();
 let pendingReviews = [];
 let inboxMessages = [];
+let tmuxSessions = [];
 let commandTarget = 'broadcast'; // 'broadcast' or agent name
 let projectPaths = JSON.parse(localStorage.getItem('waggle_project_paths') || '{}');
 
@@ -1866,10 +1867,35 @@ function renderAgents() {
       </div>
     </div>`;
   }).join('');
+  // Show tmux sessions not registered as agents
+  const agentNames = new Set(agents.map(a => a.name));
+  const unregistered = tmuxSessions.filter(s => !agentNames.has(s.agent));
+  if (unregistered.length > 0 && currentView === 'overview') {
+    el.innerHTML += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">
+      <div style="font-size:0.55rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:2px 0 4px;font-weight:600">tmux sessions</div>
+      ${unregistered.map(s => `
+        <div class="agent-row" data-agent="${esc(s.agent)}" data-is-session="true" style="opacity:0.7">
+          <div class="agent-status-dot working" style="background:var(--purple)"></div>
+          <div class="agent-info">
+            <div class="agent-name">${esc(s.agent)} <span style="font-size:0.55rem;color:var(--purple);font-weight:700">SESSION</span></div>
+            <div class="agent-type" style="color:var(--text-dim)">${s.name}</div>
+          </div>
+          <div class="agent-actions">
+            <button class="msg-btn" onclick="event.stopPropagation();openAgentTerminal('${esc(s.agent)}')">view</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
   el.querySelectorAll('.agent-row').forEach(row => {
     row.addEventListener('click', (e) => {
       if (e.target.closest('button')) return;
-      openAgentPanel(e, row.dataset.agent);
+      if (row.dataset.isSession) {
+        openAgentTerminal(row.dataset.agent);
+      } else {
+        openAgentPanel(e, row.dataset.agent);
+      }
     });
   });
 }
@@ -2352,6 +2378,15 @@ function fillPrompt(text) {
   if (ta) { ta.value = text; ta.focus(); }
 }
 
+function openAgentTerminal(agentName) {
+  // Open agent panel then switch to terminal tab
+  openAgentPanel(null, agentName);
+  setTimeout(() => {
+    const termTab = document.querySelector('.panel-tab[data-tab="terminal"]');
+    if (termTab) termTab.click();
+  }, 100);
+}
+
 let termRefreshTimer = null;
 
 async function refreshTerminal(agentName) {
@@ -2498,8 +2533,8 @@ async function openSpawnPanel() {
   document.getElementById('panel-title').textContent = 'Spawn Agent';
   document.getElementById('panel-subtitle').textContent = 'Launch a new Claude Code agent in a tmux session';
 
-  // Fetch active sessions
-  const sessions = await fetch('/api/sessions').then(r => r.json()).catch(() => []);
+  // Fetch active sessions (all tmux sessions)
+  const sessions = await fetch('/api/sessions?all=true').then(r => r.json()).catch(() => []);
 
   const projectOpts = projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
 
@@ -2550,6 +2585,7 @@ async function openSpawnPanel() {
                 <span class="session-name">${esc(s.agent)}</span>
                 <span style="color:var(--text-dim);font-size:0.6rem">${esc(s.name)}</span>
                 <div class="session-actions">
+                  <button class="msg-btn" onclick="closePanel();openAgentTerminal('${esc(s.agent)}')">view</button>
                   <button class="msg-btn" onclick="setCommandTarget('${esc(s.agent)}');closePanel();document.getElementById('cmd-input').focus()">msg</button>
                   <button class="poke-btn" onclick="killSession('${esc(s.agent)}')">kill</button>
                 </div>
@@ -3012,7 +3048,7 @@ function closePanel() {
 
 async function fetchAll() {
   try {
-    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes, reviewsRes, msgsRes] = await Promise.all([
+    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes, reviewsRes, msgsRes, sessRes] = await Promise.all([
       fetch('/api/tasks'),
       fetch('/api/agents'),
       fetch('/api/stats'),
@@ -3020,6 +3056,7 @@ async function fetchAll() {
       fetch('/api/usage'),
       fetch('/api/reviews?status=pending'),
       fetch('/api/messages?limit=100'),
+      fetch('/api/sessions?all=true'),
     ]);
     tasks = await tasksRes.json();
     agents = await agentsRes.json();
@@ -3028,6 +3065,7 @@ async function fetchAll() {
     usageData = await usageRes.json();
     pendingReviews = await reviewsRes.json().catch(() => []);
     inboxMessages = await msgsRes.json().catch(() => []);
+    tmuxSessions = await sessRes.json().catch(() => []);
     renderProjectNav();
     if (currentView === 'overview') {
       renderOverview();
