@@ -596,3 +596,58 @@ func TestBroadcastMessage(t *testing.T) {
 		t.Errorf("expected 1 broadcast message, got %d", len(msgs))
 	}
 }
+
+func TestSettingsGetSet(t *testing.T) {
+	s := tempStore(t)
+
+	// Get non-existent setting returns empty
+	val, err := s.GetSetting("theme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "" {
+		t.Errorf("expected empty string for missing setting, got %q", val)
+	}
+
+	// Set a setting
+	if err := s.SetSetting("theme", "dark"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get it back
+	val, err = s.GetSetting("theme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "dark" {
+		t.Errorf("expected 'dark', got %q", val)
+	}
+
+	// Update it
+	if err := s.SetSetting("theme", "light"); err != nil {
+		t.Fatal(err)
+	}
+	val, _ = s.GetSetting("theme")
+	if val != "light" {
+		t.Errorf("expected 'light', got %q", val)
+	}
+}
+
+func TestSettingsGetAll(t *testing.T) {
+	s := tempStore(t)
+
+	s.SetSetting("theme", "dark")
+	s.SetSetting("sound", "on")
+	s.SetSetting("refresh_interval", "30")
+
+	settings, err := s.GetAllSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settings) != 3 {
+		t.Errorf("expected 3 settings, got %d", len(settings))
+	}
+	if settings["theme"] != "dark" {
+		t.Errorf("expected dark theme, got %q", settings["theme"])
+	}
+}

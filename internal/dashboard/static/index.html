@@ -1553,6 +1553,7 @@ select.form-input { cursor: pointer; }
     <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')" title="New project">+ Project</button>
     <button class="btn-ghost btn-sm" onclick="openSpawnPanel()" title="Spawn agent" style="color:var(--cyan);border-color:var(--cyan-dim)">+ Agent</button>
     <button class="btn-ghost btn-sm" id="sound-toggle" onclick="toggleSound()" title="Toggle notification sounds" style="font-size:0.7rem;padding:2px 6px">&#x1F50A;</button>
+    <button class="btn-ghost btn-sm" onclick="openSettingsPanel()" title="Settings" style="font-size:0.7rem;padding:2px 6px">&#x2699;</button>
     <div class="sse-status">
       <div class="sse-dot" id="sse-dot"></div>
       <span id="sse-label">connecting</span>
@@ -2022,7 +2023,6 @@ function renderAgents() {
   orphans.forEach(w => { html += renderAgentRow(w, false); });
 
   el.innerHTML = html;
-  }).join('');
   // Show tmux sessions not registered as agents
   const agentNames = new Set(agents.map(a => a.name));
   const unregistered = tmuxSessions.filter(s => !agentNames.has(s.agent));
@@ -2945,7 +2945,7 @@ async function loadChatMessages(agentName) {
 }
 
 async function sendChat() {
-  if (!currentPanel || currentPanel.type !== 'chat') return;
+  if (!currentPanel || (currentPanel.type !== 'chat' && currentPanel.type !== 'agent')) return;
   const input = document.getElementById('chat-input');
   const body = input.value.trim();
   if (!body) return;
@@ -5258,6 +5258,92 @@ if (currentView === 'inbox') {
 if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
 }
+// ── Settings Panel ──
+
+async function openSettingsPanel() {
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+  document.getElementById('panel-title').textContent = 'Settings';
+  document.getElementById('panel-subtitle').textContent = 'Dashboard preferences and configuration';
+
+  let settings = {};
+  try {
+    settings = await fetch('/api/settings').then(r => r.json());
+  } catch(e) {}
+
+  const theme = settings.theme || 'dark';
+  const sound = settings.sound || (localStorage.getItem('waggle-sound') === 'off' ? 'off' : 'on');
+  const refreshInterval = settings.refresh_interval || '15';
+  const pushEnabled = settings.push_enabled || 'false';
+
+  document.getElementById('panel-content').innerHTML = `
+    <div class="spawn-form">
+      <div class="spawn-field">
+        <label class="spawn-label">Theme</label>
+        <select class="spawn-select" id="settings-theme">
+          <option value="dark" ${theme==='dark'?'selected':''}>Dark</option>
+          <option value="light" ${theme==='light'?'selected':''}>Light</option>
+        </select>
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Notification Sounds</label>
+        <select class="spawn-select" id="settings-sound">
+          <option value="on" ${sound==='on'?'selected':''}>On</option>
+          <option value="off" ${sound==='off'?'selected':''}>Off</option>
+        </select>
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Auto-refresh Interval (seconds)</label>
+        <input class="spawn-input" id="settings-refresh" type="number" min="5" max="300" value="${esc(refreshInterval)}">
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Push Notifications</label>
+        <select class="spawn-select" id="settings-push">
+          <option value="true" ${pushEnabled==='true'?'selected':''}>Enabled</option>
+          <option value="false" ${pushEnabled!=='true'?'selected':''}>Disabled</option>
+        </select>
+        <div class="spawn-hint">Browser push notifications for task completions, messages, and agent status changes</div>
+      </div>
+      <div class="spawn-actions">
+        <button class="btn-ghost btn-sm" onclick="closePanel()">Cancel</button>
+        <button class="btn" onclick="saveSettings()">Save Settings</button>
+      </div>
+    </div>
+  `;
+
+  panel.classList.add('open');
+  overlay.classList.add('visible');
+}
+
+async function saveSettings() {
+  const settings = {
+    theme: document.getElementById('settings-theme').value,
+    sound: document.getElementById('settings-sound').value,
+    refresh_interval: document.getElementById('settings-refresh').value,
+    push_enabled: document.getElementById('settings-push').value,
+  };
+
+  try {
+    await fetch('/api/settings', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(settings),
+    });
+
+    // Apply settings locally
+    if (settings.sound === 'off') {
+      localStorage.setItem('waggle-sound', 'off');
+    } else {
+      localStorage.removeItem('waggle-sound');
+    }
+
+    showToast('Settings saved', 'var(--green)');
+    closePanel();
+  } catch(e) {
+    showToast('Failed to save settings', 'var(--red)');
+  }
+}
+
 fetchAll();
 connectSSE();
 setInterval(fetchAll, 15000);

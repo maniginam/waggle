@@ -177,6 +177,44 @@ func TestAgentHeartbeatLifecycle(t *testing.T) {
 	}
 }
 
+func TestStaleAgentEmitsEvent(t *testing.T) {
+	base, srv := startTestServer(t)
+
+	// Register an agent
+	resp, _ := http.Post(base+"/api/agents/register", "application/json",
+		strings.NewReader(`{"name":"stale-test-agent","type":"claude-code"}`))
+	resp.Body.Close()
+
+	// Subscribe to events to capture the stale event
+	sub := srv.EventHub().Subscribe("", "")
+	defer srv.EventHub().Unsubscribe(sub)
+
+	// Reap with a future cutoff so the agent appears stale
+	cutoff := time.Now().UTC().Add(time.Second)
+	srv.reapAgentsStaleBefore(cutoff)
+
+	// Should receive an agent_stale event followed by agent_left
+	gotStale := false
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case evt := <-sub.Ch:
+			if evt.Type == "agent_stale" && evt.AgentID == "stale-test-agent" {
+				gotStale = true
+			}
+		case <-deadline:
+			goto done
+		}
+		if gotStale {
+			break
+		}
+	}
+done:
+	if !gotStale {
+		t.Error("expected agent_stale event to be emitted when agent goes stale")
+	}
+}
+
 func TestServerCORS(t *testing.T) {
 	base, _ := startTestServer(t)
 

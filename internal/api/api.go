@@ -66,6 +66,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/sessions", a.handleSessions)
 	mux.HandleFunc("/api/sessions/", a.handleSessionAction)
 	mux.HandleFunc("/api/push/subscribe", a.handlePushSubscribe)
+	mux.HandleFunc("/api/settings", a.handleSettings)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -217,6 +218,12 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing_id", "task ID required")
+		return
+	}
+
+	// Handle export endpoint: /api/tasks/export
+	if id == "export" || strings.HasPrefix(id, "export?") {
+		a.handleTaskExport(w, r)
 		return
 	}
 
@@ -1392,6 +1399,82 @@ func (a *API) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 		}
 		a.store.DeletePushSubscription(req.Endpoint)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "unsubscribed"})
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleTaskExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	tasks, err := a.store.ListTasks(map[string]string{})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+		return
+	}
+
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
+	}
+
+	switch format {
+	case "json":
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", `attachment; filename="waggle-tasks.json"`)
+		json.NewEncoder(w).Encode(tasks)
+
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", `attachment; filename="waggle-tasks.csv"`)
+		// Write CSV header
+		fmt.Fprintf(w, "id,title,status,priority,assignee,task_type,project_id,created_at,updated_at\n")
+		for _, t := range tasks {
+			title := strings.ReplaceAll(t.Title, `"`, `""`)
+			desc := ""
+			if t.Assignee != "" {
+				desc = t.Assignee
+			}
+			fmt.Fprintf(w, `"%s","%s","%s","%s","%s","%s","%s","%s","%s"`+"\n",
+				t.ID, title, t.Status, t.Priority, desc,
+				t.TaskType, t.ProjectID,
+				t.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				t.UpdatedAt.Format("2006-01-02T15:04:05Z"))
+		}
+
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_format", "format must be 'json' or 'csv'")
+	}
+}
+
+func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		settings, err := a.store.GetAllSettings()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "read_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, settings)
+
+	case http.MethodPut:
+		var updates map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		for key, value := range updates {
+			if err := a.store.SetSetting(key, value); err != nil {
+				writeError(w, http.StatusInternalServerError, "write_failed", err.Error())
+				return
+			}
+		}
+		settings, _ := a.store.GetAllSettings()
+		writeJSON(w, http.StatusOK, settings)
 
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
