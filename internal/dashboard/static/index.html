@@ -426,6 +426,17 @@ body {
 .tag.tag-removable { cursor: pointer; }
 .tag.tag-removable:hover { background: var(--red-dim); color: var(--red); }
 
+/* ── GITHUB ISSUE BADGE ── */
+.gh-issue-badge {
+  font-size: 0.55rem; font-weight: 600; letter-spacing: 0.3px;
+  padding: 1px 5px; border-radius: 3px;
+  background: rgba(110,84,148,0.15); color: #a78bfa;
+  border: 1px solid rgba(110,84,148,0.25);
+  text-decoration: none; white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.gh-issue-badge:hover { background: rgba(110,84,148,0.3); color: #c4b5fd; }
+
 /* ── PROJECT BADGE ON CARDS ── */
 .project-badge {
   font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.6px;
@@ -1920,6 +1931,7 @@ function renderCard(t, childrenByParent, tasksById) {
       ${quickMoveHtml}
       <div class="card-id">
         <span>${showType ? `<span class="type-badge type-${taskType}">${taskType}</span> ` : ''}${esc(t.id)}</span>
+        ${t.issue_url ? `<a href="${esc(t.issue_url)}" target="_blank" class="gh-issue-badge" onclick="event.stopPropagation()" title="GitHub Issue #${t.issue_number}">#${t.issue_number}</a>` : ''}
         ${projBadge}
       </div>
       <div class="card-title" ondblclick="event.stopPropagation();inlineEditTitle(this,'${esc(t.id)}')">${esc(t.title)}</div>
@@ -2224,6 +2236,9 @@ async function openTaskPanel(taskId, defaultTab) {
         <div class="detail-field"><div class="label">Priority</div><div class="val"><span class="priority-badge priority-${task.priority}">${task.priority}</span></div></div>
         <div class="detail-field"><div class="label">Assignee</div><div class="val"><span class="editable-val" onclick="editAssignee('${taskId}','${task.assignee||''}')" title="Click to edit">${task.assignee ? esc(task.assignee) : '<span style="color:var(--text-dim)">unassigned (click)</span>'}</span></div></div>
       </div>
+      ${task.issue_url ? `<div class="detail-row">
+        <div class="detail-field"><div class="label">GitHub Issue</div><div class="val"><a href="${esc(task.issue_url)}" target="_blank" class="gh-issue-badge" style="font-size:0.7rem;padding:2px 8px">#${task.issue_number}</a></div></div>
+      </div>` : ''}
       ${task.estimate || task.deadline ? `<div class="detail-row">
         ${task.estimate ? `<div class="detail-field"><div class="label">Estimate</div><div class="val">${esc(task.estimate)}</div></div>` : ''}
         ${task.deadline ? (() => {

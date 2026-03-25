@@ -174,6 +174,8 @@ func (s *Store) migrate() error {
 		{"tasks", "task_type", "TEXT DEFAULT 'task'"},
 		{"tasks", "project_id", "TEXT DEFAULT ''"},
 		{"agents", "project_id", "TEXT DEFAULT ''"},
+		{"tasks", "issue_number", "INTEGER DEFAULT 0"},
+		{"tasks", "issue_url", "TEXT DEFAULT ''"},
 	} {
 		var count int
 		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
@@ -220,22 +222,23 @@ func (s *Store) CreateTask(t *model.Task) error {
 		deadline = t.Deadline.Format(time.RFC3339)
 	}
 
-	_, err := s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Title, t.Description, string(criteria), string(t.Status), string(t.Priority),
 		t.Assignee, string(tags), t.Estimate, deadline,
 		t.CreatedAt.Format(time.RFC3339), t.UpdatedAt.Format(time.RFC3339),
-		t.ParentID, string(dependsOn), string(t.TaskType), t.ProjectID)
+		t.ParentID, string(dependsOn), string(t.TaskType), t.ProjectID,
+		t.IssueNumber, t.IssueURL)
 	return err
 }
 
 func (s *Store) GetTask(id string) (*model.Task, error) {
-	row := s.db.QueryRow(`SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id FROM tasks WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url FROM tasks WHERE id = ?`, id)
 	return scanTask(row)
 }
 
 func (s *Store) ListTasks(filters map[string]string) ([]*model.Task, error) {
-	query := `SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id FROM tasks`
+	query := `SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url FROM tasks`
 	var conditions []string
 	var args []any
 
@@ -372,6 +375,12 @@ func (s *Store) UpdateTask(id string, updates map[string]any) (*model.Task, erro
 			args = append(args, v)
 		case "project_id":
 			sets = append(sets, "project_id = ?")
+			args = append(args, v)
+		case "issue_number":
+			sets = append(sets, "issue_number = ?")
+			args = append(args, v)
+		case "issue_url":
+			sets = append(sets, "issue_url = ?")
 			args = append(args, v)
 		}
 	}
@@ -812,7 +821,8 @@ func scanTask(row scanner) (*model.Task, error) {
 	err := row.Scan(&t.ID, &t.Title, &t.Description, &criteriaJSON,
 		&t.Status, &t.Priority, &t.Assignee, &tagsJSON,
 		&t.Estimate, &deadlineStr, &createdStr, &updatedStr,
-		&t.ParentID, &dependsOnJSON, &t.TaskType, &t.ProjectID)
+		&t.ParentID, &dependsOnJSON, &t.TaskType, &t.ProjectID,
+		&t.IssueNumber, &t.IssueURL)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
