@@ -101,6 +101,7 @@ const (
 	EventTaskDeleted         EventType = "task_deleted"
 	EventAgentJoined         EventType = "agent_joined"
 	EventAgentLeft           EventType = "agent_left"
+	EventAgentStale          EventType = "agent_stale"
 	EventAgentStatusChanged  EventType = "agent_status_changed"
 	EventMessage             EventType = "message"
 )

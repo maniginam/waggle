@@ -11,6 +11,7 @@ import (
 	"github.com/maniginam/waggle/internal/api"
 	"github.com/maniginam/waggle/internal/dashboard"
 	"github.com/maniginam/waggle/internal/event"
+	"github.com/maniginam/waggle/internal/mcp"
 	"github.com/maniginam/waggle/internal/model"
 	"github.com/maniginam/waggle/internal/push"
 	"github.com/maniginam/waggle/internal/store"
@@ -64,6 +65,12 @@ func New(cfg Config) (*Server, error) {
 
 	// Mount WebSocket
 	mux.Handle("/ws", wsHub.Handler())
+
+	// Mount MCP SSE transport
+	baseURL := fmt.Sprintf("http://localhost:%d", cfg.Port)
+	mcpSSE := mcp.NewSSEHandler(baseURL)
+	mux.Handle("/mcp/sse", http.StripPrefix("/mcp", mcpSSE.Handler()))
+	mux.Handle("/mcp/message", http.StripPrefix("/mcp", mcpSSE.Handler()))
 
 	// Dashboard
 	mux.Handle("/", dashboard.Handler())
@@ -146,6 +153,15 @@ func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
 				continue
 			}
 			log.Printf("reaping stale agent: %s (last seen %s)", agent.Name, agent.LastSeen)
+			// Emit stale event before disconnecting (for push notifications)
+			s.eventHub.Publish(&model.Event{
+				Type:    model.EventAgentStale,
+				AgentID: agent.Name,
+				Payload: map[string]any{
+					"agent_name": agent.Name,
+					"last_seen":  agent.LastSeen.Format("2006-01-02T15:04:05Z"),
+				},
+			})
 			s.store.DisconnectAgent(agent.Name)
 			s.eventHub.Publish(&model.Event{
 				Type:    model.EventAgentLeft,
@@ -204,6 +220,7 @@ func (s *Server) pushNotificationLoop() {
 		model.EventMessage:             "New message",
 		model.EventAgentJoined:         "Agent connected",
 		model.EventAgentLeft:           "Agent disconnected",
+		model.EventAgentStale:          "Agent heartbeat lost",
 		"review_submitted":             "Review needs attention",
 	}
 

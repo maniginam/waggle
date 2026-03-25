@@ -791,6 +791,97 @@ func TestTaskTypeFilterAPI(t *testing.T) {
 	}
 }
 
+func TestSettingsAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET empty settings
+	resp, _ := http.Get(ts.URL + "/api/settings")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var settings map[string]string
+	json.NewDecoder(resp.Body).Decode(&settings)
+	resp.Body.Close()
+	if len(settings) != 0 {
+		t.Errorf("expected empty settings, got %d", len(settings))
+	}
+
+	// PUT a setting
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/settings",
+		bytes.NewBufferString(`{"theme":"dark","sound":"on"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// GET settings back
+	resp, _ = http.Get(ts.URL + "/api/settings")
+	json.NewDecoder(resp.Body).Decode(&settings)
+	resp.Body.Close()
+	if settings["theme"] != "dark" {
+		t.Errorf("expected dark theme, got %q", settings["theme"])
+	}
+	if settings["sound"] != "on" {
+		t.Errorf("expected sound on, got %q", settings["sound"])
+	}
+}
+
+func TestExportTasksJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create tasks
+	for _, body := range []string{
+		`{"title":"Task A","priority":"high","status":"ready"}`,
+		`{"title":"Task B","priority":"low","status":"done"}`,
+	} {
+		r, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(body))
+		r.Body.Close()
+	}
+
+	resp, _ := http.Get(ts.URL + "/api/tasks/export?format=json")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json, got %s", ct)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); cd == "" {
+		t.Error("expected Content-Disposition header")
+	}
+	var tasks []map[string]any
+	json.NewDecoder(resp.Body).Decode(&tasks)
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(tasks))
+	}
+}
+
+func TestExportTasksCSV(t *testing.T) {
+	_, ts := setup(t)
+
+	http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"CSV Task","priority":"high","status":"ready"}`))
+
+	resp, _ := http.Get(ts.URL + "/api/tasks/export?format=csv")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/csv" {
+		t.Errorf("expected text/csv, got %s", ct)
+	}
+
+	// Read CSV content
+	body := new(bytes.Buffer)
+	body.ReadFrom(resp.Body)
+	lines := bytes.Split(body.Bytes(), []byte("\n"))
+	// Should have header + 1 data row + possible trailing newline
+	if len(lines) < 2 {
+		t.Errorf("expected at least 2 CSV lines (header+data), got %d", len(lines))
+	}
+}
+
 func TestMethodNotAllowed(t *testing.T) {
 	_, ts := setup(t)
 

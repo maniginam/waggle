@@ -158,6 +158,11 @@ func (s *Store) migrate() error {
 			created_at TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS settings (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);
+
 		CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id);
 		CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
 		CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
@@ -1312,4 +1317,39 @@ func (s *Store) ListPushSubscriptions() ([]*PushSubscription, error) {
 func (s *Store) DeletePushSubscription(endpoint string) error {
 	_, err := s.db.Exec(`DELETE FROM push_subscriptions WHERE endpoint = ?`, endpoint)
 	return err
+}
+
+// Settings
+
+func (s *Store) GetSetting(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *Store) SetSetting(key, value string) error {
+	_, err := s.db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
+	return err
+}
+
+func (s *Store) GetAllSettings() (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT key, value FROM settings ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	settings := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		settings[key] = value
+	}
+	return settings, rows.Err()
 }
