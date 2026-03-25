@@ -10,7 +10,10 @@ import (
 	"regexp"
 	"strings"
 
+	"log"
+
 	"github.com/maniginam/waggle/internal/event"
+	gh "github.com/maniginam/waggle/internal/github"
 	"github.com/maniginam/waggle/internal/model"
 	"github.com/maniginam/waggle/internal/push"
 	"github.com/maniginam/waggle/internal/store"
@@ -24,12 +27,16 @@ type API struct {
 	store    *store.Store
 	eventHub *event.Hub
 	push     *push.Notifier
+	ghAvail  bool
 }
 
 func New(s *store.Store, eh *event.Hub) *API {
-	a := &API{store: s, eventHub: eh}
+	a := &API{store: s, eventHub: eh, ghAvail: gh.Available()}
 	if p, err := push.NewNotifier(s); err == nil {
 		a.push = p
+	}
+	if a.ghAvail {
+		log.Println("GitHub issue integration enabled (gh CLI available)")
 	}
 	return a
 }
@@ -106,6 +113,10 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
 			return
 		}
+		// Create GitHub issue in background
+		if a.ghAvail {
+			go a.createGitHubIssue(&task)
+		}
 		a.store.RecordEvent(&model.Event{Type: model.EventTaskCreated, TaskID: task.ID, Payload: task})
 		a.eventHub.Publish(&model.Event{Type: model.EventTaskCreated, TaskID: task.ID, Payload: task})
 		writeJSON(w, http.StatusCreated, task)
@@ -173,6 +184,8 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 			return
 		}
+		// Capture old task state for issue sync
+		oldTask, _ := a.store.GetTask(id)
 		task, err := a.store.UpdateTask(id, updates)
 		if err != nil {
 			if err == store.ErrNotFound {
@@ -185,6 +198,10 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 			}
 			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
 			return
+		}
+		// Sync GitHub issue state if status changed
+		if newStatus, ok := updates["status"].(string); ok && oldTask != nil {
+			go a.syncGitHubIssueState(oldTask, newStatus)
 		}
 		a.store.RecordEvent(&model.Event{Type: model.EventTaskUpdated, TaskID: id, Payload: updates})
 		a.eventHub.Publish(&model.Event{Type: model.EventTaskUpdated, TaskID: id, Payload: updates})
@@ -279,6 +296,7 @@ func (a *API) handleTaskComplete(w http.ResponseWriter, r *http.Request, taskID 
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	oldTask, _ := a.store.GetTask(taskID)
 	if err := a.store.CompleteTask(taskID); err != nil {
 		if err == store.ErrNotFound {
 			writeError(w, http.StatusNotFound, "task_not_found", "Task "+taskID+" not found")
@@ -286,6 +304,10 @@ func (a *API) handleTaskComplete(w http.ResponseWriter, r *http.Request, taskID 
 		}
 		writeError(w, http.StatusInternalServerError, "complete_failed", err.Error())
 		return
+	}
+	// Close linked GitHub issue
+	if oldTask != nil {
+		go a.syncGitHubIssueState(oldTask, string(model.TaskDone))
 	}
 	a.store.RecordEvent(&model.Event{Type: model.EventTaskCompleted, TaskID: taskID})
 	a.eventHub.Publish(&model.Event{Type: model.EventTaskCompleted, TaskID: taskID})
@@ -1272,4 +1294,70 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 			"message": message,
 		},
 	})
+}
+
+func (a *API) createGitHubIssue(task *model.Task) {
+	repo := a.resolveRepo(task.ProjectID)
+	if repo == "" {
+		return
+	}
+
+	client := gh.NewClient(repo)
+	labels := gh.LabelsFromTask(string(task.Priority), string(task.TaskType))
+	if len(labels) > 0 {
+		client.EnsureLabels(labels)
+	}
+
+	body := gh.IssueBody(task.Description, task.Criteria, string(task.Priority), string(task.TaskType), task.ID)
+	issue, err := client.CreateIssue(task.Title, body, labels)
+	if err != nil {
+		log.Printf("failed to create GitHub issue for task %s: %v", task.ID, err)
+		return
+	}
+
+	a.store.UpdateTask(task.ID, map[string]any{
+		"issue_number": issue.Number,
+		"issue_url":    issue.URL,
+	})
+	log.Printf("created GitHub issue #%d for task %s: %s", issue.Number, task.ID, issue.URL)
+}
+
+func (a *API) syncGitHubIssueState(task *model.Task, newStatus string) {
+	if !a.ghAvail || task.IssueNumber == 0 {
+		return
+	}
+	repo := a.resolveRepo(task.ProjectID)
+	if repo == "" {
+		return
+	}
+
+	client := gh.NewClient(repo)
+	switch model.TaskStatus(newStatus) {
+	case model.TaskDone:
+		if err := client.CloseIssue(task.IssueNumber); err != nil {
+			log.Printf("failed to close GitHub issue #%d: %v", task.IssueNumber, err)
+		} else {
+			log.Printf("closed GitHub issue #%d for completed task %s", task.IssueNumber, task.ID)
+		}
+	case model.TaskBacklog, model.TaskReady, model.TaskInProgress, model.TaskReview:
+		// If task is reopened from done, reopen the issue
+		if task.Status == model.TaskDone {
+			if err := client.ReopenIssue(task.IssueNumber); err != nil {
+				log.Printf("failed to reopen GitHub issue #%d: %v", task.IssueNumber, err)
+			} else {
+				log.Printf("reopened GitHub issue #%d for task %s", task.IssueNumber, task.ID)
+			}
+		}
+	}
+}
+
+func (a *API) resolveRepo(projectID string) string {
+	if projectID == "" {
+		return ""
+	}
+	proj, err := a.store.GetProject(projectID)
+	if err != nil {
+		return ""
+	}
+	return gh.RepoFromProject(proj.Name)
 }

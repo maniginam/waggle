@@ -65,6 +65,8 @@ type Task struct {
 	DependsOn   []string   `json:"depends_on,omitempty"`
 	TaskType    TaskType   `json:"task_type,omitempty"`
 	ProjectID   string     `json:"project_id,omitempty"`
+	IssueNumber int        `json:"issue_number,omitempty"`
+	IssueURL    string     `json:"issue_url,omitempty"`
 }
 
 type Agent struct {
