@@ -4280,23 +4280,31 @@ document.addEventListener('keydown', e => {
 // ── QUICK CLAIM ──
 
 async function quickClaim(taskId) {
-  if (agents.length === 0) return;
-  const active = agents.filter(a => a.status !== 'disconnected');
-  if (active.length === 0) { showToast('No active agents', 'var(--red)'); return; }
-  if (active.length === 1) {
-    await doClaimTask(taskId, active[0].name);
+  const allAgents = agents.filter(a => a.status !== 'disconnected');
+  if (allAgents.length === 0) { showToast('No active agents', 'var(--red)'); return; }
+  if (allAgents.length === 1) {
+    await doClaimTask(taskId, allAgents[0].name);
     return;
   }
-  // Show a mini picker
-  const names = active.map(a => a.name);
-  const choice = prompt('Assign to which agent?\n\n' + names.map((n,i) => `${i+1}. ${n}`).join('\n') + '\n\nEnter name or number:');
-  if (!choice) return;
-  const name = /^\d+$/.test(choice.trim()) ? names[parseInt(choice.trim()) - 1] : choice.trim();
-  if (!name || !names.includes(name)) {
-    showToast('Unknown agent: ' + (name || '(empty)'), 'var(--red)');
-    return;
-  }
-  await doClaimTask(taskId, name);
+  // Show dropdown picker near the card
+  const card = document.querySelector(`.card[data-id="${taskId}"]`);
+  if (!card) return;
+  // Remove existing pickers
+  document.querySelectorAll('.claim-picker').forEach(el => el.remove());
+  const picker = document.createElement('div');
+  picker.className = 'claim-picker';
+  picker.style.cssText = 'position:absolute;top:100%;right:0;z-index:50;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 4px 12px rgba(0,0,0,0.4);padding:4px;min-width:160px';
+  picker.innerHTML = allAgents.map(a => `
+    <button style="display:block;width:100%;padding:6px 10px;background:none;border:none;color:var(--text-secondary);font-family:var(--font-mono);font-size:0.7rem;cursor:pointer;text-align:left;border-radius:3px;transition:all 0.1s" onmouseover="this.style.background='var(--bg-elevated)';this.style.color='var(--text-primary)'" onmouseout="this.style.background='none';this.style.color='var(--text-secondary)'" onclick="doClaimTask('${esc(taskId)}','${esc(a.name)}');this.closest('.claim-picker').remove()">
+      <span style="color:var(--cyan)">${esc(a.name)}</span> <span style="font-size:0.55rem;color:var(--text-dim)">${a.status}</span>
+    </button>
+  `).join('');
+  card.appendChild(picker);
+  // Close on outside click
+  setTimeout(() => {
+    const closer = (e) => { if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', closer); } };
+    document.addEventListener('click', closer);
+  }, 0);
 }
 
 async function doClaimTask(taskId, agentName) {
