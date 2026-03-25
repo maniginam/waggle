@@ -1595,6 +1595,8 @@ select.form-input { cursor: pointer; }
     <div class="shortcut-row"><span class="shortcut-desc">Bulk select mode</span><span class="shortcut-key">b</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Messages inbox</span><span class="shortcut-key">m</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Spawn agent</span><span class="shortcut-key">a</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Focus mode</span><span class="shortcut-key">f</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Sessions view</span><span class="shortcut-key">s</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Command bar</span><span class="shortcut-key">&#8984;K</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Overview / projects 1-8</span><span class="shortcut-key">1-9</span></div>
   </div>
@@ -3784,6 +3786,7 @@ const SLASH_COMMANDS = [
   {cmd: '/task', args: '<title>', desc: 'Quick-create a backlog task', fn: slashTask},
   {cmd: '/assign', args: '<task-id> <agent>', desc: 'Assign a task to an agent', fn: slashAssign},
   {cmd: '/move', args: '<task-id> <status>', desc: 'Move task to status column', fn: slashMove},
+  {cmd: '/focus', args: '', desc: 'Toggle focus mode (hide done)', fn: () => toggleFocusMode()},
   {cmd: '/find', args: '<query>', desc: 'Search tasks by title or ID', fn: slashFind},
   {cmd: '/done', args: '<task-id>', desc: 'Mark a task as done', fn: slashDone},
   {cmd: '/help', args: '', desc: 'Show all commands', fn: slashHelp},
@@ -4757,6 +4760,16 @@ document.addEventListener('keydown', e => {
   if (e.key === 'a' && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     openSpawnPanel();
+    return;
+  }
+  if (e.key === 'f' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    toggleFocusMode();
+    return;
+  }
+  if (e.key === 's' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    navigateTo('sessions');
     return;
   }
   // Number keys 1-9 to jump to projects
