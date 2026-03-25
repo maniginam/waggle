@@ -1884,7 +1884,7 @@ function renderCard(t, childrenByParent, tasksById) {
       </div>
       <div class="card-title" ondblclick="event.stopPropagation();inlineEditTitle(this,'${esc(t.id)}')">${esc(t.title)}</div>
       <div class="card-meta">
-        <span class="priority-badge priority-${t.priority}">${t.priority}</span>
+        <span class="priority-badge priority-${t.priority}" onclick="event.stopPropagation();cyclePriority('${esc(t.id)}','${t.priority}')" style="cursor:pointer" title="Click to change priority">${t.priority}</span>
         ${t.assignee ? `<span class="card-assignee">${esc(t.assignee)}</span>` : ''}
         ${deadlineHtml}
         <span class="card-age">${timeSince(new Date(t.updated_at))}</span>
@@ -4413,6 +4413,20 @@ function showSearchResults() {
 function hideSearchResults() {
   document.getElementById('search-results').classList.remove('visible');
   searchHighlight = -1;
+}
+
+// ── PRIORITY CYCLE ──
+
+async function cyclePriority(taskId, current) {
+  const order = ['low','medium','high','critical'];
+  const idx = order.indexOf(current);
+  const next = order[(idx + 1) % order.length];
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({priority: next}),
+  });
+  showToast(`Priority: ${next}`, next === 'critical' ? 'var(--red)' : next === 'high' ? 'var(--amber)' : 'var(--text-dim)');
+  await fetchAll();
 }
 
 // ── INLINE TITLE EDIT ──
