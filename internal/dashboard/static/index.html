@@ -1365,6 +1365,11 @@ select.form-input { cursor: pointer; }
 .command-target-option:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .command-target-option.active { color: var(--amber); }
 
+/* ── TERMINAL VIEWER ── */
+#term-output::-webkit-scrollbar { width: 4px; }
+#term-output::-webkit-scrollbar-track { background: transparent; }
+#term-output::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
 /* ── SPAWN FORM ── */
 .spawn-form { padding: 20px; }
 .spawn-field { margin-bottom: 14px; }
@@ -2251,6 +2256,7 @@ async function openAgentPanel(evtOrNull, agentName) {
   content.innerHTML = `
     <div class="panel-tabs">
       <div class="panel-tab active" data-tab="prompt">Prompt</div>
+      <div class="panel-tab" data-tab="terminal">Terminal</div>
       <div class="panel-tab" data-tab="messages">Messages</div>
     </div>
     <div id="agent-tab-prompt">
@@ -2297,6 +2303,14 @@ async function openAgentPanel(evtOrNull, agentName) {
         </div>
       </div>
     </div>
+    <div id="agent-tab-terminal" style="display:none;flex-direction:column;height:100%">
+      <div id="term-output" style="flex:1;overflow-y:auto;background:var(--bg-deep);padding:8px 12px;font-family:var(--font-mono);font-size:0.7rem;line-height:1.5;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;min-height:200px;max-height:60vh;border:1px solid var(--border);border-radius:var(--radius);margin:8px"></div>
+      <div style="display:flex;gap:6px;padding:0 8px 8px">
+        <input class="command-input" id="term-input" placeholder="Send to terminal..." onkeydown="if(event.key==='Enter'){sendToTerminal('${esc(agentName)}');}" style="font-size:0.75rem">
+        <button class="btn btn-sm" onclick="sendToTerminal('${esc(agentName)}')">Send</button>
+        <button class="btn-ghost btn-sm" onclick="refreshTerminal('${esc(agentName)}')">Refresh</button>
+      </div>
+    </div>
     <div id="agent-tab-messages" style="display:none;flex:1;display:none;flex-direction:column;height:100%">
       <div class="chat-messages" id="chat-messages" style="flex:1"></div>
       <div class="chat-input-bar">
@@ -2312,11 +2326,16 @@ async function openAgentPanel(evtOrNull, agentName) {
       content.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       const promptTab = document.getElementById('agent-tab-prompt');
+      const termTab = document.getElementById('agent-tab-terminal');
       const msgTab = document.getElementById('agent-tab-messages');
+      promptTab.style.display = 'none'; termTab.style.display = 'none'; msgTab.style.display = 'none';
       if (tab.dataset.tab === 'prompt') {
-        promptTab.style.display = ''; msgTab.style.display = 'none';
+        promptTab.style.display = '';
+      } else if (tab.dataset.tab === 'terminal') {
+        termTab.style.display = 'flex'; termTab.style.flexDirection = 'column';
+        refreshTerminal(agentName);
       } else {
-        promptTab.style.display = 'none'; msgTab.style.display = 'flex'; msgTab.style.flexDirection = 'column';
+        msgTab.style.display = 'flex'; msgTab.style.flexDirection = 'column';
         loadChatMessages(agentName);
       }
     });
@@ -2331,6 +2350,52 @@ async function openAgentPanel(evtOrNull, agentName) {
 function fillPrompt(text) {
   const ta = document.getElementById('agent-prompt');
   if (ta) { ta.value = text; ta.focus(); }
+}
+
+let termRefreshTimer = null;
+
+async function refreshTerminal(agentName) {
+  const el = document.getElementById('term-output');
+  if (!el) return;
+  // Try waggle-prefixed first, then bare session name
+  let resp = await fetch(`/api/sessions/${encodeURIComponent(agentName)}/output?lines=80`);
+  if (!resp.ok) {
+    el.textContent = 'No tmux session found for ' + agentName + '.\nSpawn an agent or check session names.';
+    return;
+  }
+  const data = await resp.json();
+  el.textContent = data.output || '(empty)';
+  el.scrollTop = el.scrollHeight;
+
+  // Auto-refresh every 3 seconds while terminal tab is visible
+  if (termRefreshTimer) clearInterval(termRefreshTimer);
+  termRefreshTimer = setInterval(async () => {
+    const termTab = document.getElementById('agent-tab-terminal');
+    if (!termTab || termTab.style.display === 'none') {
+      clearInterval(termRefreshTimer);
+      termRefreshTimer = null;
+      return;
+    }
+    const r = await fetch(`/api/sessions/${encodeURIComponent(agentName)}/output?lines=80`).catch(() => null);
+    if (r && r.ok) {
+      const d = await r.json();
+      el.textContent = d.output || '(empty)';
+      el.scrollTop = el.scrollHeight;
+    }
+  }, 3000);
+}
+
+async function sendToTerminal(agentName) {
+  const input = document.getElementById('term-input');
+  const keys = input ? input.value : '';
+  if (!keys) return;
+  input.value = '';
+  await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({keys}),
+  });
+  setTimeout(() => refreshTerminal(agentName), 500);
 }
 
 async function sendAgentPrompt(agentName) {
