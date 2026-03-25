@@ -38,10 +38,14 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("create dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-20000")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	// Connection pool: single writer, multiple readers
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
 
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {

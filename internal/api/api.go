@@ -3,14 +3,15 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"log"
+	"sync"
+	"time"
 
 	"github.com/maniginam/waggle/internal/event"
 	gh "github.com/maniginam/waggle/internal/github"
@@ -24,14 +25,20 @@ const maxBodySize = 1 << 20 // 1MB
 var safeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
 type API struct {
-	store    *store.Store
-	eventHub *event.Hub
-	push     *push.Notifier
-	ghAvail  bool
+	store       *store.Store
+	eventHub    *event.Hub
+	push        *push.Notifier
+	ghAvail     bool
+	rateLimiter *rateLimiter
 }
 
 func New(s *store.Store, eh *event.Hub) *API {
-	a := &API{store: s, eventHub: eh, ghAvail: gh.Available()}
+	a := &API{
+		store:       s,
+		eventHub:    eh,
+		ghAvail:     gh.Available(),
+		rateLimiter: newRateLimiter(120, time.Minute),
+	}
 	if p, err := push.NewNotifier(s); err == nil {
 		a.push = p
 	}
@@ -59,13 +66,93 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/sessions", a.handleSessions)
 	mux.HandleFunc("/api/sessions/", a.handleSessionAction)
 	mux.HandleFunc("/api/push/subscribe", a.handlePushSubscribe)
-	// Wrap with body size limit for non-SSE/WebSocket requests
+	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
+		if r.Method == http.MethodPost || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
+			ip := r.RemoteAddr
+			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+				ip = strings.Split(fwd, ",")[0]
+			}
+			if !a.rateLimiter.Allow(ip) {
+				writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests, try again later")
+				return
+			}
+		}
+		// Body size limit
 		if r.Method == http.MethodPost || r.Method == http.MethodPatch {
 			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 		}
+		// Request logging (skip SSE and high-frequency endpoints)
+		if r.URL.Path != "/api/events" && !strings.HasSuffix(r.URL.Path, "/heartbeat") {
+			start := time.Now()
+			rw := &statusWriter{ResponseWriter: w, status: 200}
+			mux.ServeHTTP(rw, r)
+			if rw.status >= 400 || time.Since(start) > 500*time.Millisecond {
+				log.Printf("%s %s %d %s", r.Method, r.URL.Path, rw.status, time.Since(start).Round(time.Millisecond))
+			}
+			return
+		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// statusWriter captures the HTTP status code for logging.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+// rateLimiter implements a simple per-key token bucket.
+type rateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*bucket
+	rate    int           // tokens per window
+	window  time.Duration // window duration
+}
+
+type bucket struct {
+	tokens int
+	last   time.Time
+}
+
+func newRateLimiter(rate int, window time.Duration) *rateLimiter {
+	return &rateLimiter{
+		buckets: make(map[string]*bucket),
+		rate:    rate,
+		window:  window,
+	}
+}
+
+func (rl *rateLimiter) Allow(key string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	// Periodic cleanup of stale buckets (every 100 calls)
+	if len(rl.buckets) > 100 {
+		for k, b := range rl.buckets {
+			if now.Sub(b.last) > rl.window*2 {
+				delete(rl.buckets, k)
+			}
+		}
+	}
+
+	b, ok := rl.buckets[key]
+	if !ok || now.Sub(b.last) > rl.window {
+		rl.buckets[key] = &bucket{tokens: rl.rate - 1, last: now}
+		return true
+	}
+	if b.tokens <= 0 {
+		return false
+	}
+	b.tokens--
+	return true
 }
 
 func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
@@ -596,6 +683,14 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "missing_fields", "from and body are required")
 			return
 		}
+		if len(msg.Body) > 10000 {
+			writeError(w, http.StatusBadRequest, "body_too_long", "message body max 10000 chars")
+			return
+		}
+		if len(msg.From) > 64 || len(msg.To) > 64 {
+			writeError(w, http.StatusBadRequest, "name_too_long", "from/to max 64 chars")
+			return
+		}
 		if err := a.store.SendMessage(&msg); err != nil {
 			writeError(w, http.StatusInternalServerError, "send_failed", err.Error())
 			return
@@ -918,6 +1013,10 @@ func (a *API) handleReviews(w http.ResponseWriter, r *http.Request) {
 		}
 		if rev.TaskID == "" || rev.Diff == "" {
 			writeError(w, http.StatusBadRequest, "missing_fields", "task_id and diff are required")
+			return
+		}
+		if len(rev.Diff) > 500000 {
+			writeError(w, http.StatusBadRequest, "diff_too_large", "diff max 500KB")
 			return
 		}
 		if rev.AgentID == "" {

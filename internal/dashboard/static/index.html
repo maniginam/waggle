@@ -3031,6 +3031,7 @@ function openCreatePanel(type) {
   if (type === 'project') {
     document.getElementById('panel-title').textContent = 'New Project';
     document.getElementById('panel-subtitle').textContent = 'Create a project to organize epics and stories';
+    const agentOpts = agents.filter(a => a.status !== 'disconnected').map(a => `<option value="${esc(a.name)}">${esc(a.name)} (${a.role})</option>`).join('');
     document.getElementById('panel-content').innerHTML = `
       <div class="create-form">
         <div class="form-group">
@@ -3040,6 +3041,13 @@ function openCreatePanel(type) {
         <div class="form-group">
           <label class="form-label">Description</label>
           <textarea class="form-input" id="create-desc" placeholder="What is this project about?"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Leader Agent</label>
+          <select class="form-input" id="create-leader">
+            <option value="">No leader assigned</option>
+            ${agentOpts}
+          </select>
         </div>
         <div class="form-actions">
           <button class="btn-ghost btn-sm" onclick="closePanel()">Cancel</button>
@@ -3161,6 +3169,13 @@ function editProjectDetails(projectId) {
         <textarea class="form-input" id="edit-proj-desc" style="min-height:80px">${esc(project.description || '')}</textarea>
       </div>
       <div class="form-group">
+        <label class="form-label">Leader Agent</label>
+        <select class="form-input" id="edit-proj-leader">
+          <option value="">No leader assigned</option>
+          ${agents.map(a => `<option value="${esc(a.name)}"${a.name === project.leader_agent ? ' selected' : ''}>${esc(a.name)} (${a.role || 'worker'})</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
         <label class="form-label">Working Directory</label>
         <input class="form-input" id="edit-proj-path" placeholder="/Users/maniginam/projects/..." value="${esc(projectPaths[projectId] || '')}">
         <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">Used when spawning agents for this project</div>
@@ -3178,12 +3193,13 @@ function editProjectDetails(projectId) {
 async function saveProjectDetails(projectId) {
   const name = document.getElementById('edit-proj-name').value.trim();
   const desc = document.getElementById('edit-proj-desc').value.trim();
+  const leader = document.getElementById('edit-proj-leader').value;
   const path = document.getElementById('edit-proj-path').value.trim();
   if (!name) { showToast('Name required', 'var(--red)'); return; }
   await fetch(`/api/projects/${projectId}`, {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, description: desc}),
+    body: JSON.stringify({name, description: desc, leader_agent: leader}),
   });
   if (path) {
     projectPaths[projectId] = path;
@@ -3221,10 +3237,13 @@ async function submitCreateProject() {
   const name = document.getElementById('create-name').value.trim();
   if (!name) { alert('Name is required'); return; }
   const desc = document.getElementById('create-desc').value.trim();
+  const leader = document.getElementById('create-leader').value;
+  const payload = {name, description: desc};
+  if (leader) payload.leader_agent = leader;
   await fetch('/api/projects', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, description: desc}),
+    body: JSON.stringify(payload),
   });
   closePanel();
   await fetchAll();

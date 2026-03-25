@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os/exec"
 	"time"
 
 	"github.com/maniginam/waggle/internal/api"
@@ -137,6 +138,13 @@ func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
 			continue
 		}
 		if agent.LastSeen.Before(cutoff) {
+			// Check if agent has an active tmux session before reaping
+			sessionName := "waggle-" + agent.Name
+			if tmuxSessionAlive(sessionName) {
+				// Agent has a live tmux session — refresh its heartbeat
+				s.store.TouchAgent(agent.Name)
+				continue
+			}
 			log.Printf("reaping stale agent: %s (last seen %s)", agent.Name, agent.LastSeen)
 			s.store.DisconnectAgent(agent.Name)
 			s.eventHub.Publish(&model.Event{
@@ -149,6 +157,22 @@ func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
 	if purged, err := s.store.PurgeStaleAgents(24 * time.Hour); err == nil && purged > 0 {
 		log.Printf("purged %d agents disconnected for 24+ hours", purged)
 	}
+}
+
+// tmuxSessionAlive checks if a tmux session exists and has a running process (not just a shell).
+func tmuxSessionAlive(sessionName string) bool {
+	// Check if session exists
+	if err := exec.Command("tmux", "has-session", "-t", sessionName).Run(); err != nil {
+		return false
+	}
+	// Check if there's a claude process in the session
+	out, err := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_current_command}").Output()
+	if err != nil {
+		return false
+	}
+	cmd := string(out)
+	// If the pane is running claude or a launch script, the agent is alive
+	return cmd != "" && cmd != "zsh\n" && cmd != "bash\n" && cmd != "sh\n"
 }
 
 func (s *Server) retentionCleanup() {
