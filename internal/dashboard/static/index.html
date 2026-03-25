@@ -1885,7 +1885,7 @@ function renderCard(t, childrenByParent, tasksById) {
       <div class="card-title" ondblclick="event.stopPropagation();inlineEditTitle(this,'${esc(t.id)}')">${esc(t.title)}</div>
       <div class="card-meta">
         <span class="priority-badge priority-${t.priority}" onclick="event.stopPropagation();cyclePriority('${esc(t.id)}','${t.priority}')" style="cursor:pointer" title="Click to change priority">${t.priority}</span>
-        ${t.assignee ? `<span class="card-assignee">${esc(t.assignee)}</span>` : ''}
+        ${t.assignee ? `<span class="card-assignee" onclick="event.stopPropagation();quickClaim('${esc(t.id)}')" style="cursor:pointer" title="Click to reassign">${esc(t.assignee)}</span>` : `<span class="card-assignee" onclick="event.stopPropagation();quickClaim('${esc(t.id)}')" style="cursor:pointer;opacity:0.4" title="Click to assign">unassigned</span>`}
         ${deadlineHtml}
         <span class="card-age">${timeSince(new Date(t.updated_at))}</span>
         ${tags ? `<div class="card-tags">${tags}</div>` : ''}
