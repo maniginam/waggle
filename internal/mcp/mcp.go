@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"time"
 )
 
 const (
@@ -19,10 +22,12 @@ const (
 )
 
 type Adapter struct {
-	baseURL   string
-	agentName string
-	in        io.Reader
-	out       io.Writer
+	baseURL       string
+	agentName     string
+	in            io.Reader
+	out           io.Writer
+	stopHeartbeat chan struct{}
+	heartbeatOnce sync.Once
 }
 
 func NewAdapter(baseURL string) *Adapter {
@@ -302,7 +307,7 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			},
 			"required": []string{"agent"},
 		}),
-		toolDef("waggle_heartbeat", "Send a heartbeat to keep this agent marked as active. Call periodically (every 30-60 seconds) to prevent being marked stale.", map[string]any{
+		toolDef("waggle_heartbeat", "Send a manual heartbeat. Note: heartbeats are now sent automatically every 45s after registration. Only call this if you need an immediate heartbeat.", map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
 		}),
@@ -396,6 +401,8 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		defer resp.Body.Close()
 		var result any
 		json.NewDecoder(resp.Body).Decode(&result)
+		// Start auto-heartbeat in background
+		a.startHeartbeat()
 		return result, nil
 
 	case "waggle_create_task":
@@ -728,6 +735,7 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		if a.agentName == "" {
 			return nil, fmt.Errorf("must call waggle_register_agent first")
 		}
+		a.StopHeartbeat()
 		return a.postJSON("/api/agents/"+url.PathEscape(a.agentName)+"/status", map[string]string{
 			"status": "disconnected",
 		})
@@ -869,5 +877,42 @@ func propArray(itemType, description string) map[string]any {
 		"type":        "array",
 		"items":       map[string]any{"type": itemType},
 		"description": description,
+	}
+}
+
+func (a *Adapter) startHeartbeat() {
+	a.heartbeatOnce.Do(func() {
+		a.stopHeartbeat = make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(45 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-a.stopHeartbeat:
+					return
+				case <-ticker.C:
+					if a.agentName == "" {
+						return
+					}
+					body, _ := json.Marshal(map[string]string{"status": "connected"})
+					resp, err := http.Post(
+						a.baseURL+"/api/agents/"+url.PathEscape(a.agentName)+"/status",
+						"application/json",
+						bytes.NewReader(body),
+					)
+					if err != nil {
+						log.Printf("heartbeat failed: %v", err)
+						continue
+					}
+					resp.Body.Close()
+				}
+			}
+		}()
+	})
+}
+
+func (a *Adapter) StopHeartbeat() {
+	if a.stopHeartbeat != nil {
+		close(a.stopHeartbeat)
 	}
 }
