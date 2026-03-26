@@ -362,7 +362,7 @@ func cmdTask(subcmd string, args []string) {
 		}
 		fmt.Printf("Created task %s: %s\n", result["id"], result["title"])
 
-	case "list":
+	case "list", "ls":
 		url := baseURL() + "/api/tasks"
 		params := []string{}
 		for i := 0; i < len(args); i++ {
@@ -412,6 +412,8 @@ func cmdTask(subcmd string, args []string) {
 					params = append(params, "project_id="+args[i+1])
 					i++
 				}
+			case "--mine":
+				params = append(params, "assignee="+getAgentName())
 			}
 		}
 		if len(params) > 0 {
@@ -1637,7 +1639,7 @@ Usage:
     --depends wg-xxx                 Dependency (repeatable)
     --type epic                      Task type (task|epic|story|issue)
     --project wg-xxx                 Project ID
-  waggle task list [--status X]    List tasks (--priority, --tag, --type, --project, --search/-q, --sort, --order)
+  waggle task list/ls [--status X]  List tasks (--priority, --tag, --type, --project, --mine, --search/-q, --sort, --order)
   waggle task next [--tag X]       Show highest-priority ready task
   waggle task show <id>            Show task detail
   waggle task update <id> [flags]  Update a task
