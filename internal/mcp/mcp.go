@@ -350,6 +350,10 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			"type":       "object",
 			"properties": map[string]any{},
 		}),
+		toolDef("waggle_get_stats", "Get project health overview: task counts by status/priority, agent counts, unread messages, velocity (tasks completed per day).", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}),
 	}
 
 	a.sendResult(req.ID, map[string]any{"tools": tools})
@@ -823,6 +827,9 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 
 	case "waggle_get_usage":
 		return a.get("/api/usage")
+
+	case "waggle_get_stats":
+		return a.get("/api/stats")
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
