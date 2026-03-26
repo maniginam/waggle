@@ -3020,13 +3020,55 @@ async function sendChat() {
   if (!body) return;
   input.value = '';
 
-  await fetch('/api/messages', {
+  const agentName = currentPanel.agent;
+  const agent = agents.find(a => a.name === agentName);
+  const isOnline = agent && agent.status !== 'disconnected';
+
+  // Optimistic render of sent message + delivery status
+  const container = document.getElementById('chat-messages');
+  const now = new Date();
+  const statusText = isOnline ? 'Delivered — agent active' : 'Queued — agent offline';
+  const statusColor = isOnline ? 'var(--green)' : 'var(--amber)';
+  container.innerHTML += `
+    <div class="chat-msg from-me">
+      <div class="chat-msg-meta">you · ${now.toLocaleTimeString()}</div>
+      ${esc(body)}
+      <div class="chat-delivery" style="font-size:0.55rem;color:${statusColor};margin-top:4px;font-weight:600">${statusText}</div>
+    </div>`;
+  container.scrollTop = container.scrollHeight;
+
+  // Send the message
+  const res = await fetch('/api/messages', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({from: 'dashboard', to: currentPanel.agent, body}),
+    body: JSON.stringify({from: 'user', to: agentName, body}),
   });
 
-  await loadChatMessages(currentPanel.agent);
+  if (!res.ok) {
+    // Update status to failed
+    const lastDelivery = container.querySelector('.chat-msg.from-me:last-child .chat-delivery');
+    if (lastDelivery) {
+      lastDelivery.style.color = 'var(--red)';
+      lastDelivery.textContent = 'Failed to send';
+    }
+    return;
+  }
+
+  // If agent is online, also inject into their tmux session for immediate pickup
+  if (isOnline) {
+    fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys: `# Message from user: ${body.replace(/'/g, "'\\''").substring(0, 500)}`}),
+    }).catch(() => {}); // Best effort — don't block on tmux injection
+
+    // Update delivery status
+    const lastDelivery = container.querySelector('.chat-msg.from-me:last-child .chat-delivery');
+    if (lastDelivery) {
+      lastDelivery.textContent = 'Delivered & injected into session';
+      lastDelivery.style.color = 'var(--green)';
+    }
+  }
 }
 
 // ── TASK ACTIONS ──
