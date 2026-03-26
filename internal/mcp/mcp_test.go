@@ -742,3 +742,221 @@ func TestGetStatsViaMCP(t *testing.T) {
 		t.Error("expected velocity in stats")
 	}
 }
+
+func TestProjectCRUDViaMCP(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	// Create project
+	resp := callMCP(t, adapter, "tools/call", 1, map[string]any{
+		"name": "waggle_create_project",
+		"arguments": map[string]any{
+			"name":        "test-project",
+			"description": "A test project",
+		},
+	})
+	result := resp["result"].(map[string]any)
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var project map[string]any
+	json.Unmarshal([]byte(text), &project)
+	projID := project["id"].(string)
+	if project["name"] != "test-project" {
+		t.Errorf("expected name test-project, got %v", project["name"])
+	}
+
+	// List projects
+	resp = callMCP(t, adapter, "tools/call", 2, map[string]any{
+		"name":      "waggle_list_projects",
+		"arguments": map[string]any{},
+	})
+	result = resp["result"].(map[string]any)
+	content = result["content"].([]any)
+	text = content[0].(map[string]any)["text"].(string)
+	var projects []map[string]any
+	json.Unmarshal([]byte(text), &projects)
+	if len(projects) < 1 {
+		t.Fatal("expected at least 1 project")
+	}
+
+	// Show project
+	resp = callMCP(t, adapter, "tools/call", 3, map[string]any{
+		"name":      "waggle_show_project",
+		"arguments": map[string]any{"id": projID},
+	})
+	result = resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("show_project failed")
+	}
+
+	// Update project
+	resp = callMCP(t, adapter, "tools/call", 4, map[string]any{
+		"name": "waggle_update_project",
+		"arguments": map[string]any{
+			"id":          projID,
+			"description": "Updated description",
+		},
+	})
+	result = resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("update_project failed")
+	}
+
+	// Delete project
+	resp = callMCP(t, adapter, "tools/call", 5, map[string]any{
+		"name":      "waggle_delete_project",
+		"arguments": map[string]any{"id": projID},
+	})
+	result = resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("delete_project failed")
+	}
+}
+
+func TestReviewViaMCP(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	// Register agent first
+	callMCP(t, adapter, "tools/call", 1, map[string]any{
+		"name":      "waggle_register_agent",
+		"arguments": map[string]any{"name": "review-agent", "type": "claude-code"},
+	})
+
+	// Create task
+	resp := callMCP(t, adapter, "tools/call", 2, map[string]any{
+		"name":      "waggle_create_task",
+		"arguments": map[string]any{"title": "Review target task"},
+	})
+	result := resp["result"].(map[string]any)
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var task map[string]any
+	json.Unmarshal([]byte(text), &task)
+	taskID := task["id"].(string)
+
+	// Submit review
+	resp = callMCP(t, adapter, "tools/call", 3, map[string]any{
+		"name": "waggle_submit_review",
+		"arguments": map[string]any{
+			"task_id": taskID,
+			"diff":    "--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new",
+		},
+	})
+	result = resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("submit_review failed: %v", result)
+	}
+
+	// List reviews
+	resp = callMCP(t, adapter, "tools/call", 4, map[string]any{
+		"name":      "waggle_list_reviews",
+		"arguments": map[string]any{},
+	})
+	result = resp["result"].(map[string]any)
+	content = result["content"].([]any)
+	text = content[0].(map[string]any)["text"].(string)
+	var reviews []map[string]any
+	json.Unmarshal([]byte(text), &reviews)
+	if len(reviews) != 1 {
+		t.Errorf("expected 1 review, got %d", len(reviews))
+	}
+}
+
+func TestUsageViaMCP(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	// Report usage
+	resp := callMCP(t, adapter, "tools/call", 1, map[string]any{
+		"name": "waggle_report_usage",
+		"arguments": map[string]any{
+			"agent_name":    "test-agent",
+			"input_tokens":  1500,
+			"output_tokens": 750,
+			"model":         "claude-sonnet",
+		},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("report_usage failed: %v", result)
+	}
+
+	// Get usage
+	resp = callMCP(t, adapter, "tools/call", 2, map[string]any{
+		"name":      "waggle_get_usage",
+		"arguments": map[string]any{},
+	})
+	result = resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("get_usage failed: %v", result)
+	}
+}
+
+func TestTaskDepsViaMCP(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	// Create two tasks
+	resp := callMCP(t, adapter, "tools/call", 1, map[string]any{
+		"name":      "waggle_create_task",
+		"arguments": map[string]any{"title": "Dep task A"},
+	})
+	result := resp["result"].(map[string]any)
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var taskA map[string]any
+	json.Unmarshal([]byte(text), &taskA)
+	idA := taskA["id"].(string)
+
+	resp = callMCP(t, adapter, "tools/call", 2, map[string]any{
+		"name":      "waggle_create_task",
+		"arguments": map[string]any{"title": "Dep task B", "depends_on": []string{idA}},
+	})
+	result = resp["result"].(map[string]any)
+	content = result["content"].([]any)
+	text = content[0].(map[string]any)["text"].(string)
+	var taskB map[string]any
+	json.Unmarshal([]byte(text), &taskB)
+	idB := taskB["id"].(string)
+
+	// Check deps
+	resp = callMCP(t, adapter, "tools/call", 3, map[string]any{
+		"name":      "waggle_task_deps",
+		"arguments": map[string]any{"id": idB},
+	})
+	result = resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("task_deps failed: %v", result)
+	}
+	content = result["content"].([]any)
+	text = content[0].(map[string]any)["text"].(string)
+	var deps map[string]any
+	json.Unmarshal([]byte(text), &deps)
+	dependsOn, ok := deps["depends_on"].([]any)
+	if !ok || len(dependsOn) == 0 {
+		t.Error("expected task B to depend on task A")
+	}
+}
+
+func TestTaskHistoryViaMCP(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	// Create and update a task to generate history
+	resp := callMCP(t, adapter, "tools/call", 1, map[string]any{
+		"name":      "waggle_create_task",
+		"arguments": map[string]any{"title": "History task"},
+	})
+	result := resp["result"].(map[string]any)
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var task map[string]any
+	json.Unmarshal([]byte(text), &task)
+	taskID := task["id"].(string)
+
+	// Get history
+	resp = callMCP(t, adapter, "tools/call", 2, map[string]any{
+		"name":      "waggle_task_history",
+		"arguments": map[string]any{"id": taskID},
+	})
+	result = resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("task_history failed: %v", result)
+	}
+}
