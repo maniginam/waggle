@@ -285,6 +285,37 @@ func TestSSEHandler_Ping(t *testing.T) {
 	}
 }
 
+func TestSessionCount(t *testing.T) {
+	handler, _ := setupSSE(t)
+	sseServer := httptest.NewServer(handler.Handler())
+	defer sseServer.Close()
+
+	// No sessions initially
+	if handler.SessionCount() != 0 {
+		t.Errorf("expected 0 sessions, got %d", handler.SessionCount())
+	}
+
+	// Connect to SSE - creates a session
+	resp, err := http.Get(sseServer.URL + "/sse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Read the endpoint event to ensure the session is established
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			break
+		}
+	}
+
+	if handler.SessionCount() != 1 {
+		t.Errorf("expected 1 session, got %d", handler.SessionCount())
+	}
+}
+
 func waitForResponse(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) map[string]any {
 	t.Helper()
 	var response map[string]any

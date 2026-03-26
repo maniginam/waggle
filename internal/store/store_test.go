@@ -1339,3 +1339,214 @@ func TestExportTasks(t *testing.T) {
 		t.Errorf("expected 2 tasks, got %d", len(tasks))
 	}
 }
+
+func TestProposalCRUD(t *testing.T) {
+	s := tempStore(t)
+
+	// Create
+	p := &model.Proposal{
+		AgentID:   "agent-1",
+		ProjectID: "proj-1",
+		Title:     "Add caching layer",
+		Summary:   "Implement Redis caching for API responses",
+		Sections:  []string{"## Motivation", "## Design"},
+	}
+	if err := s.CreateProposal(p); err != nil {
+		t.Fatal(err)
+	}
+	if p.ID == "" {
+		t.Error("expected ID to be set")
+	}
+	if p.Status != model.ProposalPending {
+		t.Errorf("expected pending status, got %s", p.Status)
+	}
+
+	// Get
+	got, err := s.GetProposal(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Add caching layer" {
+		t.Errorf("expected title, got %q", got.Title)
+	}
+	if got.Summary != "Implement Redis caching for API responses" {
+		t.Errorf("expected summary, got %q", got.Summary)
+	}
+	if len(got.Sections) != 2 {
+		t.Errorf("expected 2 sections, got %d", len(got.Sections))
+	}
+
+	// Get not found
+	_, err = s.GetProposal("nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestProposalDefaultStatus(t *testing.T) {
+	s := tempStore(t)
+	p := &model.Proposal{Title: "No status set", AgentID: "a1"}
+	s.CreateProposal(p)
+	if p.Status != model.ProposalPending {
+		t.Errorf("expected pending, got %s", p.Status)
+	}
+}
+
+func TestProposalExplicitStatus(t *testing.T) {
+	s := tempStore(t)
+	p := &model.Proposal{Title: "Pre-approved", AgentID: "a1", Status: model.ProposalApproved}
+	s.CreateProposal(p)
+	got, _ := s.GetProposal(p.ID)
+	if got.Status != model.ProposalApproved {
+		t.Errorf("expected approved, got %s", got.Status)
+	}
+}
+
+func TestListProposals(t *testing.T) {
+	s := tempStore(t)
+	s.CreateProposal(&model.Proposal{Title: "P1", AgentID: "agent-1", ProjectID: "proj-1"})
+	s.CreateProposal(&model.Proposal{Title: "P2", AgentID: "agent-2", ProjectID: "proj-1"})
+	s.CreateProposal(&model.Proposal{Title: "P3", AgentID: "agent-1", ProjectID: "proj-2"})
+
+	// No filters
+	all, err := s.ListProposals(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Errorf("expected 3, got %d", len(all))
+	}
+
+	// Filter by agent_id
+	byAgent, _ := s.ListProposals(map[string]string{"agent_id": "agent-1"})
+	if len(byAgent) != 2 {
+		t.Errorf("expected 2 for agent-1, got %d", len(byAgent))
+	}
+
+	// Filter by project_id
+	byProj, _ := s.ListProposals(map[string]string{"project_id": "proj-2"})
+	if len(byProj) != 1 {
+		t.Errorf("expected 1 for proj-2, got %d", len(byProj))
+	}
+
+	// Filter by status
+	byStatus, _ := s.ListProposals(map[string]string{"status": "pending"})
+	if len(byStatus) != 3 {
+		t.Errorf("expected 3 pending, got %d", len(byStatus))
+	}
+
+	// Combined filters
+	combined, _ := s.ListProposals(map[string]string{"agent_id": "agent-1", "project_id": "proj-1"})
+	if len(combined) != 1 {
+		t.Errorf("expected 1 with combined filter, got %d", len(combined))
+	}
+}
+
+func TestUpdateProposal(t *testing.T) {
+	s := tempStore(t)
+	p := &model.Proposal{Title: "Original", AgentID: "a1", Summary: "Original summary"}
+	s.CreateProposal(p)
+
+	// Update status and feedback
+	updated, err := s.UpdateProposal(p.ID, map[string]any{
+		"status":   "approved",
+		"feedback": "LGTM",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != model.ProposalApproved {
+		t.Errorf("expected approved, got %s", updated.Status)
+	}
+	if updated.Feedback != "LGTM" {
+		t.Errorf("expected LGTM, got %q", updated.Feedback)
+	}
+
+	// Update title and summary
+	updated, err = s.UpdateProposal(p.ID, map[string]any{
+		"title":   "Updated Title",
+		"summary": "Updated Summary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Title != "Updated Title" {
+		t.Errorf("expected Updated Title, got %s", updated.Title)
+	}
+	if updated.Summary != "Updated Summary" {
+		t.Errorf("expected Updated Summary, got %s", updated.Summary)
+	}
+
+	// Update sections
+	updated, err = s.UpdateProposal(p.ID, map[string]any{
+		"sections": []string{"## New Section"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Sections) != 1 {
+		t.Errorf("expected 1 section, got %d", len(updated.Sections))
+	}
+
+	// Empty update is no-op
+	same, err := s.UpdateProposal(p.ID, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Title != "Updated Title" {
+		t.Errorf("expected unchanged title, got %s", same.Title)
+	}
+
+	// Update nonexistent
+	_, err = s.UpdateProposal("nonexistent", map[string]any{"title": "x"})
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteProposal(t *testing.T) {
+	s := tempStore(t)
+	p := &model.Proposal{Title: "Delete me", AgentID: "a1"}
+	s.CreateProposal(p)
+
+	if err := s.DeleteProposal(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.GetProposal(p.ID)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	}
+
+	// Delete nonexistent
+	err = s.DeleteProposal("nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestPendingProposalCounts(t *testing.T) {
+	s := tempStore(t)
+	s.CreateProposal(&model.Proposal{Title: "P1", AgentID: "a1", ProjectID: "proj-1"})
+	s.CreateProposal(&model.Proposal{Title: "P2", AgentID: "a1", ProjectID: "proj-1"})
+	s.CreateProposal(&model.Proposal{Title: "P3", AgentID: "a2", ProjectID: "proj-2"})
+	s.CreateProposal(&model.Proposal{Title: "P4", AgentID: "a3"}) // no project, grouped by agent_id
+
+	// Approve one to exclude it
+	all, _ := s.ListProposals(nil)
+	s.UpdateProposal(all[0].ID, map[string]any{"status": "approved"})
+
+	counts, err := s.PendingProposalCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// proj-1 should have 1 pending (one was approved), proj-2 has 1, a3 has 1
+	if counts["proj-1"] != 1 {
+		t.Errorf("expected 1 pending for proj-1, got %d", counts["proj-1"])
+	}
+	if counts["proj-2"] != 1 {
+		t.Errorf("expected 1 pending for proj-2, got %d", counts["proj-2"])
+	}
+	if counts["a3"] != 1 {
+		t.Errorf("expected 1 pending for a3, got %d", counts["a3"])
+	}
+}

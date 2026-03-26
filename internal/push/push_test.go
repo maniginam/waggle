@@ -122,3 +122,90 @@ func TestPushPayloadMarshal(t *testing.T) {
 		t.Errorf("expected tag 'task_completed', got %s", decoded["tag"])
 	}
 }
+
+func TestSendWithSubscriptionsHandlesErrors(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+
+	s := testStore(t)
+	n, err := NewNotifier(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a subscription with a fake endpoint (will fail to send)
+	s.SavePushSubscription(&store.PushSubscription{
+		Endpoint: "https://fake-push-service.invalid/sub/short",
+		Auth:     "fakeauth",
+		P256dh:   "fakep256dh",
+	})
+
+	// Should not panic — exercises the error path in Send
+	n.Send(PushPayload{Title: "Test", Body: "Error path"})
+}
+
+func TestSendWithLongEndpointTruncates(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+
+	s := testStore(t)
+	n, err := NewNotifier(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Long endpoint to exercise truncation (>40 chars)
+	longEndpoint := "https://fake-push-service.invalid/very-long-subscription-endpoint-identifier"
+	s.SavePushSubscription(&store.PushSubscription{
+		Endpoint: longEndpoint,
+		Auth:     "fakeauth",
+		P256dh:   "fakep256dh",
+	})
+
+	// Should not panic — exercises truncation path
+	n.Send(PushPayload{Title: "Test", Body: "Long endpoint"})
+}
+
+func TestSendWithMultipleSubscriptions(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+
+	s := testStore(t)
+	n, err := NewNotifier(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.SavePushSubscription(&store.PushSubscription{
+		Endpoint: "https://fake1.invalid/sub1",
+		Auth:     "auth1",
+		P256dh:   "p256dh1",
+	})
+	s.SavePushSubscription(&store.PushSubscription{
+		Endpoint: "https://fake2.invalid/sub2",
+		Auth:     "auth2",
+		P256dh:   "p256dh2",
+	})
+
+	// Should iterate through all subs without panic
+	n.Send(PushPayload{Title: "Multi", Body: "Multiple subs"})
+}
+
+func TestPayloadOmitsEmptyFields(t *testing.T) {
+	p := PushPayload{Title: "Minimal", Body: "Just title and body"}
+	data, _ := json.Marshal(p)
+	var decoded map[string]any
+	json.Unmarshal(data, &decoded)
+	if _, ok := decoded["tag"]; ok {
+		t.Error("expected tag to be omitted when empty")
+	}
+	if _, ok := decoded["url"]; ok {
+		t.Error("expected url to be omitted when empty")
+	}
+}
