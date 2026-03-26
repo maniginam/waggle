@@ -1029,3 +1029,205 @@ func TestInputLimits(t *testing.T) {
 		t.Errorf("expected 201 for valid title, got %d", resp.StatusCode)
 	}
 }
+
+func TestReviewCRUD(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a task first
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json",
+		bytes.NewBufferString(`{"title":"Review target"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	// List reviews — empty
+	resp, _ = http.Get(ts.URL + "/api/reviews")
+	var reviews []map[string]any
+	json.NewDecoder(resp.Body).Decode(&reviews)
+	resp.Body.Close()
+	if len(reviews) != 0 {
+		t.Errorf("expected 0 reviews, got %d", len(reviews))
+	}
+
+	// Submit a review
+	revBody, _ := json.Marshal(map[string]string{
+		"task_id":  taskID,
+		"agent_id": "test-agent",
+		"diff":     "--- a/file.go\n+++ b/file.go\n@@ -1 +1 @@\n-old\n+new",
+	})
+	resp, _ = http.Post(ts.URL+"/api/reviews", "application/json", bytes.NewBuffer(revBody))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var rev map[string]any
+	json.NewDecoder(resp.Body).Decode(&rev)
+	resp.Body.Close()
+	revID := rev["id"].(string)
+	if rev["task_id"] != taskID {
+		t.Errorf("expected task_id %s, got %v", taskID, rev["task_id"])
+	}
+
+	// Get single review
+	resp, _ = http.Get(ts.URL + "/api/reviews/" + revID)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Approve the review
+	approveBody, _ := json.Marshal(map[string]string{"status": "approved", "feedback": "lgtm"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/reviews/"+revID, bytes.NewBuffer(approveBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for approve, got %d", resp.StatusCode)
+	}
+	var approved map[string]any
+	json.NewDecoder(resp.Body).Decode(&approved)
+	resp.Body.Close()
+	if approved["status"] != "approved" {
+		t.Errorf("expected status approved, got %v", approved["status"])
+	}
+
+	// List reviews filtered by status
+	resp, _ = http.Get(ts.URL + "/api/reviews?status=approved")
+	json.NewDecoder(resp.Body).Decode(&reviews)
+	resp.Body.Close()
+	if len(reviews) != 1 {
+		t.Errorf("expected 1 approved review, got %d", len(reviews))
+	}
+
+	// List reviews by task
+	resp, _ = http.Get(ts.URL + "/api/reviews?task_id=" + taskID)
+	json.NewDecoder(resp.Body).Decode(&reviews)
+	resp.Body.Close()
+	if len(reviews) != 1 {
+		t.Errorf("expected 1 review for task, got %d", len(reviews))
+	}
+}
+
+func TestReviewValidation(t *testing.T) {
+	_, ts := setup(t)
+
+	// Missing required fields
+	resp, _ := http.Post(ts.URL+"/api/reviews", "application/json",
+		bytes.NewBufferString(`{"task_id":"abc"}`))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing diff, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Invalid review status
+	resp, _ = http.Post(ts.URL+"/api/reviews", "application/json",
+		bytes.NewBufferString(`{"task_id":"abc","diff":"something"}`))
+	resp.Body.Close()
+
+	// Get nonexistent review
+	resp, _ = http.Get(ts.URL + "/api/reviews/nonexistent")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for nonexistent review, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Invalid status on patch
+	body, _ := json.Marshal(map[string]string{"status": "invalid"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/reviews/some-id", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid review status, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestUsageAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET usage — empty
+	resp, _ := http.Get(ts.URL + "/api/usage")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var usage map[string]any
+	json.NewDecoder(resp.Body).Decode(&usage)
+	resp.Body.Close()
+	if usage["by_agent"] == nil {
+		t.Error("expected by_agent key")
+	}
+	if usage["recent"] == nil {
+		t.Error("expected recent key")
+	}
+
+	// POST usage record
+	body, _ := json.Marshal(map[string]any{
+		"agent_name":   "test-agent",
+		"input_tokens": 1000,
+		"output_tokens": 500,
+		"model":        "claude-sonnet",
+	})
+	resp, _ = http.Post(ts.URL+"/api/usage", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// GET again — should have data
+	resp, _ = http.Get(ts.URL + "/api/usage")
+	json.NewDecoder(resp.Body).Decode(&usage)
+	resp.Body.Close()
+
+	// POST missing agent_name
+	resp, _ = http.Post(ts.URL+"/api/usage", "application/json",
+		bytes.NewBufferString(`{"input_tokens":100}`))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing agent_name, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPushSubscribeAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET VAPID public key
+	resp, _ := http.Get(ts.URL + "/api/push/subscribe")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for GET push/subscribe, got %d", resp.StatusCode)
+	}
+	var vapid map[string]string
+	json.NewDecoder(resp.Body).Decode(&vapid)
+	resp.Body.Close()
+	if _, ok := vapid["public_key"]; !ok {
+		t.Error("expected public_key in response")
+	}
+
+	// Subscribe
+	body, _ := json.Marshal(map[string]string{
+		"endpoint": "https://push.example.com/sub/123",
+		"auth":     "test-auth-key",
+		"p256dh":   "test-p256dh-key",
+	})
+	resp, _ = http.Post(ts.URL+"/api/push/subscribe", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201 for push subscribe, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Missing fields
+	resp, _ = http.Post(ts.URL+"/api/push/subscribe", "application/json",
+		bytes.NewBufferString(`{"endpoint":"https://example.com"}`))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing auth/p256dh, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Unsubscribe
+	unsubBody, _ := json.Marshal(map[string]string{"endpoint": "https://push.example.com/sub/123"})
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/push/subscribe", bytes.NewBuffer(unsubBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for unsubscribe, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
