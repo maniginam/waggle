@@ -1529,6 +1529,143 @@ func TestAgentAutoLeaderRole(t *testing.T) {
 	}
 }
 
+func TestMethodNotAllowedEndpoints(t *testing.T) {
+	_, ts := setup(t)
+
+	endpoints := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPut, "/api/agents"},
+		{http.MethodDelete, "/api/messages"},
+		{http.MethodPut, "/api/events"},
+	}
+
+	for _, ep := range endpoints {
+		req, _ := http.NewRequest(ep.method, ts.URL+ep.path, nil)
+		resp := mustDo(t, req)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s: expected 405, got %d", ep.method, ep.path, resp.StatusCode)
+		}
+	}
+}
+
+func TestTaskDepsNotFound(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/tasks/nonexistent/deps")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTaskDepsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"title": "dep-method-test"})
+	r := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(r.Body).Decode(&task)
+	r.Body.Close()
+	taskID := task["id"].(string)
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/tasks/"+taskID+"/deps", nil)
+	resp := mustDo(t, req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+}
+
+func TestSubtasksMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"title": "sub-method-test"})
+	r := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(r.Body).Decode(&task)
+	r.Body.Close()
+	taskID := task["id"].(string)
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/tasks/"+taskID+"/subtasks", nil)
+	resp := mustDo(t, req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+}
+
+func TestHistoryMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"title": "history-method-test"})
+	r := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(r.Body).Decode(&task)
+	r.Body.Close()
+	taskID := task["id"].(string)
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/tasks/"+taskID+"/history", nil)
+	resp := mustDo(t, req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+}
+
+func TestEventsContainMultipleTypes(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a task (generates task_created event)
+	body, _ := json.Marshal(map[string]string{"title": "event-test"})
+	r := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	r.Body.Close()
+
+	// Register agent (generates agent_joined event)
+	body, _ = json.Marshal(map[string]string{"name": "event-agent", "type": "claude-code"})
+	r = mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(body))
+	r.Body.Close()
+
+	resp := mustGet(t, ts.URL+"/api/events")
+	var events []map[string]any
+	json.NewDecoder(resp.Body).Decode(&events)
+	resp.Body.Close()
+	if len(events) < 2 {
+		t.Errorf("expected at least 2 events, got %d", len(events))
+	}
+	// Verify different event types are present
+	types := map[string]bool{}
+	for _, e := range events {
+		types[e["type"].(string)] = true
+	}
+	if !types["task_created"] {
+		t.Error("expected task_created event")
+	}
+	if !types["agent_joined"] {
+		t.Error("expected agent_joined event")
+	}
+}
+
+func TestMessagesWithLimit(t *testing.T) {
+	_, ts := setup(t)
+
+	for i := 0; i < 5; i++ {
+		body, _ := json.Marshal(map[string]string{"from": "sender", "to": "receiver", "body": fmt.Sprintf("msg %d", i)})
+		r := mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBuffer(body))
+		r.Body.Close()
+	}
+
+	resp := mustGet(t, ts.URL+"/api/messages?to=receiver&limit=2")
+	var msgs []map[string]any
+	json.NewDecoder(resp.Body).Decode(&msgs)
+	resp.Body.Close()
+	if len(msgs) > 2 {
+		t.Errorf("expected at most 2 messages with limit=2, got %d", len(msgs))
+	}
+}
+
 func TestEventsPagination(t *testing.T) {
 	_, ts := setup(t)
 
