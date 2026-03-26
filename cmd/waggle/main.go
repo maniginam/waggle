@@ -169,10 +169,21 @@ func cmdStatus() {
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-	if pid, err := readPID(); err == nil {
-		fmt.Printf("waggle server is running (pid %d)\n", pid)
+
+	// Show version
+	if vResp, err := http.Get(baseURL() + "/api/version"); err == nil {
+		var ver map[string]string
+		json.NewDecoder(vResp.Body).Decode(&ver)
+		vResp.Body.Close()
+		if pid, err := readPID(); err == nil {
+			fmt.Printf("waggle %s (pid %d)\n", ver["version"], pid)
+		} else {
+			fmt.Printf("waggle %s\n", ver["version"])
+		}
+	} else if pid, err := readPID(); err == nil {
+		fmt.Printf("waggle server running (pid %d)\n", pid)
 	} else {
-		fmt.Println("waggle server is running")
+		fmt.Println("waggle server running")
 	}
 
 	// Show stats
@@ -204,6 +215,28 @@ func cmdStatus() {
 		fmt.Printf("Agents: %d\n", totalAgents)
 		if unread > 0 {
 			fmt.Printf("Unread messages: %d\n", unread)
+		}
+
+		// Show velocity
+		if velocity, ok := stats["velocity"].([]any); ok && len(velocity) > 0 {
+			total := 0
+			for _, v := range velocity {
+				if day, ok := v.(map[string]any); ok {
+					total += int(day["count"].(float64))
+				}
+			}
+			avg := float64(total) / float64(len(velocity))
+			fmt.Printf("Velocity: %d completed this week (%.1f/day)\n", total, avg)
+		}
+	}
+
+	// Show pending reviews
+	if revResp, err := http.Get(baseURL() + "/api/reviews?status=pending"); err == nil {
+		var reviews []any
+		json.NewDecoder(revResp.Body).Decode(&reviews)
+		revResp.Body.Close()
+		if len(reviews) > 0 {
+			fmt.Printf("Pending reviews: %d\n", len(reviews))
 		}
 	}
 
