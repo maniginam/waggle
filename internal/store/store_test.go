@@ -1206,6 +1206,44 @@ func TestMarkAllMessagesRead(t *testing.T) {
 	}
 }
 
+func TestCompleteTaskUnblocksDependentWhenAllDone(t *testing.T) {
+	s := tempStore(t)
+
+	// Create two blocker tasks and one that depends on both
+	a := &model.Task{Title: "Dep A", Status: model.TaskReady}
+	b := &model.Task{Title: "Dep B", Status: model.TaskReady}
+	s.CreateTask(a)
+	s.CreateTask(b)
+
+	child := &model.Task{Title: "Child", Status: model.TaskBlocked}
+	s.CreateTask(child)
+	s.UpdateTask(child.ID, map[string]any{"depends_on": []string{a.ID, b.ID}})
+
+	// Complete A — child should still be blocked
+	s.ClaimTask(a.ID, "w")
+	s.CompleteTask(a.ID)
+	got, _ := s.GetTask(child.ID)
+	if got.Status != model.TaskBlocked {
+		t.Errorf("expected blocked after completing one dep, got %s", got.Status)
+	}
+
+	// Complete B — now child should be unblocked to ready
+	s.ClaimTask(b.ID, "w")
+	s.CompleteTask(b.ID)
+	got, _ = s.GetTask(child.ID)
+	if got.Status != model.TaskReady {
+		t.Errorf("expected ready after completing all deps, got %s", got.Status)
+	}
+}
+
+func TestCompleteTaskNotFound(t *testing.T) {
+	s := tempStore(t)
+	err := s.CompleteTask("nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestExportTasks(t *testing.T) {
 	s := tempStore(t)
 
