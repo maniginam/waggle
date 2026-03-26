@@ -3551,6 +3551,8 @@ function renderOverview() {
         <div class="overview-subtitle">${totalTasks} tasks across ${projects.length} projects \u00b7 ${activeAgents} agents online${totalCost > 0 ? ` \u00b7 $${totalCost.toFixed(2)} spent` : ''}</div>
       </div>
       <div style="display:flex;gap:8px">
+        <button class="btn-ghost btn-sm" onclick="exportTasks('json')" title="Export tasks as JSON">Export JSON</button>
+        <button class="btn-ghost btn-sm" onclick="exportTasks('csv')" title="Export tasks as CSV">Export CSV</button>
         <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')">+ Project</button>
         <button class="btn" onclick="openCreatePanel('task')">+ Task</button>
       </div>
@@ -5258,6 +5260,18 @@ if (currentView === 'inbox') {
 if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
 }
+// ── Task Export ──
+
+function exportTasks(format) {
+  const a = document.createElement('a');
+  a.href = '/api/tasks/export?format=' + format;
+  a.download = 'waggle-tasks.' + format;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast('Exporting tasks as ' + format.toUpperCase(), 'var(--blue)');
+}
+
 // ── Settings Panel ──
 
 async function openSettingsPanel() {
