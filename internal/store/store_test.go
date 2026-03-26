@@ -824,6 +824,26 @@ func TestMarkMessagesRead(t *testing.T) {
 	}
 }
 
+func TestSearchMessages(t *testing.T) {
+	s := tempStore(t)
+	s.SendMessage(&model.Message{From: "a", To: "b", Body: "deploy the auth service"})
+	s.SendMessage(&model.Message{From: "c", To: "d", Body: "fix the login bug"})
+	s.SendMessage(&model.Message{From: "a", To: "d", Body: "auth tests all passing"})
+
+	msgs, err := s.SearchMessages("auth", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages matching 'auth', got %d", len(msgs))
+	}
+
+	msgs, _ = s.SearchMessages("nonexistent", 10)
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages, got %d", len(msgs))
+	}
+}
+
 func TestListAllMessages(t *testing.T) {
 	s := tempStore(t)
 	s.SendMessage(&model.Message{From: "a", To: "b", Body: "msg1"})

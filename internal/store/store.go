@@ -799,6 +799,33 @@ func (s *Store) MarkMessagesRead(ids []string) error {
 	return tx.Commit()
 }
 
+func (s *Store) SearchMessages(query string, limit int) ([]*model.Message, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(
+		`SELECT id, "from", "to", body, read, created_at FROM messages WHERE body LIKE ? ORDER BY created_at DESC LIMIT ?`,
+		"%"+query+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []*model.Message
+	for rows.Next() {
+		var m model.Message
+		var readInt int
+		var ts string
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &ts); err != nil {
+			return nil, err
+		}
+		m.Read = readInt != 0
+		m.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+		messages = append(messages, &m)
+	}
+	return messages, rows.Err()
+}
+
 func (s *Store) MarkAllMessagesRead() error {
 	_, err := s.db.Exec(`UPDATE messages SET read = 1 WHERE read = 0`)
 	return err

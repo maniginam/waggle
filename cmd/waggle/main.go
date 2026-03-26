@@ -1263,6 +1263,27 @@ func cmdMsg(subcmd string, args []string) {
 		for _, m := range msgs {
 			fmt.Printf("  [%s] %s: %s\n", m["from"], m["created_at"], m["body"])
 		}
+
+	case "search":
+		if len(args) == 0 {
+			fmt.Println("Usage: waggle msg search \"query\"")
+			os.Exit(1)
+		}
+		resp, err := http.Get(baseURL() + "/api/messages?q=" + args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		var msgs []map[string]any
+		json.NewDecoder(resp.Body).Decode(&msgs)
+		if len(msgs) == 0 {
+			fmt.Println("No messages matching query")
+			return
+		}
+		for _, m := range msgs {
+			fmt.Printf("  [%s → %s] %s: %s\n", m["from"], m["to"], m["created_at"], m["body"])
+		}
 	}
 }
 
@@ -1391,6 +1412,7 @@ Usage:
   waggle watch [--agent X]         Tail event stream (SSE)
   waggle msg send <agent> "msg"    Send a message
   waggle msg list [agent]          List messages
+  waggle msg search "query"        Search message history
 
   waggle config                    Show all config
   waggle config <key>              Get config value
