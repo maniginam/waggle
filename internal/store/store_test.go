@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/maniginam/waggle/internal/model"
 )
@@ -630,6 +631,282 @@ func TestSettingsGetSet(t *testing.T) {
 	val, _ = s.GetSetting("theme")
 	if val != "light" {
 		t.Errorf("expected 'light', got %q", val)
+	}
+}
+
+func TestReviewCRUD(t *testing.T) {
+	s := tempStore(t)
+	task := &model.Task{Title: "Review target"}
+	s.CreateTask(task)
+
+	r := &model.Review{
+		TaskID:  task.ID,
+		AgentID: "reviewer-1",
+		Branch:  "feature/auth",
+		Diff:    "+ added auth\n- removed old",
+		Summary: "Auth implementation",
+	}
+	if err := s.CreateReview(r); err != nil {
+		t.Fatal(err)
+	}
+	if r.ID == "" {
+		t.Error("expected review ID")
+	}
+	if r.Status != model.ReviewPending {
+		t.Errorf("expected pending, got %s", r.Status)
+	}
+
+	// Get
+	got, err := s.GetReview(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != "Auth implementation" {
+		t.Errorf("expected summary, got %q", got.Summary)
+	}
+
+	// List by task
+	reviews, err := s.ListReviewsByTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 {
+		t.Errorf("expected 1 review, got %d", len(reviews))
+	}
+
+	// Update status
+	if err := s.UpdateReviewStatus(r.ID, model.ReviewApproved, "LGTM"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetReview(r.ID)
+	if got.Status != model.ReviewApproved {
+		t.Errorf("expected approved, got %s", got.Status)
+	}
+	if got.Feedback != "LGTM" {
+		t.Errorf("expected LGTM, got %q", got.Feedback)
+	}
+
+	// List by status
+	approved, _ := s.ListReviews("approved")
+	if len(approved) != 1 {
+		t.Errorf("expected 1 approved review, got %d", len(approved))
+	}
+	pending, _ := s.ListReviews("pending")
+	if len(pending) != 0 {
+		t.Errorf("expected 0 pending reviews, got %d", len(pending))
+	}
+}
+
+func TestTokenUsage(t *testing.T) {
+	s := tempStore(t)
+
+	u1 := &model.TokenUsage{
+		AgentName:    "agent-1",
+		Model:        "sonnet",
+		InputTokens:  1000,
+		OutputTokens: 500,
+		TaskID:       "wg-123",
+	}
+	if err := s.RecordTokenUsage(u1); err != nil {
+		t.Fatal(err)
+	}
+	if u1.TotalTokens != 1500 {
+		t.Errorf("expected 1500 total, got %d", u1.TotalTokens)
+	}
+	if u1.CostUSD == 0 {
+		t.Error("expected cost to be calculated")
+	}
+
+	u2 := &model.TokenUsage{
+		AgentName:    "agent-2",
+		Model:        "opus",
+		InputTokens:  2000,
+		OutputTokens: 1000,
+	}
+	s.RecordTokenUsage(u2)
+
+	// By agent
+	byAgent, err := s.TokenUsageByAgent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byAgent) != 2 {
+		t.Errorf("expected 2 agent summaries, got %d", len(byAgent))
+	}
+
+	// Total
+	total, err := s.TokenUsageTotal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total.TotalTokens != 4500 {
+		t.Errorf("expected 4500 total tokens, got %d", total.TotalTokens)
+	}
+	if total.Reports != 2 {
+		t.Errorf("expected 2 reports, got %d", total.Reports)
+	}
+
+	// Recent
+	recent, err := s.TokenUsageRecent(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 2 {
+		t.Errorf("expected 2 recent, got %d", len(recent))
+	}
+}
+
+func TestPushSubscriptions(t *testing.T) {
+	s := tempStore(t)
+
+	sub := &PushSubscription{
+		Endpoint: "https://push.example.com/sub1",
+		Auth:     "auth-key-1",
+		P256dh:   "p256dh-key-1",
+	}
+	if err := s.SavePushSubscription(sub); err != nil {
+		t.Fatal(err)
+	}
+
+	subs, err := s.ListPushSubscriptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 1 {
+		t.Errorf("expected 1 subscription, got %d", len(subs))
+	}
+	if subs[0].Endpoint != "https://push.example.com/sub1" {
+		t.Errorf("unexpected endpoint: %s", subs[0].Endpoint)
+	}
+
+	// Upsert same endpoint
+	sub2 := &PushSubscription{
+		Endpoint: "https://push.example.com/sub1",
+		Auth:     "new-auth",
+		P256dh:   "new-p256dh",
+	}
+	s.SavePushSubscription(sub2)
+	subs, _ = s.ListPushSubscriptions()
+	if len(subs) != 1 {
+		t.Errorf("expected 1 after upsert, got %d", len(subs))
+	}
+
+	// Delete
+	if err := s.DeletePushSubscription("https://push.example.com/sub1"); err != nil {
+		t.Fatal(err)
+	}
+	subs, _ = s.ListPushSubscriptions()
+	if len(subs) != 0 {
+		t.Errorf("expected 0 after delete, got %d", len(subs))
+	}
+}
+
+func TestMarkMessagesRead(t *testing.T) {
+	s := tempStore(t)
+	m1 := &model.Message{From: "a", To: "b", Body: "hello"}
+	m2 := &model.Message{From: "a", To: "b", Body: "world"}
+	s.SendMessage(m1)
+	s.SendMessage(m2)
+
+	// Mark specific IDs
+	if err := s.MarkMessagesRead([]string{m1.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mark all
+	if err := s.MarkAllMessagesRead(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Empty list is no-op
+	if err := s.MarkMessagesRead(nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListAllMessages(t *testing.T) {
+	s := tempStore(t)
+	s.SendMessage(&model.Message{From: "a", To: "b", Body: "msg1"})
+	s.SendMessage(&model.Message{From: "c", To: "d", Body: "msg2"})
+
+	msgs, err := s.ListAllMessages(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages, got %d", len(msgs))
+	}
+}
+
+func TestAgentRoles(t *testing.T) {
+	s := tempStore(t)
+
+	// Register with role
+	a, err := s.RegisterAgent("lead-1", "claude-code", "proj-1", model.AgentRoleLeader, "alpha-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Role != model.AgentRoleLeader {
+		t.Errorf("expected leader role, got %s", a.Role)
+	}
+	if a.ParentAgent != "alpha-1" {
+		t.Errorf("expected parent alpha-1, got %s", a.ParentAgent)
+	}
+
+	// Default role
+	a2, _ := s.RegisterAgent("worker-1", "claude-code", "", "", "")
+	if a2.Role != model.AgentRoleWorker {
+		t.Errorf("expected worker role, got %s", a2.Role)
+	}
+}
+
+func TestPurgeStaleAgents(t *testing.T) {
+	s := tempStore(t)
+	s.RegisterAgent("old-agent", "test", "", "", "")
+	s.DisconnectAgent("old-agent")
+
+	// Set last_seen to 48 hours ago
+	old := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339)
+	s.db.Exec("UPDATE agents SET last_seen = ? WHERE name = ?", old, "old-agent")
+
+	s.RegisterAgent("fresh-agent", "test", "", "", "")
+	s.DisconnectAgent("fresh-agent")
+
+	purged, err := s.PurgeStaleAgents(24 * time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if purged != 1 {
+		t.Errorf("expected 1 purged, got %d", purged)
+	}
+
+	agents, _ := s.ListAgents("")
+	if len(agents) != 1 {
+		t.Errorf("expected 1 remaining, got %d", len(agents))
+	}
+}
+
+func TestDeleteAgent(t *testing.T) {
+	s := tempStore(t)
+	s.RegisterAgent("del-me", "test", "", "", "")
+	if err := s.DeleteAgent("del-me"); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := s.ListAgents("")
+	if len(agents) != 0 {
+		t.Errorf("expected 0 agents after delete, got %d", len(agents))
+	}
+}
+
+func TestUpdateAgentProject(t *testing.T) {
+	s := tempStore(t)
+	s.RegisterAgent("proj-agent", "test", "", "", "")
+	if err := s.UpdateAgentProject("proj-agent", "proj-123"); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.GetAgentByName("proj-agent")
+	if a.ProjectID != "proj-123" {
+		t.Errorf("expected proj-123, got %s", a.ProjectID)
 	}
 }
 

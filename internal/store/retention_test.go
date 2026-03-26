@@ -30,6 +30,67 @@ func TestCleanupEvents(t *testing.T) {
 	}
 }
 
+func TestCleanupStaleTasks(t *testing.T) {
+	s := tempStore(t)
+
+	now := time.Now().UTC()
+	old := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	recent := now.Add(-3 * 24 * time.Hour).Format(time.RFC3339)
+
+	// Old backlog task, unassigned — should be closed
+	s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url)
+		VALUES (?, 'stale-backlog', '', '[]', 'backlog', 'medium', '', '[]', '', '', ?, ?, '', '[]', 'task', '', 0, '')`,
+		"stale-1", old, old)
+
+	// Old ready task, unassigned — should be closed
+	s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url)
+		VALUES (?, 'stale-ready', '', '[]', 'ready', 'low', '', '[]', '', '', ?, ?, '', '[]', 'task', '', 0, '')`,
+		"stale-2", old, old)
+
+	// Old in_progress task — should NOT be closed (active work)
+	s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url)
+		VALUES (?, 'active-old', '', '[]', 'in_progress', 'high', 'agent-1', '[]', '', '', ?, ?, '', '[]', 'task', '', 0, '')`,
+		"active-1", old, old)
+
+	// Old ready task with assignee — should NOT be closed (someone owns it)
+	s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url)
+		VALUES (?, 'assigned-old', '', '[]', 'ready', 'medium', 'agent-1', '[]', '', '', ?, ?, '', '[]', 'task', '', 0, '')`,
+		"assigned-1", old, old)
+
+	// Recent backlog task — should NOT be closed (too new)
+	s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url)
+		VALUES (?, 'fresh-backlog', '', '[]', 'backlog', 'medium', '', '[]', '', '', ?, ?, '', '[]', 'task', '', 0, '')`,
+		"fresh-1", recent, recent)
+
+	n, err := s.CleanupStaleTasks(14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 stale tasks closed, got %d", n)
+	}
+
+	// Verify stale tasks are now done
+	task, _ := s.GetTask("stale-1")
+	if task.Status != model.TaskDone {
+		t.Errorf("expected stale-1 to be done, got %s", task.Status)
+	}
+
+	// Verify others unchanged
+	task, _ = s.GetTask("active-1")
+	if task.Status != model.TaskInProgress {
+		t.Errorf("expected active-1 to stay in_progress, got %s", task.Status)
+	}
+	task, _ = s.GetTask("assigned-1")
+	if task.Assignee != "agent-1" {
+		t.Errorf("expected assigned-1 to keep assignee, got %s", task.Assignee)
+	}
+	task, _ = s.GetTask("fresh-1")
+	if task.Status != model.TaskBacklog {
+		t.Errorf("expected fresh-1 to stay backlog, got %s", task.Status)
+	}
+}
+
 func TestCleanupMessages(t *testing.T) {
 	s := tempStore(t)
 
