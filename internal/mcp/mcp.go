@@ -258,6 +258,14 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"from":  prop("string", "Filter by sender"),
 			},
 		}),
+		toolDef("waggle_search_messages", "Search message history by keyword.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": prop("string", "Search term to find in message bodies"),
+				"limit": map[string]any{"type": "integer", "description": "Max results (default 50)"},
+			},
+			"required": []string{"query"},
+		}),
 		toolDef("waggle_submit_review", "Submit a git diff for review on a task. The diff will appear in the dashboard for the user to approve or reject.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -639,6 +647,17 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("must call waggle_register_agent first")
 		}
 		url := "/api/messages?to=" + a.agentName
+		if limit, ok := args["limit"].(float64); ok {
+			url += fmt.Sprintf("&limit=%d", int(limit))
+		}
+		return a.get(url)
+
+	case "waggle_search_messages":
+		q, _ := args["query"].(string)
+		if q == "" {
+			return nil, fmt.Errorf("query is required")
+		}
+		url := "/api/messages?q=" + url.QueryEscape(q)
 		if limit, ok := args["limit"].(float64); ok {
 			url += fmt.Sprintf("&limit=%d", int(limit))
 		}

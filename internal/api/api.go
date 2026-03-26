@@ -660,13 +660,16 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		to := r.URL.Query().Get("to")
+		q := r.URL.Query().Get("q")
 		limit := 50
 		if l := r.URL.Query().Get("limit"); l != "" {
 			fmt.Sscanf(l, "%d", &limit)
 		}
 		var msgs []*model.Message
 		var err error
-		if to == "" {
+		if q != "" {
+			msgs, err = a.store.SearchMessages(q, limit)
+		} else if to == "" {
 			msgs, err = a.store.ListAllMessages(limit)
 		} else {
 			msgs, err = a.store.ReadMessages(to, limit)
