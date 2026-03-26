@@ -4174,11 +4174,12 @@ function slashHelp() {
 
 // ── SSE ──
 
+let sseBackoff = 3;
 function connectSSE() {
   const dot = document.getElementById('sse-dot');
   const label = document.getElementById('sse-label');
   const evtSource = new EventSource('/api/events');
-  evtSource.onopen = () => { dot.className = 'sse-dot connected'; label.textContent = 'live'; };
+  evtSource.onopen = () => { dot.className = 'sse-dot connected'; label.textContent = 'live'; sseBackoff = 3; };
   evtSource.onmessage = (e) => {
     try {
       const evt = JSON.parse(e.data);
@@ -4229,14 +4230,15 @@ function connectSSE() {
   evtSource.onerror = () => {
     dot.className = 'sse-dot error';
     evtSource.close();
-    let countdown = 3;
+    let countdown = sseBackoff;
     label.innerHTML = `reconnecting <span class="sse-countdown">${countdown}s</span>`;
     const ticker = setInterval(() => {
       countdown--;
       if (countdown <= 0) { clearInterval(ticker); return; }
       label.innerHTML = `reconnecting <span class="sse-countdown">${countdown}s</span>`;
     }, 1000);
-    setTimeout(() => { clearInterval(ticker); connectSSE(); }, 3000);
+    setTimeout(() => { clearInterval(ticker); connectSSE(); }, sseBackoff * 1000);
+    sseBackoff = Math.min(sseBackoff * 2, 30);
   };
 }
 

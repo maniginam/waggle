@@ -70,6 +70,14 @@ func main() {
 			os.Exit(1)
 		}
 		cmdMsg(os.Args[2], os.Args[3:])
+	case "review":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: waggle review <list|approve|reject> [args]")
+			os.Exit(1)
+		}
+		cmdReview(os.Args[2], os.Args[3:])
+	case "reviews":
+		cmdReview("list", os.Args[2:])
 	case "config":
 		cmdConfig(os.Args[2:])
 	case "stop":
@@ -959,6 +967,102 @@ func statusIcon(status any) string {
 	}
 }
 
+func cmdReview(subcmd string, args []string) {
+	switch subcmd {
+	case "list":
+		status := "pending"
+		for i := 0; i < len(args); i++ {
+			if args[i] == "--status" && i+1 < len(args) {
+				status = args[i+1]
+				i++
+			}
+			if args[i] == "--all" {
+				status = ""
+			}
+		}
+		url := baseURL() + "/api/reviews"
+		if status != "" {
+			url += "?status=" + status
+		}
+		resp, err := http.Get(url)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		var reviews []map[string]any
+		json.NewDecoder(resp.Body).Decode(&reviews)
+		if len(reviews) == 0 {
+			fmt.Println("No reviews found")
+			return
+		}
+		for _, r := range reviews {
+			statusStr := fmt.Sprintf("%-8s", r["status"])
+			agent := ""
+			if a, ok := r["agent_id"].(string); ok && a != "" {
+				agent = " by " + a
+			}
+			branch := ""
+			if b, ok := r["branch"].(string); ok && b != "" {
+				branch = " [" + b + "]"
+			}
+			fmt.Printf("  %s %s %s%s%s\n", r["id"], statusStr, r["task_id"], agent, branch)
+		}
+
+	case "approve":
+		if len(args) == 0 {
+			fmt.Println("Usage: waggle review approve <review-id>")
+			os.Exit(1)
+		}
+		body, _ := json.Marshal(map[string]string{"status": "approved"})
+		req, _ := http.NewRequest(http.MethodPatch, baseURL()+"/api/reviews/"+args[0], strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			var errResp map[string]any
+			json.NewDecoder(resp.Body).Decode(&errResp)
+			fmt.Fprintf(os.Stderr, "error: %v\n", errResp)
+			os.Exit(1)
+		}
+		fmt.Printf("Approved review %s\n", args[0])
+
+	case "reject":
+		if len(args) == 0 {
+			fmt.Println("Usage: waggle review reject <review-id> [\"feedback\"]")
+			os.Exit(1)
+		}
+		feedback := ""
+		if len(args) > 1 {
+			feedback = args[1]
+		}
+		body, _ := json.Marshal(map[string]string{"status": "rejected", "feedback": feedback})
+		req, _ := http.NewRequest(http.MethodPatch, baseURL()+"/api/reviews/"+args[0], strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			var errResp map[string]any
+			json.NewDecoder(resp.Body).Decode(&errResp)
+			fmt.Fprintf(os.Stderr, "error: %v\n", errResp)
+			os.Exit(1)
+		}
+		fmt.Printf("Rejected review %s\n", args[0])
+
+	default:
+		fmt.Println("Usage: waggle review <list|approve|reject> [args]")
+		os.Exit(1)
+	}
+}
+
 func cmdConfig(args []string) {
 	home, _ := os.UserHomeDir()
 	configPath := filepath.Join(home, ".waggle", "config.json")
@@ -1445,6 +1549,11 @@ Usage:
   waggle project show <id>         Show project with epics and tasks
   waggle project update <id>       Update project (--name, --desc)
   waggle project rm <id>           Delete a project
+
+  waggle review list [--all]       List reviews (pending by default, --all for all)
+  waggle review approve <id>      Approve a review
+  waggle review reject <id> "fb" Reject with feedback
+  waggle reviews                   Shorthand for review list
 
   waggle agent show <name>         Show agent detail
   waggle agents                    List connected agents
