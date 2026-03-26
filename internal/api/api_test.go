@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/maniginam/waggle/internal/event"
@@ -1313,6 +1314,219 @@ func TestSessionsListAPI(t *testing.T) {
 		t.Errorf("expected 200 for sessions list, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestDeleteAgent(t *testing.T) {
+	_, ts := setup(t)
+
+	// Register then delete
+	body, _ := json.Marshal(map[string]string{"name": "doomed-agent", "type": "claude-code"})
+	r := mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(body))
+	r.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/agents/doomed-agent", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify deleted
+	resp = mustGet(t, ts.URL+"/api/agents/doomed-agent")
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404 after delete, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentProjectAssignment(t *testing.T) {
+	_, ts := setup(t)
+
+	// Register agent
+	body, _ := json.Marshal(map[string]string{"name": "proj-agent", "type": "claude-code"})
+	r := mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(body))
+	r.Body.Close()
+
+	// Create a project
+	body, _ = json.Marshal(map[string]string{"name": "test-proj"})
+	r = mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	var proj map[string]any
+	json.NewDecoder(r.Body).Decode(&proj)
+	r.Body.Close()
+	projID := proj["id"].(string)
+
+	// Assign agent to project
+	body, _ = json.Marshal(map[string]string{"project_id": projID})
+	r = mustPost(t, ts.URL+"/api/agents/proj-agent/project", "application/json", bytes.NewBuffer(body))
+	if r.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", r.StatusCode)
+	}
+	r.Body.Close()
+}
+
+func TestAgentDisconnectViaStatus(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"name": "disco-agent", "type": "claude-code"})
+	r := mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(body))
+	r.Body.Close()
+
+	// Disconnect via status endpoint
+	body, _ = json.Marshal(map[string]string{"status": "disconnected"})
+	r = mustPost(t, ts.URL+"/api/agents/disco-agent/status", "application/json", bytes.NewBuffer(body))
+	if r.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", r.StatusCode)
+	}
+	r.Body.Close()
+
+	// Verify disconnected
+	resp := mustGet(t, ts.URL+"/api/agents/disco-agent")
+	var agent map[string]any
+	json.NewDecoder(resp.Body).Decode(&agent)
+	resp.Body.Close()
+	if agent["status"] != "disconnected" {
+		t.Errorf("expected disconnected, got %v", agent["status"])
+	}
+}
+
+func TestMessageMarkRead(t *testing.T) {
+	_, ts := setup(t)
+
+	// Send a message
+	body, _ := json.Marshal(map[string]string{"from": "alpha", "to": "beta", "body": "hello"})
+	r := mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBuffer(body))
+	var msg map[string]any
+	json.NewDecoder(r.Body).Decode(&msg)
+	r.Body.Close()
+	msgID := msg["id"].(string)
+
+	// Mark read by ID
+	body, _ = json.Marshal(map[string]any{"ids": []string{msgID}})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/messages", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Mark all read
+	body, _ = json.Marshal(map[string]any{"mark_all": true})
+	req, _ = http.NewRequest(http.MethodPatch, ts.URL+"/api/messages", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200 for mark all, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestMessageSearch(t *testing.T) {
+	_, ts := setup(t)
+
+	// Send messages
+	body, _ := json.Marshal(map[string]string{"from": "alice", "to": "bob", "body": "unique-search-term-xyz"})
+	r := mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBuffer(body))
+	r.Body.Close()
+
+	body, _ = json.Marshal(map[string]string{"from": "bob", "to": "alice", "body": "different content"})
+	r = mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBuffer(body))
+	r.Body.Close()
+
+	// Search
+	resp := mustGet(t, ts.URL+"/api/messages?q=unique-search-term-xyz")
+	var msgs []map[string]any
+	json.NewDecoder(resp.Body).Decode(&msgs)
+	resp.Body.Close()
+	if len(msgs) != 1 {
+		t.Errorf("expected 1 search result, got %d", len(msgs))
+	}
+}
+
+func TestMessageValidationLimits(t *testing.T) {
+	_, ts := setup(t)
+
+	// Body too long (>10000)
+	longBody := strings.Repeat("x", 10001)
+	body, _ := json.Marshal(map[string]string{"from": "a", "to": "b", "body": longBody})
+	resp := mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for body too long, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Name too long (>64)
+	longName := strings.Repeat("x", 65)
+	body, _ = json.Marshal(map[string]string{"from": longName, "to": "b", "body": "hi"})
+	resp = mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for name too long, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentRegistrationValidation(t *testing.T) {
+	_, ts := setup(t)
+
+	// Name too long
+	longName := strings.Repeat("x", 65)
+	body, _ := json.Marshal(map[string]string{"name": longName, "type": "claude-code"})
+	resp := mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for name too long, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Missing name
+	body, _ = json.Marshal(map[string]string{"type": "claude-code"})
+	resp = mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for missing name, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestCommentBodyTooLong(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a task
+	body, _ := json.Marshal(map[string]string{"title": "comment-test"})
+	r := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(r.Body).Decode(&task)
+	r.Body.Close()
+	taskID := task["id"].(string)
+
+	// Comment with body > 5000
+	longBody := strings.Repeat("x", 5001)
+	body, _ = json.Marshal(map[string]string{"author": "test", "body": longBody})
+	resp := mustPost(t, ts.URL+"/api/tasks/"+taskID+"/comments", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for comment body too long, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentAutoLeaderRole(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a project first
+	body, _ := json.Marshal(map[string]string{"name": "auto-leader-proj"})
+	r := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	var proj map[string]any
+	json.NewDecoder(r.Body).Decode(&proj)
+	r.Body.Close()
+	projID := proj["id"].(string)
+
+	// Register agent with project_id — should get auto-assigned leader role
+	body, _ = json.Marshal(map[string]string{"name": "auto-lead", "type": "claude-code", "project_id": projID})
+	resp := mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(body))
+	var agent map[string]any
+	json.NewDecoder(resp.Body).Decode(&agent)
+	resp.Body.Close()
+	if agent["role"] != "leader" {
+		t.Errorf("expected auto-assigned leader role, got %v", agent["role"])
+	}
 }
 
 func TestEventsPagination(t *testing.T) {
