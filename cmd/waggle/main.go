@@ -44,7 +44,7 @@ func main() {
 		cmdProject("list", os.Args[2:])
 	case "task":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: waggle task <add|list|show|update|claim|done|comment|rm|next> [args]")
+			fmt.Println("Usage: waggle task <add|list|show|update|claim|done|comment|rm|next|batch> [args]")
 			os.Exit(1)
 		}
 		cmdTask(os.Args[2], os.Args[3:])
@@ -672,6 +672,44 @@ func cmdTask(subcmd string, args []string) {
 		if desc, ok := best["description"].(string); ok && desc != "" {
 			fmt.Printf("  %s\n", desc)
 		}
+
+	case "batch":
+		if len(args) == 0 {
+			fmt.Println("Usage: waggle task batch <file.json>")
+			fmt.Println("  JSON file should contain an array of task objects")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error reading %s: %v\n", args[0], err)
+			os.Exit(1)
+		}
+		var tasks []map[string]any
+		if err := json.Unmarshal(data, &tasks); err != nil {
+			fmt.Fprintf(os.Stderr, "error parsing JSON: %v\n", err)
+			os.Exit(1)
+		}
+		created, failed := 0, 0
+		for _, task := range tasks {
+			body, _ := json.Marshal(task)
+			resp, err := http.Post(baseURL()+"/api/tasks", "application/json", strings.NewReader(string(body)))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  error creating task: %v\n", err)
+				failed++
+				continue
+			}
+			var result map[string]any
+			json.NewDecoder(resp.Body).Decode(&result)
+			resp.Body.Close()
+			if resp.StatusCode >= 400 {
+				fmt.Fprintf(os.Stderr, "  failed: %v - %v\n", task["title"], result)
+				failed++
+			} else {
+				fmt.Printf("  Created %s: %s\n", result["id"], result["title"])
+				created++
+			}
+		}
+		fmt.Printf("\nBatch complete: %d created, %d failed\n", created, failed)
 	}
 }
 
@@ -1399,6 +1437,7 @@ Usage:
   waggle task done <id>            Mark task complete
   waggle task comment <id> "msg"   Add comment to task
   waggle task rm <id>              Delete a task
+  waggle task batch <file.json>   Create multiple tasks from JSON file
   waggle tasks                     Shorthand for task list
 
   waggle project add "name"        Create a project (--desc "description")
