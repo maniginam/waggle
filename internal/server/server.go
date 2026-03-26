@@ -206,6 +206,9 @@ func (s *Server) retentionCleanup() {
 			if n, err := s.store.CleanupMessages(7); err == nil && n > 0 {
 				log.Printf("cleaned up %d old read messages", n)
 			}
+			if n, err := s.store.CleanupStaleTasks(14); err == nil && n > 0 {
+				log.Printf("auto-closed %d stale tasks (no updates for 14+ days)", n)
+			}
 		}
 	}
 }
