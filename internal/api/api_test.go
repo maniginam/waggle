@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -28,6 +29,33 @@ func setup(t *testing.T) (*API, *httptest.Server) {
 	return a, ts
 }
 
+func mustGet(t *testing.T, url string) *http.Response {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func mustPost(t *testing.T, url, contentType string, body io.Reader) *http.Response {
+	t.Helper()
+	resp, err := http.Post(url, contentType, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func mustDo(t *testing.T, req *http.Request) *http.Response {
+	t.Helper()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
 func TestCreateAndListTasks(t *testing.T) {
 	_, ts := setup(t)
 
@@ -51,7 +79,7 @@ func TestCreateAndListTasks(t *testing.T) {
 	}
 
 	// List
-	resp2, _ := http.Get(ts.URL + "/api/tasks")
+	resp2 := mustGet(t, ts.URL + "/api/tasks")
 	defer resp2.Body.Close()
 	var tasks []map[string]any
 	json.NewDecoder(resp2.Body).Decode(&tasks)
@@ -62,7 +90,7 @@ func TestCreateAndListTasks(t *testing.T) {
 
 func TestCreateTaskRequiresTitle(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{}`))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -73,12 +101,12 @@ func TestGetTask(t *testing.T) {
 	_, ts := setup(t)
 
 	body := `{"title":"My task"}`
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(body))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(body))
 	var created map[string]any
 	json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
 
-	resp2, _ := http.Get(ts.URL + "/api/tasks/" + created["id"].(string))
+	resp2 := mustGet(t, ts.URL + "/api/tasks/" + created["id"].(string))
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp2.StatusCode)
@@ -87,7 +115,7 @@ func TestGetTask(t *testing.T) {
 
 func TestGetTaskNotFound(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Get(ts.URL + "/api/tasks/nonexistent")
+	resp := mustGet(t, ts.URL + "/api/tasks/nonexistent")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
@@ -97,7 +125,7 @@ func TestGetTaskNotFound(t *testing.T) {
 func TestUpdateTask(t *testing.T) {
 	_, ts := setup(t)
 
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Original"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Original"}`))
 	var created map[string]any
 	json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
@@ -105,7 +133,7 @@ func TestUpdateTask(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/tasks/"+created["id"].(string),
 		bytes.NewBufferString(`{"title":"Updated"}`))
 	req.Header.Set("Content-Type", "application/json")
-	resp2, _ := http.DefaultClient.Do(req)
+	resp2 := mustDo(t, req)
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp2.StatusCode)
@@ -120,13 +148,13 @@ func TestUpdateTask(t *testing.T) {
 func TestDeleteTask(t *testing.T) {
 	_, ts := setup(t)
 
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Delete me"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Delete me"}`))
 	var created map[string]any
 	json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
 
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/tasks/"+created["id"].(string), nil)
-	resp2, _ := http.DefaultClient.Do(req)
+	resp2 := mustDo(t, req)
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusNoContent {
 		t.Errorf("expected 204, got %d", resp2.StatusCode)
@@ -137,14 +165,14 @@ func TestClaimTask(t *testing.T) {
 	_, ts := setup(t)
 
 	// Create task
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Claimable","status":"ready"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Claimable","status":"ready"}`))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
 
 	// Claim
 	claimBody := `{"agent":"test-agent"}`
-	resp2, _ := http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(claimBody))
+	resp2 := mustPost(t, ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(claimBody))
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp2.StatusCode)
@@ -154,12 +182,12 @@ func TestClaimTask(t *testing.T) {
 func TestCompleteTask(t *testing.T) {
 	_, ts := setup(t)
 
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Complete me"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Complete me"}`))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
 
-	resp2, _ := http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/complete", "application/json", nil)
+	resp2 := mustPost(t, ts.URL+"/api/tasks/"+task["id"].(string)+"/complete", "application/json", nil)
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp2.StatusCode)
@@ -173,7 +201,7 @@ func TestCompleteTask(t *testing.T) {
 
 func TestListAgentsEmpty(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Get(ts.URL + "/api/agents")
+	resp := mustGet(t, ts.URL + "/api/agents")
 	defer resp.Body.Close()
 	var agents []map[string]any
 	json.NewDecoder(resp.Body).Decode(&agents)
@@ -188,7 +216,7 @@ func TestListEvents(t *testing.T) {
 	// Create a task to generate an event
 	http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Event test"}`))
 
-	resp, _ := http.Get(ts.URL + "/api/events")
+	resp := mustGet(t, ts.URL + "/api/events")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
@@ -201,7 +229,7 @@ func TestListTasksWithStatusFilter(t *testing.T) {
 	http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"A","status":"ready"}`))
 	http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"B","status":"backlog"}`))
 
-	resp, _ := http.Get(ts.URL + "/api/tasks?status=ready")
+	resp := mustGet(t, ts.URL + "/api/tasks?status=ready")
 	defer resp.Body.Close()
 	var tasks []map[string]any
 	json.NewDecoder(resp.Body).Decode(&tasks)
@@ -214,7 +242,7 @@ func TestRegisterAgent(t *testing.T) {
 	_, ts := setup(t)
 
 	body := `{"name":"test-agent","type":"claude-code"}`
-	resp, _ := http.Post(ts.URL+"/api/agents/register", "application/json", bytes.NewBufferString(body))
+	resp := mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBufferString(body))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
@@ -234,7 +262,7 @@ func TestGetAgentByName(t *testing.T) {
 
 	http.Post(ts.URL+"/api/agents/register", "application/json", bytes.NewBufferString(`{"name":"my-agent","type":"cursor"}`))
 
-	resp, _ := http.Get(ts.URL + "/api/agents/my-agent")
+	resp := mustGet(t, ts.URL + "/api/agents/my-agent")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
@@ -251,14 +279,14 @@ func TestSendAndReadMessages(t *testing.T) {
 
 	// Send
 	body := `{"from":"agent-1","to":"agent-2","body":"hello from API"}`
-	resp, _ := http.Post(ts.URL+"/api/messages", "application/json", bytes.NewBufferString(body))
+	resp := mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBufferString(body))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("expected 201, got %d", resp.StatusCode)
 	}
 
 	// Read
-	resp2, _ := http.Get(ts.URL + "/api/messages?to=agent-2")
+	resp2 := mustGet(t, ts.URL + "/api/messages?to=agent-2")
 	defer resp2.Body.Close()
 	var msgs []map[string]any
 	json.NewDecoder(resp2.Body).Decode(&msgs)
@@ -276,7 +304,7 @@ func TestUpdateAgentStatus(t *testing.T) {
 	http.Post(ts.URL+"/api/agents/register", "application/json", bytes.NewBufferString(`{"name":"status-agent","type":"aider"}`))
 
 	body := `{"status":"working","current_task":"wg-123"}`
-	resp, _ := http.Post(ts.URL+"/api/agents/status-agent/status", "application/json", bytes.NewBufferString(body))
+	resp := mustPost(t, ts.URL+"/api/agents/status-agent/status", "application/json", bytes.NewBufferString(body))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
@@ -287,7 +315,7 @@ func TestUnclaimTask(t *testing.T) {
 	_, ts := setup(t)
 
 	// Create and claim
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Unclaim test","status":"ready"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Unclaim test","status":"ready"}`))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
@@ -296,7 +324,7 @@ func TestUnclaimTask(t *testing.T) {
 	http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"unclaimer"}`))
 
 	// Unclaim
-	resp2, _ := http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/unclaim", "application/json", bytes.NewBufferString(`{"agent":"unclaimer"}`))
+	resp2 := mustPost(t, ts.URL+"/api/tasks/"+task["id"].(string)+"/unclaim", "application/json", bytes.NewBufferString(`{"agent":"unclaimer"}`))
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp2.StatusCode)
@@ -310,7 +338,7 @@ func TestUnclaimTask(t *testing.T) {
 
 func TestCreateTaskInvalidStatus(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Bad","status":"invalid"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Bad","status":"invalid"}`))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid status, got %d", resp.StatusCode)
@@ -319,7 +347,7 @@ func TestCreateTaskInvalidStatus(t *testing.T) {
 
 func TestCreateTaskInvalidPriority(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Bad","priority":"urgent"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Bad","priority":"urgent"}`))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid priority, got %d", resp.StatusCode)
@@ -330,7 +358,7 @@ func TestDeleteInProgressTaskRejected(t *testing.T) {
 	_, ts := setup(t)
 
 	// Create and claim (makes it in_progress)
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Busy task","status":"ready"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Busy task","status":"ready"}`))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
@@ -339,7 +367,7 @@ func TestDeleteInProgressTaskRejected(t *testing.T) {
 	http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"worker"}`))
 
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/tasks/"+task["id"].(string), nil)
-	resp2, _ := http.DefaultClient.Do(req)
+	resp2 := mustDo(t, req)
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
 		t.Errorf("expected 409 for in-progress delete, got %d", resp2.StatusCode)
@@ -349,7 +377,7 @@ func TestDeleteInProgressTaskRejected(t *testing.T) {
 func TestDoubleClaim(t *testing.T) {
 	_, ts := setup(t)
 
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Race test","status":"ready"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Race test","status":"ready"}`))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
@@ -361,7 +389,7 @@ func TestDoubleClaim(t *testing.T) {
 	http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"agent-a"}`))
 
 	// Second claim should fail
-	resp2, _ := http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"agent-b"}`))
+	resp2 := mustPost(t, ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"agent-b"}`))
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
 		t.Errorf("expected 409 for double claim, got %d", resp2.StatusCode)
@@ -373,7 +401,7 @@ func TestUpdateTaskNotFound(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/tasks/nonexistent",
 		bytes.NewBufferString(`{"title":"x"}`))
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ := http.DefaultClient.Do(req)
+	resp := mustDo(t, req)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
@@ -383,7 +411,7 @@ func TestUpdateTaskNotFound(t *testing.T) {
 func TestDeleteTaskNotFound(t *testing.T) {
 	_, ts := setup(t)
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/tasks/nonexistent", nil)
-	resp, _ := http.DefaultClient.Do(req)
+	resp := mustDo(t, req)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
@@ -392,7 +420,7 @@ func TestDeleteTaskNotFound(t *testing.T) {
 
 func TestClaimTaskNotFound(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Post(ts.URL+"/api/tasks/nonexistent/claim", "application/json",
+	resp := mustPost(t, ts.URL+"/api/tasks/nonexistent/claim", "application/json",
 		bytes.NewBufferString(`{"agent":"test"}`))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
@@ -402,7 +430,7 @@ func TestClaimTaskNotFound(t *testing.T) {
 
 func TestCompleteTaskNotFound(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Post(ts.URL+"/api/tasks/nonexistent/complete", "application/json", nil)
+	resp := mustPost(t, ts.URL+"/api/tasks/nonexistent/complete", "application/json", nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
@@ -412,7 +440,7 @@ func TestCompleteTaskNotFound(t *testing.T) {
 func TestUnclaimWrongAgent(t *testing.T) {
 	_, ts := setup(t)
 
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Owned","status":"ready"}`))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"Owned","status":"ready"}`))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
@@ -421,7 +449,7 @@ func TestUnclaimWrongAgent(t *testing.T) {
 	http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/claim", "application/json", bytes.NewBufferString(`{"agent":"owner"}`))
 
 	// Try unclaim by wrong agent
-	resp2, _ := http.Post(ts.URL+"/api/tasks/"+task["id"].(string)+"/unclaim", "application/json",
+	resp2 := mustPost(t, ts.URL+"/api/tasks/"+task["id"].(string)+"/unclaim", "application/json",
 		bytes.NewBufferString(`{"agent":"thief"}`))
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusForbidden {
@@ -431,7 +459,7 @@ func TestUnclaimWrongAgent(t *testing.T) {
 
 func TestAgentNotFound(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Get(ts.URL + "/api/agents/nonexistent")
+	resp := mustGet(t, ts.URL + "/api/agents/nonexistent")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
@@ -440,7 +468,7 @@ func TestAgentNotFound(t *testing.T) {
 
 func TestMessagesListAll(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Get(ts.URL + "/api/messages")
+	resp := mustGet(t, ts.URL + "/api/messages")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for listing all messages, got %d", resp.StatusCode)
@@ -449,7 +477,7 @@ func TestMessagesListAll(t *testing.T) {
 
 func TestMessagesMissingFields(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Post(ts.URL+"/api/messages", "application/json", bytes.NewBufferString(`{"body":"no from"}`))
+	resp := mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBufferString(`{"body":"no from"}`))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for missing from, got %d", resp.StatusCode)
@@ -461,17 +489,17 @@ func TestTaskDepsAPI(t *testing.T) {
 
 	// Create tasks with dependency
 	body, _ := json.Marshal(map[string]string{"title": "Dep parent"})
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	var parentTask map[string]any
 	json.NewDecoder(resp.Body).Decode(&parentTask)
 	resp.Body.Close()
 	parentID := parentTask["id"].(string)
 
 	body, _ = json.Marshal(map[string]any{"title": "Dep child", "depends_on": []string{parentID}})
-	resp, _ = http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	resp.Body.Close()
 
-	resp, _ = http.Get(ts.URL + "/api/tasks/" + parentID + "/deps")
+	resp = mustGet(t, ts.URL + "/api/tasks/" + parentID + "/deps")
 	defer resp.Body.Close()
 	var deps map[string]any
 	json.NewDecoder(resp.Body).Decode(&deps)
@@ -486,14 +514,14 @@ func TestTaskHistoryAPI(t *testing.T) {
 
 	// Create and claim a task to generate events
 	body, _ := json.Marshal(map[string]string{"title": "History test", "status": "ready"})
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
 	taskID := task["id"].(string)
 
 	// Get history
-	resp, _ = http.Get(ts.URL + "/api/tasks/" + taskID + "/history")
+	resp = mustGet(t, ts.URL + "/api/tasks/" + taskID + "/history")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -511,7 +539,7 @@ func TestSubtasksAPI(t *testing.T) {
 
 	// Create parent
 	body, _ := json.Marshal(map[string]string{"title": "Parent"})
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	var parent map[string]any
 	json.NewDecoder(resp.Body).Decode(&parent)
 	resp.Body.Close()
@@ -524,7 +552,7 @@ func TestSubtasksAPI(t *testing.T) {
 		r.Body.Close()
 	}
 
-	resp, _ = http.Get(ts.URL + "/api/tasks/" + parentID + "/subtasks")
+	resp = mustGet(t, ts.URL + "/api/tasks/" + parentID + "/subtasks")
 	defer resp.Body.Close()
 	var result map[string]any
 	json.NewDecoder(resp.Body).Decode(&result)
@@ -546,7 +574,7 @@ func TestCommentsAPI(t *testing.T) {
 
 	// Create a task
 	body, _ := json.Marshal(map[string]string{"title": "Comment test"})
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
@@ -554,14 +582,14 @@ func TestCommentsAPI(t *testing.T) {
 
 	// Add a comment
 	commentBody, _ := json.Marshal(map[string]string{"author": "test-agent", "body": "Working on it"})
-	resp, _ = http.Post(ts.URL+"/api/tasks/"+taskID+"/comments", "application/json", bytes.NewBuffer(commentBody))
+	resp = mustPost(t, ts.URL+"/api/tasks/"+taskID+"/comments", "application/json", bytes.NewBuffer(commentBody))
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 
 	// List comments
-	resp, _ = http.Get(ts.URL + "/api/tasks/" + taskID + "/comments")
+	resp = mustGet(t, ts.URL + "/api/tasks/" + taskID + "/comments")
 	defer resp.Body.Close()
 	var comments []map[string]any
 	json.NewDecoder(resp.Body).Decode(&comments)
@@ -577,7 +605,7 @@ func TestCommentsMissingFields(t *testing.T) {
 	_, ts := setup(t)
 
 	body, _ := json.Marshal(map[string]string{"title": "Comment test 2"})
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
 	resp.Body.Close()
@@ -585,7 +613,7 @@ func TestCommentsMissingFields(t *testing.T) {
 
 	// Missing author
 	commentBody, _ := json.Marshal(map[string]string{"body": "no author"})
-	resp, _ = http.Post(ts.URL+"/api/tasks/"+taskID+"/comments", "application/json", bytes.NewBuffer(commentBody))
+	resp = mustPost(t, ts.URL+"/api/tasks/"+taskID+"/comments", "application/json", bytes.NewBuffer(commentBody))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -604,7 +632,7 @@ func TestStatsAPI(t *testing.T) {
 		http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(body))
 	}
 
-	resp, _ := http.Get(ts.URL + "/api/stats")
+	resp := mustGet(t, ts.URL + "/api/stats")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -629,7 +657,7 @@ func TestSearchTasksAPI(t *testing.T) {
 		http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	}
 
-	resp, _ := http.Get(ts.URL + "/api/tasks?q=auth")
+	resp := mustGet(t, ts.URL + "/api/tasks?q=auth")
 	defer resp.Body.Close()
 	var tasks []map[string]any
 	json.NewDecoder(resp.Body).Decode(&tasks)
@@ -643,7 +671,7 @@ func TestProjectCRUDAPI(t *testing.T) {
 
 	// Create project
 	body := `{"name":"Auth System","description":"Authentication and authorization"}`
-	resp, _ := http.Post(ts.URL+"/api/projects", "application/json", bytes.NewBufferString(body))
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBufferString(body))
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
@@ -657,7 +685,7 @@ func TestProjectCRUDAPI(t *testing.T) {
 	}
 
 	// Get project
-	resp, _ = http.Get(ts.URL + "/api/projects/" + projectID)
+	resp = mustGet(t, ts.URL + "/api/projects/" + projectID)
 	var got map[string]any
 	json.NewDecoder(resp.Body).Decode(&got)
 	resp.Body.Close()
@@ -666,7 +694,7 @@ func TestProjectCRUDAPI(t *testing.T) {
 	}
 
 	// List projects
-	resp, _ = http.Get(ts.URL + "/api/projects")
+	resp = mustGet(t, ts.URL + "/api/projects")
 	var projects []map[string]any
 	json.NewDecoder(resp.Body).Decode(&projects)
 	resp.Body.Close()
@@ -678,7 +706,7 @@ func TestProjectCRUDAPI(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/projects/"+projectID,
 		bytes.NewBufferString(`{"name":"Auth System v2"}`))
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ = http.DefaultClient.Do(req)
+	resp = mustDo(t, req)
 	var updated map[string]any
 	json.NewDecoder(resp.Body).Decode(&updated)
 	resp.Body.Close()
@@ -688,14 +716,14 @@ func TestProjectCRUDAPI(t *testing.T) {
 
 	// Delete project
 	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/projects/"+projectID, nil)
-	resp, _ = http.DefaultClient.Do(req)
+	resp = mustDo(t, req)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("expected 204, got %d", resp.StatusCode)
 	}
 
 	// Verify deleted
-	resp, _ = http.Get(ts.URL + "/api/projects/" + projectID)
+	resp = mustGet(t, ts.URL + "/api/projects/" + projectID)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404 after delete, got %d", resp.StatusCode)
@@ -706,7 +734,7 @@ func TestProjectEpicsAPI(t *testing.T) {
 	_, ts := setup(t)
 
 	// Create project
-	resp, _ := http.Post(ts.URL+"/api/projects", "application/json",
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json",
 		bytes.NewBufferString(`{"name":"My Project"}`))
 	var project map[string]any
 	json.NewDecoder(resp.Body).Decode(&project)
@@ -719,7 +747,7 @@ func TestProjectEpicsAPI(t *testing.T) {
 		"task_type":  "epic",
 		"project_id": projectID,
 	})
-	resp, _ = http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(epicBody))
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(epicBody))
 	var epic map[string]any
 	json.NewDecoder(resp.Body).Decode(&epic)
 	resp.Body.Close()
@@ -739,7 +767,7 @@ func TestProjectEpicsAPI(t *testing.T) {
 	}
 
 	// Get project epics
-	resp, _ = http.Get(ts.URL + "/api/projects/" + projectID + "/epics")
+	resp = mustGet(t, ts.URL + "/api/projects/" + projectID + "/epics")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -760,7 +788,7 @@ func TestProjectEpicsAPI(t *testing.T) {
 
 func TestProjectMissingName(t *testing.T) {
 	_, ts := setup(t)
-	resp, _ := http.Post(ts.URL+"/api/projects", "application/json",
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json",
 		bytes.NewBufferString(`{"description":"no name"}`))
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -773,7 +801,7 @@ func TestProjectListWithCounts(t *testing.T) {
 
 	// Create a project
 	body, _ := json.Marshal(map[string]string{"name": "Test Project"})
-	resp, _ := http.Post(ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
 	var project map[string]any
 	json.NewDecoder(resp.Body).Decode(&project)
 	resp.Body.Close()
@@ -787,7 +815,7 @@ func TestProjectListWithCounts(t *testing.T) {
 	}
 
 	// Fetch without counts
-	resp, _ = http.Get(ts.URL + "/api/projects")
+	resp = mustGet(t, ts.URL + "/api/projects")
 	var plain []map[string]any
 	json.NewDecoder(resp.Body).Decode(&plain)
 	resp.Body.Close()
@@ -796,7 +824,7 @@ func TestProjectListWithCounts(t *testing.T) {
 	}
 
 	// Fetch with counts
-	resp, _ = http.Get(ts.URL + "/api/projects?counts=true")
+	resp = mustGet(t, ts.URL + "/api/projects?counts=true")
 	var enriched []map[string]any
 	json.NewDecoder(resp.Body).Decode(&enriched)
 	resp.Body.Close()
@@ -826,7 +854,7 @@ func TestTaskTypeFilterAPI(t *testing.T) {
 	}
 
 	// Filter by type
-	resp, _ := http.Get(ts.URL + "/api/tasks?task_type=epic")
+	resp := mustGet(t, ts.URL + "/api/tasks?task_type=epic")
 	defer resp.Body.Close()
 	var tasks []map[string]any
 	json.NewDecoder(resp.Body).Decode(&tasks)
@@ -842,7 +870,7 @@ func TestSettingsAPI(t *testing.T) {
 	_, ts := setup(t)
 
 	// GET empty settings
-	resp, _ := http.Get(ts.URL + "/api/settings")
+	resp := mustGet(t, ts.URL + "/api/settings")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -857,14 +885,14 @@ func TestSettingsAPI(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/settings",
 		bytes.NewBufferString(`{"theme":"dark","sound":"on"}`))
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ = http.DefaultClient.Do(req)
+	resp = mustDo(t, req)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 
 	// GET settings back
-	resp, _ = http.Get(ts.URL + "/api/settings")
+	resp = mustGet(t, ts.URL + "/api/settings")
 	json.NewDecoder(resp.Body).Decode(&settings)
 	resp.Body.Close()
 	if settings["theme"] != "dark" {
@@ -887,7 +915,7 @@ func TestExportTasksJSON(t *testing.T) {
 		r.Body.Close()
 	}
 
-	resp, _ := http.Get(ts.URL + "/api/tasks/export?format=json")
+	resp := mustGet(t, ts.URL + "/api/tasks/export?format=json")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -910,7 +938,7 @@ func TestExportTasksCSV(t *testing.T) {
 
 	http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBufferString(`{"title":"CSV Task","priority":"high","status":"ready"}`))
 
-	resp, _ := http.Get(ts.URL + "/api/tasks/export?format=csv")
+	resp := mustGet(t, ts.URL + "/api/tasks/export?format=csv")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -975,7 +1003,7 @@ func TestMethodNotAllowed(t *testing.T) {
 
 	// PUT on tasks should be 405
 	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/tasks", nil)
-	resp, _ := http.DefaultClient.Do(req)
+	resp := mustDo(t, req)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", resp.StatusCode)
@@ -991,7 +1019,7 @@ func TestInputLimits(t *testing.T) {
 		longTitle[i] = 'a'
 	}
 	body, _ := json.Marshal(map[string]string{"title": string(longTitle)})
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for long title, got %d", resp.StatusCode)
@@ -1003,7 +1031,7 @@ func TestInputLimits(t *testing.T) {
 		longDesc[i] = 'b'
 	}
 	body, _ = json.Marshal(map[string]string{"title": "ok", "description": string(longDesc)})
-	resp, _ = http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for long description, got %d", resp.StatusCode)
@@ -1015,7 +1043,7 @@ func TestInputLimits(t *testing.T) {
 		longName[i] = 'c'
 	}
 	body, _ = json.Marshal(map[string]string{"name": string(longName)})
-	resp, _ = http.Post(ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	resp = mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for long project name, got %d", resp.StatusCode)
@@ -1023,7 +1051,7 @@ func TestInputLimits(t *testing.T) {
 
 	// Valid lengths should work
 	body, _ = json.Marshal(map[string]string{"title": "short title"})
-	resp, _ = http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("expected 201 for valid title, got %d", resp.StatusCode)
@@ -1034,7 +1062,7 @@ func TestReviewCRUD(t *testing.T) {
 	_, ts := setup(t)
 
 	// Create a task first
-	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json",
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json",
 		bytes.NewBufferString(`{"title":"Review target"}`))
 	var task map[string]any
 	json.NewDecoder(resp.Body).Decode(&task)
@@ -1042,7 +1070,7 @@ func TestReviewCRUD(t *testing.T) {
 	taskID := task["id"].(string)
 
 	// List reviews — empty
-	resp, _ = http.Get(ts.URL + "/api/reviews")
+	resp = mustGet(t, ts.URL + "/api/reviews")
 	var reviews []map[string]any
 	json.NewDecoder(resp.Body).Decode(&reviews)
 	resp.Body.Close()
@@ -1056,7 +1084,7 @@ func TestReviewCRUD(t *testing.T) {
 		"agent_id": "test-agent",
 		"diff":     "--- a/file.go\n+++ b/file.go\n@@ -1 +1 @@\n-old\n+new",
 	})
-	resp, _ = http.Post(ts.URL+"/api/reviews", "application/json", bytes.NewBuffer(revBody))
+	resp = mustPost(t, ts.URL+"/api/reviews", "application/json", bytes.NewBuffer(revBody))
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
@@ -1069,7 +1097,7 @@ func TestReviewCRUD(t *testing.T) {
 	}
 
 	// Get single review
-	resp, _ = http.Get(ts.URL + "/api/reviews/" + revID)
+	resp = mustGet(t, ts.URL + "/api/reviews/" + revID)
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
@@ -1079,7 +1107,7 @@ func TestReviewCRUD(t *testing.T) {
 	approveBody, _ := json.Marshal(map[string]string{"status": "approved", "feedback": "lgtm"})
 	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/reviews/"+revID, bytes.NewBuffer(approveBody))
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ = http.DefaultClient.Do(req)
+	resp = mustDo(t, req)
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for approve, got %d", resp.StatusCode)
 	}
@@ -1091,7 +1119,7 @@ func TestReviewCRUD(t *testing.T) {
 	}
 
 	// List reviews filtered by status
-	resp, _ = http.Get(ts.URL + "/api/reviews?status=approved")
+	resp = mustGet(t, ts.URL + "/api/reviews?status=approved")
 	json.NewDecoder(resp.Body).Decode(&reviews)
 	resp.Body.Close()
 	if len(reviews) != 1 {
@@ -1099,7 +1127,7 @@ func TestReviewCRUD(t *testing.T) {
 	}
 
 	// List reviews by task
-	resp, _ = http.Get(ts.URL + "/api/reviews?task_id=" + taskID)
+	resp = mustGet(t, ts.URL + "/api/reviews?task_id=" + taskID)
 	json.NewDecoder(resp.Body).Decode(&reviews)
 	resp.Body.Close()
 	if len(reviews) != 1 {
@@ -1111,7 +1139,7 @@ func TestReviewValidation(t *testing.T) {
 	_, ts := setup(t)
 
 	// Missing required fields
-	resp, _ := http.Post(ts.URL+"/api/reviews", "application/json",
+	resp := mustPost(t, ts.URL+"/api/reviews", "application/json",
 		bytes.NewBufferString(`{"task_id":"abc"}`))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for missing diff, got %d", resp.StatusCode)
@@ -1119,12 +1147,12 @@ func TestReviewValidation(t *testing.T) {
 	resp.Body.Close()
 
 	// Invalid review status
-	resp, _ = http.Post(ts.URL+"/api/reviews", "application/json",
+	resp = mustPost(t, ts.URL+"/api/reviews", "application/json",
 		bytes.NewBufferString(`{"task_id":"abc","diff":"something"}`))
 	resp.Body.Close()
 
 	// Get nonexistent review
-	resp, _ = http.Get(ts.URL + "/api/reviews/nonexistent")
+	resp = mustGet(t, ts.URL + "/api/reviews/nonexistent")
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404 for nonexistent review, got %d", resp.StatusCode)
 	}
@@ -1134,7 +1162,7 @@ func TestReviewValidation(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"status": "invalid"})
 	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/reviews/some-id", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ = http.DefaultClient.Do(req)
+	resp = mustDo(t, req)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid review status, got %d", resp.StatusCode)
 	}
@@ -1145,7 +1173,7 @@ func TestUsageAPI(t *testing.T) {
 	_, ts := setup(t)
 
 	// GET usage — empty
-	resp, _ := http.Get(ts.URL + "/api/usage")
+	resp := mustGet(t, ts.URL + "/api/usage")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -1166,19 +1194,19 @@ func TestUsageAPI(t *testing.T) {
 		"output_tokens": 500,
 		"model":        "claude-sonnet",
 	})
-	resp, _ = http.Post(ts.URL+"/api/usage", "application/json", bytes.NewBuffer(body))
+	resp = mustPost(t, ts.URL+"/api/usage", "application/json", bytes.NewBuffer(body))
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("expected 201, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 
 	// GET again — should have data
-	resp, _ = http.Get(ts.URL + "/api/usage")
+	resp = mustGet(t, ts.URL + "/api/usage")
 	json.NewDecoder(resp.Body).Decode(&usage)
 	resp.Body.Close()
 
 	// POST missing agent_name
-	resp, _ = http.Post(ts.URL+"/api/usage", "application/json",
+	resp = mustPost(t, ts.URL+"/api/usage", "application/json",
 		bytes.NewBufferString(`{"input_tokens":100}`))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for missing agent_name, got %d", resp.StatusCode)
@@ -1190,7 +1218,7 @@ func TestPushSubscribeAPI(t *testing.T) {
 	_, ts := setup(t)
 
 	// GET VAPID public key
-	resp, _ := http.Get(ts.URL + "/api/push/subscribe")
+	resp := mustGet(t, ts.URL + "/api/push/subscribe")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for GET push/subscribe, got %d", resp.StatusCode)
 	}
@@ -1207,14 +1235,14 @@ func TestPushSubscribeAPI(t *testing.T) {
 		"auth":     "test-auth-key",
 		"p256dh":   "test-p256dh-key",
 	})
-	resp, _ = http.Post(ts.URL+"/api/push/subscribe", "application/json", bytes.NewBuffer(body))
+	resp = mustPost(t, ts.URL+"/api/push/subscribe", "application/json", bytes.NewBuffer(body))
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("expected 201 for push subscribe, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 
 	// Missing fields
-	resp, _ = http.Post(ts.URL+"/api/push/subscribe", "application/json",
+	resp = mustPost(t, ts.URL+"/api/push/subscribe", "application/json",
 		bytes.NewBufferString(`{"endpoint":"https://example.com"}`))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for missing auth/p256dh, got %d", resp.StatusCode)
@@ -1225,7 +1253,7 @@ func TestPushSubscribeAPI(t *testing.T) {
 	unsubBody, _ := json.Marshal(map[string]string{"endpoint": "https://push.example.com/sub/123"})
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/push/subscribe", bytes.NewBuffer(unsubBody))
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ = http.DefaultClient.Do(req)
+	resp = mustDo(t, req)
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for unsubscribe, got %d", resp.StatusCode)
 	}
