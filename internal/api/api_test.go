@@ -768,6 +768,53 @@ func TestProjectMissingName(t *testing.T) {
 	}
 }
 
+func TestProjectListWithCounts(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a project
+	body, _ := json.Marshal(map[string]string{"name": "Test Project"})
+	resp, _ := http.Post(ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	var project map[string]any
+	json.NewDecoder(resp.Body).Decode(&project)
+	resp.Body.Close()
+	pid := project["id"].(string)
+
+	// Create tasks in the project
+	for _, status := range []string{"ready", "in_progress", "done", "done"} {
+		taskBody, _ := json.Marshal(map[string]string{"title": status + " task", "status": status, "project_id": pid})
+		r, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(taskBody))
+		r.Body.Close()
+	}
+
+	// Fetch without counts
+	resp, _ = http.Get(ts.URL + "/api/projects")
+	var plain []map[string]any
+	json.NewDecoder(resp.Body).Decode(&plain)
+	resp.Body.Close()
+	if _, hasCounts := plain[0]["task_count"]; hasCounts {
+		t.Error("expected no task_count without counts=true")
+	}
+
+	// Fetch with counts
+	resp, _ = http.Get(ts.URL + "/api/projects?counts=true")
+	var enriched []map[string]any
+	json.NewDecoder(resp.Body).Decode(&enriched)
+	resp.Body.Close()
+	if len(enriched) == 0 {
+		t.Fatal("expected at least 1 project")
+	}
+	p := enriched[0]
+	if int(p["task_count"].(float64)) != 4 {
+		t.Errorf("expected task_count=4, got %v", p["task_count"])
+	}
+	if int(p["done_count"].(float64)) != 2 {
+		t.Errorf("expected done_count=2, got %v", p["done_count"])
+	}
+	if int(p["active_count"].(float64)) != 1 {
+		t.Errorf("expected active_count=1, got %v", p["active_count"])
+	}
+}
+
 func TestTaskTypeFilterAPI(t *testing.T) {
 	_, ts := setup(t)
 

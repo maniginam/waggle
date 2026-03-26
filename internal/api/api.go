@@ -802,6 +802,32 @@ func (a *API) handleProjects(w http.ResponseWriter, r *http.Request) {
 		if projects == nil {
 			projects = []*model.Project{}
 		}
+		// Enrich with task counts if requested
+		if r.URL.Query().Get("counts") == "true" {
+			type projectWithCounts struct {
+				*model.Project
+				TaskCount   int `json:"task_count"`
+				DoneCount   int `json:"done_count"`
+				ActiveCount int `json:"active_count"`
+			}
+			enriched := make([]projectWithCounts, 0, len(projects))
+			for _, p := range projects {
+				pc := projectWithCounts{Project: p}
+				if tasks, err := a.store.ListTasks(map[string]string{"project_id": p.ID}); err == nil {
+					pc.TaskCount = len(tasks)
+					for _, t := range tasks {
+						if t.Status == model.TaskDone {
+							pc.DoneCount++
+						} else if t.Status == model.TaskInProgress {
+							pc.ActiveCount++
+						}
+					}
+				}
+				enriched = append(enriched, pc)
+			}
+			writeJSON(w, http.StatusOK, enriched)
+			return
+		}
 		writeJSON(w, http.StatusOK, projects)
 
 	case http.MethodPost:
