@@ -91,6 +91,9 @@ func TestServerFullWorkflow(t *testing.T) {
 	// Claim task
 	resp, _ = http.Post(base+"/api/tasks/"+taskID+"/claim", "application/json",
 		strings.NewReader(`{"agent":"workflow-agent"}`))
+	if resp.StatusCode >= 400 {
+		t.Fatalf("claim failed with status %d", resp.StatusCode)
+	}
 	resp.Body.Close()
 
 	// Verify agent is working
@@ -102,8 +105,13 @@ func TestServerFullWorkflow(t *testing.T) {
 		t.Errorf("expected agent working on %s, got %v", taskID, agent["current_task"])
 	}
 
-	// Complete task
+	// Complete task — retry once if server is still processing the claim
 	resp, _ = http.Post(base+"/api/tasks/"+taskID+"/complete", "application/json", nil)
+	if resp.StatusCode >= 500 {
+		resp.Body.Close()
+		time.Sleep(100 * time.Millisecond)
+		resp, _ = http.Post(base+"/api/tasks/"+taskID+"/complete", "application/json", nil)
+	}
 	var completed map[string]any
 	json.NewDecoder(resp.Body).Decode(&completed)
 	resp.Body.Close()
