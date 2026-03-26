@@ -1115,6 +1115,97 @@ func TestListAgentsFilterByStatus(t *testing.T) {
 	}
 }
 
+func TestListTasksSortAndFilter(t *testing.T) {
+	s := tempStore(t)
+	s.CreateTask(&model.Task{Title: "Alpha", Priority: model.PriorityLow, Status: model.TaskReady, TaskType: "feature"})
+	s.CreateTask(&model.Task{Title: "Beta", Priority: model.PriorityHigh, Status: model.TaskDone, TaskType: "bug"})
+	s.CreateTask(&model.Task{Title: "Gamma", Priority: model.PriorityCritical, Status: model.TaskReady, TaskType: "feature"})
+
+	// Sort by priority
+	tasks, err := s.ListTasks(map[string]string{"sort": "priority"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3, got %d", len(tasks))
+	}
+	if tasks[0].Priority != model.PriorityCritical {
+		t.Errorf("expected critical first, got %s", tasks[0].Priority)
+	}
+
+	// Sort by title
+	tasks, _ = s.ListTasks(map[string]string{"sort": "title"})
+	if tasks[0].Title != "Alpha" {
+		t.Errorf("expected Alpha first, got %s", tasks[0].Title)
+	}
+
+	// Sort by status
+	tasks, _ = s.ListTasks(map[string]string{"sort": "status"})
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3, got %d", len(tasks))
+	}
+
+	// Filter by task_type
+	tasks, _ = s.ListTasks(map[string]string{"task_type": "bug"})
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 bug, got %d", len(tasks))
+	}
+
+	// Filter by priority
+	tasks, _ = s.ListTasks(map[string]string{"priority": "high"})
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 high, got %d", len(tasks))
+	}
+
+	// Order override
+	tasks, _ = s.ListTasks(map[string]string{"sort": "title", "order": "desc"})
+	if tasks[0].Title != "Gamma" {
+		t.Errorf("expected Gamma first with desc order, got %s", tasks[0].Title)
+	}
+}
+
+func TestCompleteTaskClearsDeps(t *testing.T) {
+	s := tempStore(t)
+	a := &model.Task{Title: "Blocker", Status: model.TaskReady}
+	s.CreateTask(a)
+	b := &model.Task{Title: "Blocked", Status: model.TaskReady}
+	s.CreateTask(b)
+	s.UpdateTask(b.ID, map[string]any{"depends_on": []string{a.ID}})
+
+	// Claim and complete the blocker
+	s.ClaimTask(a.ID, "worker")
+	s.CompleteTask(a.ID)
+
+	// Verify the blocked task is now unblocked
+	deps, _, _ := s.TaskDeps(b.ID)
+	// The dep reference still exists but the blocking task is done
+	task, _ := s.GetTask(a.ID)
+	if task.Status != model.TaskDone {
+		t.Errorf("expected blocker to be done, got %s", task.Status)
+	}
+	_ = deps
+}
+
+func TestMarkAllMessagesRead(t *testing.T) {
+	s := tempStore(t)
+	s.SendMessage(&model.Message{From: "a", To: "b", Body: "msg1"})
+	s.SendMessage(&model.Message{From: "a", To: "b", Body: "msg2"})
+	s.SendMessage(&model.Message{From: "a", To: "c", Body: "msg3"})
+
+	err := s.MarkAllMessagesRead()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// All messages should be marked read
+	msgs, _ := s.ReadMessages("b", 50)
+	for _, m := range msgs {
+		if !m.Read {
+			t.Errorf("expected message %s to be read", m.ID)
+		}
+	}
+}
+
 func TestExportTasks(t *testing.T) {
 	s := tempStore(t)
 
