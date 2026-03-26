@@ -1666,6 +1666,42 @@ func TestMessagesWithLimit(t *testing.T) {
 	}
 }
 
+func TestClaimMissingAgent(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"title": "claim-test"})
+	r := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(r.Body).Decode(&task)
+	r.Body.Close()
+	taskID := task["id"].(string)
+
+	// Claim without agent name
+	resp := mustPost(t, ts.URL+"/api/tasks/"+taskID+"/claim", "application/json", bytes.NewBuffer([]byte(`{}`)))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for missing agent, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestUnclaimMissingAgent(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"title": "unclaim-test"})
+	r := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var task map[string]any
+	json.NewDecoder(r.Body).Decode(&task)
+	r.Body.Close()
+	taskID := task["id"].(string)
+
+	// Unclaim without agent name
+	resp := mustPost(t, ts.URL+"/api/tasks/"+taskID+"/unclaim", "application/json", bytes.NewBuffer([]byte(`{}`)))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for missing agent, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 func TestEventsPagination(t *testing.T) {
 	_, ts := setup(t)
 
