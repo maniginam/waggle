@@ -974,3 +974,75 @@ func TestSettingsGetAll(t *testing.T) {
 		t.Errorf("expected dark theme, got %q", settings["theme"])
 	}
 }
+
+func TestGetAgentByID(t *testing.T) {
+	s := tempStore(t)
+	s.RegisterAgent("id-agent", "claude-code", "", model.AgentRoleWorker, "")
+
+	agent, err := s.GetAgentByName("id-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// GetAgent uses the ID field
+	got, err := s.GetAgent(agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "id-agent" {
+		t.Errorf("expected id-agent, got %s", got.Name)
+	}
+}
+
+func TestUpdateAgentStatus(t *testing.T) {
+	s := tempStore(t)
+	s.RegisterAgent("status-agent", "claude-code", "", model.AgentRoleWorker, "")
+
+	err := s.UpdateAgentStatus("status-agent", model.AgentWorking, "task-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, _ := s.GetAgentByName("status-agent")
+	if agent.Status != model.AgentWorking {
+		t.Errorf("expected working, got %s", agent.Status)
+	}
+	if agent.CurrentTask != "task-123" {
+		t.Errorf("expected task-123, got %s", agent.CurrentTask)
+	}
+}
+
+func TestTouchAgent(t *testing.T) {
+	s := tempStore(t)
+	s.RegisterAgent("touch-agent", "claude-code", "", model.AgentRoleWorker, "")
+
+	// TouchAgent should succeed without error
+	err := s.TouchAgent("touch-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify agent is still retrievable after touch
+	after, err := s.GetAgentByName("touch-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Name != "touch-agent" {
+		t.Errorf("expected touch-agent, got %s", after.Name)
+	}
+}
+
+func TestExportTasks(t *testing.T) {
+	s := tempStore(t)
+
+	s.CreateTask(&model.Task{Title: "Export A", Priority: model.PriorityHigh, Status: model.TaskReady})
+	s.CreateTask(&model.Task{Title: "Export B", Priority: model.PriorityLow, Status: model.TaskDone})
+
+	tasks, err := s.ListTasks(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(tasks))
+	}
+}
