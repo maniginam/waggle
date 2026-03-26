@@ -1128,11 +1128,17 @@ func cmdMCP() {
 }
 
 func cmdConnect() {
+	// Use full path to waggle binary so it works even if Go bin isn't in PATH
+	waggleBin := "waggle"
+	if exe, err := os.Executable(); err == nil {
+		waggleBin = exe
+	}
+
 	// Generate .mcp.json for Claude Code
 	mcpConfig := map[string]any{
 		"mcpServers": map[string]any{
 			"waggle": map[string]any{
-				"command": "waggle",
+				"command": waggleBin,
 				"args":    []string{"mcp"},
 			},
 		},
