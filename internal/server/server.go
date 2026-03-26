@@ -20,14 +20,15 @@ import (
 )
 
 type Server struct {
-	httpServer *http.Server
-	store      *store.Store
-	eventHub   *event.Hub
-	wsHub      *ws.Hub
-	api        *api.API
-	push       *push.Notifier
-	stopReaper chan struct{}
-	startedAt  time.Time
+	httpServer   *http.Server
+	store        *store.Store
+	eventHub     *event.Hub
+	wsHub        *ws.Hub
+	api          *api.API
+	push         *push.Notifier
+	stopReaper   chan struct{}
+	startedAt    time.Time
+	tmuxChecker  func(string) bool // injectable for testing; defaults to tmuxSessionAlive
 }
 
 type Config struct {
@@ -111,13 +112,14 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	return &Server{
-		httpServer: srv,
-		store:      s,
-		eventHub:   eh,
-		wsHub:      wsHub,
-		api:        restAPI,
-		push:       pushNotifier,
-		startedAt:  startedAt,
+		httpServer:  srv,
+		store:       s,
+		eventHub:    eh,
+		wsHub:       wsHub,
+		api:         restAPI,
+		push:        pushNotifier,
+		startedAt:   startedAt,
+		tmuxChecker: tmuxSessionAlive,
 	}, nil
 }
 
@@ -168,7 +170,7 @@ func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
 		if agent.LastSeen.Before(cutoff) {
 			// Check if agent has an active tmux session before reaping
 			sessionName := "waggle-" + agent.Name
-			if tmuxSessionAlive(sessionName) {
+			if s.tmuxChecker(sessionName) {
 				// Agent has a live tmux session — refresh its heartbeat
 				s.store.TouchAgent(agent.Name)
 				continue
