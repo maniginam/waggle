@@ -27,6 +27,7 @@ type Server struct {
 	api        *api.API
 	push       *push.Notifier
 	stopReaper chan struct{}
+	startedAt  time.Time
 }
 
 type Config struct {
@@ -59,6 +60,7 @@ func New(cfg Config) (*Server, error) {
 		log.Printf("push notifications disabled: %v", err)
 	}
 
+	startedAt := time.Now().UTC()
 	mux := http.NewServeMux()
 
 	// Mount REST API
@@ -80,7 +82,16 @@ func New(cfg Config) (*Server, error) {
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		uptime := time.Since(startedAt).Round(time.Second).String()
+		data, _ := json.Marshal(map[string]any{
+			"status":     "ok",
+			"version":    cfg.Version,
+			"uptime":     uptime,
+			"started_at": startedAt.Format(time.RFC3339),
+			"ws_clients": wsHub.ClientCount(),
+			"sse_subs":   eh.SubscriberCount(),
+		})
+		w.Write(data)
 	})
 
 	// Version endpoint
@@ -106,6 +117,7 @@ func New(cfg Config) (*Server, error) {
 		wsHub:      wsHub,
 		api:        restAPI,
 		push:       pushNotifier,
+		startedAt:  startedAt,
 	}, nil
 }
 

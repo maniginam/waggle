@@ -56,6 +56,20 @@ func TestServerHealthCheck(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
+	var health map[string]any
+	json.NewDecoder(resp.Body).Decode(&health)
+	if health["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", health["status"])
+	}
+	if health["version"] != "test-v0.0.1" {
+		t.Errorf("expected version test-v0.0.1, got %v", health["version"])
+	}
+	if health["uptime"] == nil {
+		t.Error("expected uptime in health response")
+	}
+	if health["started_at"] == nil {
+		t.Error("expected started_at in health response")
+	}
 }
 
 func TestServerFullWorkflow(t *testing.T) {
