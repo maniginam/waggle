@@ -1206,6 +1206,87 @@ func TestMarkAllMessagesRead(t *testing.T) {
 	}
 }
 
+func TestListTasksFilterByTag(t *testing.T) {
+	s := tempStore(t)
+	t1 := &model.Task{Title: "Tagged task", Status: model.TaskReady}
+	s.CreateTask(t1)
+	s.UpdateTask(t1.ID, map[string]any{"tags": []string{"backend", "urgent"}})
+
+	t2 := &model.Task{Title: "Untagged task", Status: model.TaskReady}
+	s.CreateTask(t2)
+
+	// Filter by tag
+	tasks, err := s.ListTasks(map[string]string{"tag": "backend"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 task with tag backend, got %d", len(tasks))
+	}
+	if tasks[0].Title != "Tagged task" {
+		t.Errorf("expected Tagged task, got %s", tasks[0].Title)
+	}
+}
+
+func TestListTasksFilterByProjectID(t *testing.T) {
+	s := tempStore(t)
+	proj := &model.Project{Name: "Test Proj"}
+	s.CreateProject(proj)
+	projID := proj.ID
+
+	t1 := &model.Task{Title: "In project", Status: model.TaskReady, ProjectID: projID}
+	s.CreateTask(t1)
+	t2 := &model.Task{Title: "No project", Status: model.TaskReady}
+	s.CreateTask(t2)
+
+	tasks, err := s.ListTasks(map[string]string{"project_id": projID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("expected 1, got %d", len(tasks))
+	}
+}
+
+func TestListTasksSearchQuery(t *testing.T) {
+	s := tempStore(t)
+	s.CreateTask(&model.Task{Title: "Fix login bug", Description: "Users can't log in"})
+	s.CreateTask(&model.Task{Title: "Add dashboard", Description: "New dashboard feature"})
+
+	tasks, err := s.ListTasks(map[string]string{"q": "login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 match for 'login', got %d", len(tasks))
+	}
+
+	// Search in description
+	tasks, _ = s.ListTasks(map[string]string{"q": "dashboard"})
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 match for 'dashboard', got %d", len(tasks))
+	}
+}
+
+func TestListTasksFilterByParentID(t *testing.T) {
+	s := tempStore(t)
+	parent := &model.Task{Title: "Parent task"}
+	s.CreateTask(parent)
+
+	child1 := &model.Task{Title: "Child 1", ParentID: parent.ID}
+	child2 := &model.Task{Title: "Child 2", ParentID: parent.ID}
+	s.CreateTask(child1)
+	s.CreateTask(child2)
+
+	tasks, err := s.ListTasks(map[string]string{"parent_id": parent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 children, got %d", len(tasks))
+	}
+}
+
 func TestCompleteTaskUnblocksDependentWhenAllDone(t *testing.T) {
 	s := tempStore(t)
 
