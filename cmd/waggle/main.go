@@ -1328,12 +1328,17 @@ func cmdMCP() {
 			}
 			srv.Start()
 		}()
-		// Wait for server to be ready
+		// Wait for server to be ready with clearer feedback
+		ready := false
 		for i := 0; i < 50; i++ {
 			time.Sleep(100 * time.Millisecond)
 			if _, err := http.Get(url + "/health"); err == nil {
+				ready = true
 				break
 			}
+		}
+		if !ready {
+			fmt.Fprintf(os.Stderr, "waggle: server failed to start within 5s — check logs at /tmp/waggle.log\n")
 		}
 	}
 
