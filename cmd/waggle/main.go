@@ -748,6 +748,59 @@ func cmdTask(subcmd string, args []string) {
 		}
 		fmt.Printf("Unclaimed task %s\n", args[0])
 
+	case "block":
+		if len(args) < 1 {
+			fmt.Println("Usage: waggle task block <id> [reason]")
+			os.Exit(1)
+		}
+		updates := map[string]any{"status": "blocked"}
+		body, _ := json.Marshal(updates)
+		req, _ := http.NewRequest(http.MethodPatch, baseURL()+"/api/tasks/"+args[0], strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			var errResp map[string]any
+			json.NewDecoder(resp.Body).Decode(&errResp)
+			fmt.Fprintf(os.Stderr, "error: %v\n", errResp)
+			os.Exit(1)
+		}
+		fmt.Printf("Blocked task %s\n", args[0])
+		// Add reason as comment if provided
+		if len(args) > 1 {
+			reason := strings.Join(args[1:], " ")
+			commentJSON, _ := json.Marshal(map[string]string{"author": getAgentName(), "body": "Blocked: " + reason})
+			http.Post(baseURL()+"/api/tasks/"+args[0]+"/comments", "application/json", strings.NewReader(string(commentJSON)))
+			fmt.Printf("  Reason: %s\n", reason)
+		}
+
+	case "unblock":
+		if len(args) < 1 {
+			fmt.Println("Usage: waggle task unblock <id>")
+			os.Exit(1)
+		}
+		updates := map[string]any{"status": "ready"}
+		body, _ := json.Marshal(updates)
+		req, _ := http.NewRequest(http.MethodPatch, baseURL()+"/api/tasks/"+args[0], strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			var errResp map[string]any
+			json.NewDecoder(resp.Body).Decode(&errResp)
+			fmt.Fprintf(os.Stderr, "error: %v\n", errResp)
+			os.Exit(1)
+		}
+		fmt.Printf("Unblocked task %s\n", args[0])
+
 	case "done":
 		if len(args) < 1 {
 			fmt.Println("Usage: waggle task done <id>")
@@ -1788,6 +1841,8 @@ Usage:
   waggle task assign <id> <agent>  Assign task to a specific agent
   waggle task claim <id>           Claim a task (assign to self)
   waggle task unclaim <id>         Release a claimed task
+  waggle task block <id> [reason]   Mark task as blocked (adds reason as comment)
+  waggle task unblock <id>         Move blocked task back to ready
   waggle task done <id>            Mark task complete
   waggle task move <id> <status>   Change task status (shorthand)
   waggle task comment <id> "msg"   Add comment to task
