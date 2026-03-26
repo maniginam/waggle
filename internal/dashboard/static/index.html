@@ -1538,7 +1538,7 @@ select.form-input { cursor: pointer; }
     <button class="mobile-menu-btn" onclick="toggleMobileNav()" title="Projects">&#9776;</button>
     <div class="logo" onclick="navigateTo('overview')">
       <div class="logo-hex"><div class="logo-hex-inner"></div></div>
-      waggle
+      waggle <span id="version-label" style="font-size:0.55rem;color:var(--text-dim);font-weight:400;margin-left:2px"></span>
     </div>
     <div class="header-stats" id="header-stats"></div>
   </div>
@@ -5360,6 +5360,7 @@ async function saveSettings() {
 
 fetchAll();
 connectSSE();
+fetch('/api/version').then(r=>r.json()).then(d=>{const el=document.getElementById('version-label');if(el&&d.version)el.textContent=d.version;}).catch(()=>{});
 setInterval(fetchAll, 15000);
 let tickInterval = setInterval(tickAgentTimestamps, 1000);
 document.addEventListener('visibilitychange', () => {
