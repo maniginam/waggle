@@ -763,7 +763,14 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events, err := a.store.ListEvents(50)
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		fmt.Sscanf(l, "%d", &limit)
+		if limit <= 0 || limit > 500 {
+			limit = 50
+		}
+	}
+	events, err := a.store.ListEvents(limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
 		return

@@ -78,6 +78,8 @@ func main() {
 		cmdReview(os.Args[2], os.Args[3:])
 	case "reviews":
 		cmdReview("list", os.Args[2:])
+	case "log":
+		cmdLog(os.Args[2:])
 	case "config":
 		cmdConfig(os.Args[2:])
 	case "stop":
@@ -967,6 +969,46 @@ func statusIcon(status any) string {
 	}
 }
 
+func cmdLog(args []string) {
+	limit := 20
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--limit" && i+1 < len(args) {
+			fmt.Sscanf(args[i+1], "%d", &limit)
+			i++
+		}
+	}
+	url := fmt.Sprintf("%s/api/events?limit=%d", baseURL(), limit)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	var events []map[string]any
+	json.NewDecoder(resp.Body).Decode(&events)
+	if len(events) == 0 {
+		fmt.Println("No recent events")
+		return
+	}
+	for _, e := range events {
+		ts := ""
+		if t, ok := e["timestamp"].(string); ok {
+			if parsed, err := time.Parse(time.RFC3339, t); err == nil {
+				ts = parsed.Local().Format("15:04:05")
+			}
+		}
+		agent := ""
+		if a, ok := e["agent_id"].(string); ok && a != "" {
+			agent = " " + a
+		}
+		task := ""
+		if t, ok := e["task_id"].(string); ok && t != "" {
+			task = " " + t
+		}
+		fmt.Printf("  [%s] %-20s%s%s\n", ts, e["type"], agent, task)
+	}
+}
+
 func cmdReview(subcmd string, args []string) {
 	switch subcmd {
 	case "list":
@@ -1555,6 +1597,7 @@ Usage:
   waggle review reject <id> "fb" Reject with feedback
   waggle reviews                   Shorthand for review list
 
+  waggle log [--limit 20]          Show recent activity log
   waggle agent show <name>         Show agent detail
   waggle agents                    List connected agents
   waggle watch [--agent X]         Tail event stream (SSE)
