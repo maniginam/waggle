@@ -276,6 +276,12 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			},
 			"required": []string{"task_id", "diff"},
 		}),
+		toolDef("waggle_list_reviews", "List code reviews. Shows pending reviews by default.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"status": propEnum("string", []string{"pending", "approved", "rejected"}, "Filter by review status"),
+			},
+		}),
 		toolDef("waggle_create_project", "Create a new project to organize epics and stories.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -681,6 +687,13 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			"branch":   branch,
 			"summary":  summary,
 		})
+
+	case "waggle_list_reviews":
+		url := "/api/reviews"
+		if status, ok := args["status"].(string); ok && status != "" {
+			url += "?status=" + status
+		}
+		return a.get(url)
 
 	case "waggle_create_project":
 		return a.postJSON("/api/projects", args)
