@@ -67,6 +67,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/sessions/", a.handleSessionAction)
 	mux.HandleFunc("/api/push/subscribe", a.handlePushSubscribe)
 	mux.HandleFunc("/api/settings", a.handleSettings)
+	mux.HandleFunc("/api/proposals", a.handleProposals)
+	mux.HandleFunc("/api/proposals/", a.handleProposal)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -1616,4 +1618,107 @@ func (a *API) resolveRepo(projectID string) string {
 		return ""
 	}
 	return gh.RepoFromProject(proj.Name)
+}
+
+func (a *API) handleProposals(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		filters := map[string]string{}
+		if v := r.URL.Query().Get("agent_id"); v != "" {
+			filters["agent_id"] = v
+		}
+		if v := r.URL.Query().Get("project_id"); v != "" {
+			filters["project_id"] = v
+		}
+		if v := r.URL.Query().Get("status"); v != "" {
+			filters["status"] = v
+		}
+		proposals, err := a.store.ListProposals(filters)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		if proposals == nil {
+			proposals = []*model.Proposal{}
+		}
+		writeJSON(w, http.StatusOK, proposals)
+
+	case http.MethodPost:
+		var p model.Proposal
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if p.AgentID == "" {
+			writeError(w, http.StatusBadRequest, "missing_agent_id", "agent_id is required")
+			return
+		}
+		if p.Title == "" {
+			writeError(w, http.StatusBadRequest, "missing_title", "title is required")
+			return
+		}
+		if err := a.store.CreateProposal(&p); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		a.eventHub.Publish(&model.Event{Type: "proposal_created", AgentID: p.AgentID, Payload: p})
+		writeJSON(w, http.StatusCreated, p)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleProposal(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/proposals/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing_id", "proposal ID required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		p, err := a.store.GetProposal(id)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "not_found", "proposal not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "get_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+
+	case http.MethodPatch:
+		var updates map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		p, err := a.store.UpdateProposal(id, updates)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "not_found", "proposal not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+			return
+		}
+		a.eventHub.Publish(&model.Event{Type: "proposal_updated", AgentID: p.AgentID, Payload: p})
+		writeJSON(w, http.StatusOK, p)
+
+	case http.MethodDelete:
+		if err := a.store.DeleteProposal(id); err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "not_found", "proposal not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }

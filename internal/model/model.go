@@ -201,6 +201,28 @@ type TokenSummary struct {
 	Reports      int     `json:"reports"`
 }
 
+type ProposalStatus string
+
+const (
+	ProposalPending  ProposalStatus = "pending"
+	ProposalApproved ProposalStatus = "approved"
+	ProposalRejected ProposalStatus = "rejected"
+	ProposalRevised  ProposalStatus = "revised"
+)
+
+type Proposal struct {
+	ID          string         `json:"id"`
+	AgentID     string         `json:"agent_id"`
+	ProjectID   string         `json:"project_id,omitempty"`
+	Title       string         `json:"title"`
+	Summary     string         `json:"summary"`
+	Sections    []string       `json:"sections,omitempty"`
+	Status      ProposalStatus `json:"status"`
+	Feedback    string         `json:"feedback,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+}
+
 // CostPerMillion defines token pricing per model (USD per million tokens)
 var ModelPricing = map[string][2]float64{
 	"claude-opus-4-6":          {15.0, 75.0},

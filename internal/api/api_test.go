@@ -1721,3 +1721,104 @@ func TestEventsPagination(t *testing.T) {
 		t.Errorf("expected at most 2 events with limit=2, got %d", len(events))
 	}
 }
+
+func TestProposalCRUD(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create proposal
+	body, _ := json.Marshal(map[string]any{
+		"agent_id":   "waggle-lead",
+		"project_id": "wg-d2b49a",
+		"title":      "Monitoring System Design",
+		"summary":    "Add health checks, agent liveness, and task SLA alerts",
+		"sections":   []string{"## Architecture\nHealth check loop", "## Alerts\nPush notification on failure"},
+	})
+	resp := mustPost(t, ts.URL+"/api/proposals", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 201 {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var proposal map[string]any
+	json.NewDecoder(resp.Body).Decode(&proposal)
+	resp.Body.Close()
+	proposalID := proposal["id"].(string)
+
+	if proposal["status"] != "pending" {
+		t.Errorf("expected pending, got %v", proposal["status"])
+	}
+
+	// Get proposal
+	resp = mustGet(t, ts.URL+"/api/proposals/"+proposalID)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// List proposals
+	resp = mustGet(t, ts.URL+"/api/proposals?status=pending")
+	var proposals []map[string]any
+	json.NewDecoder(resp.Body).Decode(&proposals)
+	resp.Body.Close()
+	if len(proposals) != 1 {
+		t.Errorf("expected 1 pending proposal, got %d", len(proposals))
+	}
+
+	// Update — approve
+	body, _ = json.Marshal(map[string]any{"status": "approved", "feedback": "Looks good, proceed"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/proposals/"+proposalID, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var updated map[string]any
+	json.NewDecoder(resp.Body).Decode(&updated)
+	resp.Body.Close()
+	if updated["status"] != "approved" {
+		t.Errorf("expected approved, got %v", updated["status"])
+	}
+	if updated["feedback"] != "Looks good, proceed" {
+		t.Errorf("expected feedback, got %v", updated["feedback"])
+	}
+
+	// Delete
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/proposals/"+proposalID, nil)
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify deleted
+	resp = mustGet(t, ts.URL+"/api/proposals/"+proposalID)
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404 after delete, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalValidation(t *testing.T) {
+	_, ts := setup(t)
+
+	// Missing agent_id
+	body, _ := json.Marshal(map[string]string{"title": "Test"})
+	resp := mustPost(t, ts.URL+"/api/proposals", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for missing agent_id, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Missing title
+	body, _ = json.Marshal(map[string]string{"agent_id": "test"})
+	resp = mustPost(t, ts.URL+"/api/proposals", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for missing title, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Not found
+	resp = mustGet(t, ts.URL+"/api/proposals/nonexistent")
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}

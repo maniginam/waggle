@@ -163,6 +163,22 @@ func (s *Store) migrate() error {
 			value TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS proposals (
+			id          TEXT PRIMARY KEY,
+			agent_id    TEXT NOT NULL,
+			project_id  TEXT DEFAULT '',
+			title       TEXT NOT NULL,
+			summary     TEXT DEFAULT '',
+			sections    TEXT DEFAULT '[]',
+			status      TEXT DEFAULT 'pending',
+			feedback    TEXT DEFAULT '',
+			created_at  TEXT NOT NULL,
+			updated_at  TEXT NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_proposals_agent ON proposals(agent_id);
+		CREATE INDEX IF NOT EXISTS idx_proposals_project ON proposals(project_id);
+		CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
 		CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id);
 		CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
 		CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
@@ -1402,4 +1418,159 @@ func (s *Store) GetAllSettings() (map[string]string, error) {
 		settings[key] = value
 	}
 	return settings, rows.Err()
+}
+
+// --- Proposals ---
+
+func (s *Store) CreateProposal(p *model.Proposal) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	p.ID = id.New()
+	p.CreatedAt, _ = time.Parse(time.RFC3339, now)
+	p.UpdatedAt = p.CreatedAt
+	if p.Status == "" {
+		p.Status = model.ProposalPending
+	}
+	sectionsJSON, _ := json.Marshal(p.Sections)
+	_, err := s.db.Exec(`INSERT INTO proposals (id, agent_id, project_id, title, summary, sections, status, feedback, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.AgentID, p.ProjectID, p.Title, p.Summary, string(sectionsJSON), p.Status, p.Feedback, now, now)
+	return err
+}
+
+func (s *Store) GetProposal(id string) (*model.Proposal, error) {
+	row := s.db.QueryRow(`SELECT id, agent_id, project_id, title, summary, sections, status, feedback, created_at, updated_at FROM proposals WHERE id = ?`, id)
+	return scanProposal(row)
+}
+
+func (s *Store) ListProposals(filters map[string]string) ([]*model.Proposal, error) {
+	query := `SELECT id, agent_id, project_id, title, summary, sections, status, feedback, created_at, updated_at FROM proposals`
+	var conditions []string
+	var args []any
+	if v, ok := filters["agent_id"]; ok {
+		conditions = append(conditions, "agent_id = ?")
+		args = append(args, v)
+	}
+	if v, ok := filters["project_id"]; ok {
+		conditions = append(conditions, "project_id = ?")
+		args = append(args, v)
+	}
+	if v, ok := filters["status"]; ok {
+		conditions = append(conditions, "status = ?")
+		args = append(args, v)
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY created_at DESC"
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var proposals []*model.Proposal
+	for rows.Next() {
+		p, err := scanProposalRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		proposals = append(proposals, p)
+	}
+	return proposals, rows.Err()
+}
+
+func (s *Store) UpdateProposal(id string, updates map[string]any) (*model.Proposal, error) {
+	_, err := s.GetProposal(id)
+	if err != nil {
+		return nil, err
+	}
+	var sets []string
+	var args []any
+	for k, v := range updates {
+		switch k {
+		case "status":
+			sets = append(sets, "status = ?")
+			args = append(args, v)
+		case "feedback":
+			sets = append(sets, "feedback = ?")
+			args = append(args, v)
+		case "title":
+			sets = append(sets, "title = ?")
+			args = append(args, v)
+		case "summary":
+			sets = append(sets, "summary = ?")
+			args = append(args, v)
+		case "sections":
+			b, _ := json.Marshal(v)
+			sets = append(sets, "sections = ?")
+			args = append(args, string(b))
+		}
+	}
+	if len(sets) == 0 {
+		return s.GetProposal(id)
+	}
+	sets = append(sets, "updated_at = ?")
+	args = append(args, time.Now().UTC().Format(time.RFC3339))
+	args = append(args, id)
+	_, err = s.db.Exec("UPDATE proposals SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetProposal(id)
+}
+
+func (s *Store) DeleteProposal(id string) error {
+	res, err := s.db.Exec("DELETE FROM proposals WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) PendingProposalCounts() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT COALESCE(NULLIF(project_id,''), agent_id), COUNT(*) FROM proposals WHERE status = 'pending' GROUP BY COALESCE(NULLIF(project_id,''), agent_id)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var key string
+		var count int
+		rows.Scan(&key, &count)
+		counts[key] = count
+	}
+	return counts, rows.Err()
+}
+
+func scanProposal(row scanner) (*model.Proposal, error) {
+	var p model.Proposal
+	var sectionsJSON, createdAt, updatedAt string
+	err := row.Scan(&p.ID, &p.AgentID, &p.ProjectID, &p.Title, &p.Summary, &sectionsJSON, &p.Status, &p.Feedback, &createdAt, &updatedAt)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	json.Unmarshal([]byte(sectionsJSON), &p.Sections)
+	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &p, nil
+}
+
+func scanProposalRows(rows *sql.Rows) (*model.Proposal, error) {
+	var p model.Proposal
+	var sectionsJSON, createdAt, updatedAt string
+	err := rows.Scan(&p.ID, &p.AgentID, &p.ProjectID, &p.Title, &p.Summary, &sectionsJSON, &p.Status, &p.Feedback, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal([]byte(sectionsJSON), &p.Sections)
+	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &p, nil
 }
