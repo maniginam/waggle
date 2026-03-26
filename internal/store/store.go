@@ -940,7 +940,9 @@ func (s *Store) TaskDeps(taskID string) (dependsOn []*model.Task, blockedBy []*m
 
 	for rows.Next() {
 		var id, depsJSON string
-		rows.Scan(&id, &depsJSON)
+		if err := rows.Scan(&id, &depsJSON); err != nil {
+			continue
+		}
 		var deps []string
 		json.Unmarshal([]byte(depsJSON), &deps)
 		for _, d := range deps {
