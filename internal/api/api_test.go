@@ -981,3 +981,51 @@ func TestMethodNotAllowed(t *testing.T) {
 		t.Errorf("expected 405, got %d", resp.StatusCode)
 	}
 }
+
+func TestInputLimits(t *testing.T) {
+	_, ts := setup(t)
+
+	// Task title too long
+	longTitle := make([]byte, 501)
+	for i := range longTitle {
+		longTitle[i] = 'a'
+	}
+	body, _ := json.Marshal(map[string]string{"title": string(longTitle)})
+	resp, _ := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for long title, got %d", resp.StatusCode)
+	}
+
+	// Task description too long
+	longDesc := make([]byte, 10001)
+	for i := range longDesc {
+		longDesc[i] = 'b'
+	}
+	body, _ = json.Marshal(map[string]string{"title": "ok", "description": string(longDesc)})
+	resp, _ = http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for long description, got %d", resp.StatusCode)
+	}
+
+	// Project name too long
+	longName := make([]byte, 201)
+	for i := range longName {
+		longName[i] = 'c'
+	}
+	body, _ = json.Marshal(map[string]string{"name": string(longName)})
+	resp, _ = http.Post(ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for long project name, got %d", resp.StatusCode)
+	}
+
+	// Valid lengths should work
+	body, _ = json.Marshal(map[string]string{"title": "short title"})
+	resp, _ = http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201 for valid title, got %d", resp.StatusCode)
+	}
+}

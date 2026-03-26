@@ -185,6 +185,14 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "missing_title", "title is required")
 			return
 		}
+		if len(task.Title) > 500 {
+			writeError(w, http.StatusBadRequest, "title_too_long", "title must be 500 characters or less")
+			return
+		}
+		if len(task.Description) > 10000 {
+			writeError(w, http.StatusBadRequest, "description_too_long", "description must be 10000 characters or less")
+			return
+		}
 		if task.Status != "" && !task.Status.Valid() {
 			writeError(w, http.StatusBadRequest, "invalid_status", "invalid status: "+string(task.Status))
 			return
@@ -838,6 +846,10 @@ func (a *API) handleProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.Name == "" {
 			writeError(w, http.StatusBadRequest, "missing_name", "name is required")
+			return
+		}
+		if len(p.Name) > 200 {
+			writeError(w, http.StatusBadRequest, "name_too_long", "name must be 200 characters or less")
 			return
 		}
 		if err := a.store.CreateProject(&p); err != nil {
