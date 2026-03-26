@@ -18,6 +18,9 @@ import (
 	"github.com/maniginam/waggle/internal/server"
 )
 
+// Set at build time with: go install -ldflags "-X main.version=..." ./cmd/waggle
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -76,7 +79,7 @@ func main() {
 	case "tunnel":
 		cmdTunnel()
 	case "version":
-		fmt.Println("waggle v0.1.0")
+		fmt.Printf("waggle %s\n", version)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -119,7 +122,7 @@ func cmdStart() {
 		}
 	}
 
-	srv, err := server.New(server.Config{Port: port})
+	srv, err := server.New(server.Config{Port: port, Version: version})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -1044,7 +1047,7 @@ func cmdMCP() {
 	if _, err := http.Get(url + "/health"); err != nil {
 		fmt.Fprintf(os.Stderr, "waggle: auto-starting server...\n")
 		go func() {
-			srv, err := server.New(server.Config{})
+			srv, err := server.New(server.Config{Version: version})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "waggle: failed to start server: %v\n", err)
 				return

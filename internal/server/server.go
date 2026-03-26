@@ -29,8 +29,9 @@ type Server struct {
 }
 
 type Config struct {
-	Port   int
-	DBPath string
+	Port    int
+	DBPath  string
+	Version string
 }
 
 func New(cfg Config) (*Server, error) {
@@ -79,6 +80,12 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// Version endpoint
+	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(fmt.Sprintf(`{"version":"%s"}`, cfg.Version)))
 	})
 
 	srv := &http.Server{
