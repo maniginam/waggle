@@ -10,8 +10,8 @@ func TestNew(t *testing.T) {
 	if !strings.HasPrefix(got, "wg-") {
 		t.Errorf("expected prefix wg-, got %s", got)
 	}
-	if len(got) != 9 { // "wg-" + 6 hex chars
-		t.Errorf("expected length 9, got %d (%s)", len(got), got)
+	if len(got) != 15 { // "wg-" + 12 hex chars
+		t.Errorf("expected length 15, got %d (%s)", len(got), got)
 	}
 }
 
