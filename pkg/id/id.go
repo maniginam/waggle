@@ -5,9 +5,10 @@ import (
 	"encoding/hex"
 )
 
-// New generates a short random ID with the "wg-" prefix.
+// New generates a random ID with the "wg-" prefix.
+// Uses 6 bytes (12 hex chars) for ~281 trillion possible values.
 func New() string {
-	b := make([]byte, 3)
+	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	return "wg-" + hex.EncodeToString(b)
 }
