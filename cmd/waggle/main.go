@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/maniginam/waggle/internal/mcp"
 	"github.com/maniginam/waggle/internal/server"
+	_ "modernc.org/sqlite"
 )
 
 // Set at build time with: go install -ldflags "-X main.version=..." ./cmd/waggle
@@ -74,6 +76,8 @@ func main() {
 		cmdStop()
 	case "backup":
 		cmdBackup()
+	case "prune":
+		cmdPrune()
 	case "reset":
 		cmdReset()
 	case "tunnel":
@@ -1012,16 +1016,69 @@ func cmdBackup() {
 	ts := time.Now().Format("2006-01-02-150405")
 	dst := filepath.Join(backupDir, "waggle-"+ts+".db")
 
-	data, err := os.ReadFile(src)
+	// Use VACUUM INTO for a consistent snapshot (safe with WAL mode)
+	db, err := sql.Open("sqlite", src+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading database: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error opening database: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(dst, data, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "error writing backup: %v\n", err)
+	defer db.Close()
+
+	if _, err := db.Exec("VACUUM INTO ?", dst); err != nil {
+		fmt.Fprintf(os.Stderr, "error backing up database: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("Backed up to %s\n", dst)
+}
+
+func cmdPrune() {
+	home, _ := os.UserHomeDir()
+	dbPath := filepath.Join(home, ".waggle", "waggle.db")
+	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error opening database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Cleanup stale tasks (14+ days without updates, unassigned)
+	cutoff14d := time.Now().UTC().Add(-14 * 24 * time.Hour).Format(time.RFC3339)
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, _ := db.Exec(
+		"UPDATE tasks SET status = 'done', updated_at = ? WHERE status IN ('backlog', 'ready') AND assignee = '' AND updated_at < ?",
+		now, cutoff14d)
+	staleTasks, _ := result.RowsAffected()
+	if staleTasks > 0 {
+		fmt.Printf("Closed %d stale tasks (no updates for 14+ days)\n", staleTasks)
+	}
+
+	// Purge disconnected agents older than 24h
+	cutoff24h := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	result, _ = db.Exec("DELETE FROM agents WHERE status = 'disconnected' AND last_seen < ?", cutoff24h)
+	purgedAgents, _ := result.RowsAffected()
+	if purgedAgents > 0 {
+		fmt.Printf("Purged %d disconnected agents (24+ hours old)\n", purgedAgents)
+	}
+
+	// Cleanup old events (30+ days)
+	cutoff30d := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	result, _ = db.Exec("DELETE FROM events WHERE timestamp < ?", cutoff30d)
+	oldEvents, _ := result.RowsAffected()
+	if oldEvents > 0 {
+		fmt.Printf("Cleaned up %d old events (30+ days)\n", oldEvents)
+	}
+
+	// Cleanup old read messages (7+ days)
+	cutoff7d := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
+	result, _ = db.Exec("DELETE FROM messages WHERE read = 1 AND created_at < ?", cutoff7d)
+	oldMsgs, _ := result.RowsAffected()
+	if oldMsgs > 0 {
+		fmt.Printf("Cleaned up %d old read messages (7+ days)\n", oldMsgs)
+	}
+
+	if staleTasks+purgedAgents+oldEvents+oldMsgs == 0 {
+		fmt.Println("Nothing to prune")
+	}
 }
 
 func cmdReset() {
@@ -1332,7 +1389,8 @@ Usage:
   waggle config                    Show all config
   waggle config <key>              Get config value
   waggle config <key> <value>      Set config value
-  waggle backup                    Backup database
+  waggle backup                    Backup database (safe with WAL)
+  waggle prune                     Cleanup stale tasks, old agents/events/messages
   waggle reset                     Wipe database (with confirmation)
   waggle version                   Show version`)
 }
