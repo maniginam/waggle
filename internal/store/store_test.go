@@ -1032,6 +1032,89 @@ func TestTouchAgent(t *testing.T) {
 	}
 }
 
+func TestUpdateTaskAllFields(t *testing.T) {
+	s := tempStore(t)
+	task := &model.Task{Title: "Original"}
+	s.CreateTask(task)
+
+	updated, err := s.UpdateTask(task.ID, map[string]any{
+		"description":  "new desc",
+		"priority":     "high",
+		"assignee":     "agent-1",
+		"estimate":     "4h",
+		"criteria":     []string{"must pass tests"},
+		"tags":         []string{"backend", "urgent"},
+		"task_type":    "bug",
+		"project_id":   "proj-123",
+		"issue_number": 42,
+		"issue_url":    "https://github.com/foo/bar/issues/42",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Description != "new desc" {
+		t.Errorf("expected new desc, got %s", updated.Description)
+	}
+	if updated.Priority != model.PriorityHigh {
+		t.Errorf("expected high priority, got %s", updated.Priority)
+	}
+	if updated.Assignee != "agent-1" {
+		t.Errorf("expected agent-1, got %s", updated.Assignee)
+	}
+	if updated.TaskType != "bug" {
+		t.Errorf("expected bug type, got %s", updated.TaskType)
+	}
+
+	// Update with empty sets (no-op)
+	same, err := s.UpdateTask(task.ID, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Title != "Original" {
+		t.Errorf("expected unchanged title, got %s", same.Title)
+	}
+
+	// Update nonexistent task
+	_, err = s.UpdateTask("nonexistent", map[string]any{"title": "x"})
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestListTasksFiltersByAssignee(t *testing.T) {
+	s := tempStore(t)
+	s.CreateTask(&model.Task{Title: "Task A"})
+	s.CreateTask(&model.Task{Title: "Task B"})
+
+	// Claim one
+	tasks, _ := s.ListTasks(nil)
+	s.ClaimTask(tasks[0].ID, "worker-1")
+
+	// Filter by assignee
+	filtered, err := s.ListTasks(map[string]string{"assignee": "worker-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 {
+		t.Errorf("expected 1 task for worker-1, got %d", len(filtered))
+	}
+}
+
+func TestListAgentsFilterByStatus(t *testing.T) {
+	s := tempStore(t)
+	s.RegisterAgent("active-1", "claude-code", "", "", "")
+	s.RegisterAgent("active-2", "claude-code", "", "", "")
+	s.DisconnectAgent("active-2")
+
+	connected, err := s.ListAgents("connected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(connected) != 1 {
+		t.Errorf("expected 1 connected agent, got %d", len(connected))
+	}
+}
+
 func TestExportTasks(t *testing.T) {
 	s := tempStore(t)
 
