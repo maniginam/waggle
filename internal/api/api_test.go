@@ -882,6 +882,47 @@ func TestExportTasksCSV(t *testing.T) {
 	}
 }
 
+func TestRateLimiter(t *testing.T) {
+	rl := newRateLimiter(3, 60*1000*1000*1000) // 3 requests per minute
+
+	// First 3 should succeed
+	for i := 0; i < 3; i++ {
+		if !rl.Allow("client-1") {
+			t.Errorf("request %d should be allowed", i+1)
+		}
+	}
+
+	// 4th should be rate limited
+	if rl.Allow("client-1") {
+		t.Error("4th request should be rate limited")
+	}
+
+	// Different client should still work
+	if !rl.Allow("client-2") {
+		t.Error("different client should not be rate limited")
+	}
+}
+
+func TestBodySizeLimit(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a body that exceeds 1MB
+	bigBody := make([]byte, 2*1024*1024)
+	for i := range bigBody {
+		bigBody[i] = 'x'
+	}
+
+	resp, err := http.Post(ts.URL+"/api/tasks", "application/json", bytes.NewReader(bigBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	// Should fail with 400 or similar due to bad JSON / size limit
+	if resp.StatusCode == 201 {
+		t.Error("expected request with 2MB body to not create a task")
+	}
+}
+
 func TestMethodNotAllowed(t *testing.T) {
 	_, ts := setup(t)
 
