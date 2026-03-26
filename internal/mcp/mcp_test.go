@@ -687,3 +687,31 @@ func TestSearchViaMCP(t *testing.T) {
 		t.Errorf("expected 1 task matching 'auth', got %d", len(tasks))
 	}
 }
+
+func TestGetStatsViaMCP(t *testing.T) {
+	adapter, ts := setupMCP(t)
+
+	// Create a task so stats have data
+	body := `{"title":"Stats test task","status":"done"}`
+	resp, _ := ts.Client().Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(body))
+	resp.Body.Close()
+
+	mcpResp := callMCP(t, adapter, "tools/call", 35, map[string]any{
+		"name":      "waggle_get_stats",
+		"arguments": map[string]any{},
+	})
+	result := mcpResp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("get_stats failed: %v", result)
+	}
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var stats map[string]any
+	json.Unmarshal([]byte(text), &stats)
+	if stats["total_tasks"] == nil {
+		t.Error("expected total_tasks in stats")
+	}
+	if stats["velocity"] == nil {
+		t.Error("expected velocity in stats")
+	}
+}
