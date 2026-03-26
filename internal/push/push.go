@@ -95,8 +95,11 @@ func (n *Notifier) Send(payload PushPayload) {
 			TTL:             60,
 		})
 		if err != nil {
-			log.Printf("push failed to %s: %v", sub.Endpoint[:40], err)
-			// Remove invalid subscriptions (410 Gone)
+			ep := sub.Endpoint
+			if len(ep) > 40 {
+				ep = ep[:40]
+			}
+			log.Printf("push failed to %s: %v", ep, err)
 			continue
 		}
 		resp.Body.Close()
