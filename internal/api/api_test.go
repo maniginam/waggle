@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1258,4 +1259,78 @@ func TestPushSubscribeAPI(t *testing.T) {
 		t.Errorf("expected 200 for unsubscribe, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestSpawnValidation(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET should be method not allowed
+	resp := mustGet(t, ts.URL+"/api/spawn")
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET spawn, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Missing name
+	resp = mustPost(t, ts.URL+"/api/spawn", "application/json",
+		bytes.NewBufferString(`{"work_dir":"/tmp"}`))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing name, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Invalid name
+	resp = mustPost(t, ts.URL+"/api/spawn", "application/json",
+		bytes.NewBufferString(`{"name":"bad name!","work_dir":"/tmp"}`))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid name, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Missing work_dir
+	resp = mustPost(t, ts.URL+"/api/spawn", "application/json",
+		bytes.NewBufferString(`{"name":"test-agent"}`))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing work_dir, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Nonexistent work_dir
+	resp = mustPost(t, ts.URL+"/api/spawn", "application/json",
+		bytes.NewBufferString(`{"name":"test-agent","work_dir":"/nonexistent/path/xyz"}`))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for bad work_dir, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSessionsListAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET sessions should work even with no tmux
+	resp := mustGet(t, ts.URL+"/api/sessions")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for sessions list, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestEventsPagination(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create several tasks to generate events
+	for i := 0; i < 5; i++ {
+		body, _ := json.Marshal(map[string]string{"title": fmt.Sprintf("Event task %d", i)})
+		r := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+		r.Body.Close()
+	}
+
+	// Get events with limit
+	resp := mustGet(t, ts.URL+"/api/events?limit=2")
+	var events []map[string]any
+	json.NewDecoder(resp.Body).Decode(&events)
+	resp.Body.Close()
+	if len(events) > 2 {
+		t.Errorf("expected at most 2 events with limit=2, got %d", len(events))
+	}
 }
