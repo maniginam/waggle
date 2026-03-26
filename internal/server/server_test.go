@@ -283,3 +283,63 @@ func TestServerVersion(t *testing.T) {
 		t.Errorf("expected version test-v0.0.1, got %s", result["version"])
 	}
 }
+
+func TestServerStoreAccessor(t *testing.T) {
+	_, srv := startTestServer(t)
+	if srv.Store() == nil {
+		t.Error("expected non-nil store")
+	}
+}
+
+func TestReapAgentsWithTmuxAlive(t *testing.T) {
+	base, srv := startTestServer(t)
+
+	// Register an agent
+	resp, _ := http.Post(base+"/api/agents/register", "application/json",
+		strings.NewReader(`{"name":"tmux-alive-agent","type":"claude-code"}`))
+	resp.Body.Close()
+
+	// Override tmux checker to return true (agent has live tmux session)
+	srv.tmuxChecker = func(session string) bool {
+		return session == "waggle-tmux-alive-agent"
+	}
+
+	// Reap with future cutoff — agent should NOT be reaped because tmux is alive
+	cutoff := time.Now().UTC().Add(time.Second)
+	srv.reapAgentsStaleBefore(cutoff)
+
+	resp, _ = http.Get(base + "/api/agents/tmux-alive-agent")
+	var agent map[string]any
+	json.NewDecoder(resp.Body).Decode(&agent)
+	resp.Body.Close()
+
+	if agent["status"] != "connected" {
+		t.Errorf("expected connected (tmux alive), got %v", agent["status"])
+	}
+}
+
+func TestReapSkipsDisconnectedAgents(t *testing.T) {
+	base, srv := startTestServer(t)
+
+	// Register and disconnect an agent
+	resp, _ := http.Post(base+"/api/agents/register", "application/json",
+		strings.NewReader(`{"name":"already-disconnected","type":"claude-code"}`))
+	resp.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, base+"/api/agents/already-disconnected/disconnect", nil)
+	resp, _ = http.DefaultClient.Do(req)
+	resp.Body.Close()
+
+	// Reap with future cutoff — should skip already disconnected agents
+	cutoff := time.Now().UTC().Add(time.Second)
+	srv.reapAgentsStaleBefore(cutoff)
+
+	resp, _ = http.Get(base + "/api/agents/already-disconnected")
+	var agent map[string]any
+	json.NewDecoder(resp.Body).Decode(&agent)
+	resp.Body.Close()
+
+	if agent["status"] != "disconnected" {
+		t.Errorf("expected still disconnected, got %v", agent["status"])
+	}
+}
