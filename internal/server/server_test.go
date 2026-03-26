@@ -27,6 +27,10 @@ func startTestServer(t *testing.T) (string, *Server) {
 	port := 14740 + time.Now().Nanosecond()%1000
 	srv.httpServer.Addr = fmt.Sprintf(":%d", port)
 
+	// Disable tmux session checks in tests to prevent real tmux sessions
+	// from interfering with agent reaping logic
+	srv.tmuxChecker = func(string) bool { return false }
+
 	go srv.Start()
 	t.Cleanup(func() {
 		srv.Shutdown(t.Context())
