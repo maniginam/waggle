@@ -604,6 +604,63 @@ func TestDisconnectWithoutRegister(t *testing.T) {
 	}
 }
 
+func TestMarkReadViaMCP(t *testing.T) {
+	_, ts := setupMCP(t)
+	sender := registeredAdapter(t, ts, "sender-mr")
+	reader := registeredAdapter(t, ts, "reader-mr")
+
+	// Send a message
+	callMCP(t, sender, "tools/call", 30, map[string]any{
+		"name":      "waggle_send_message",
+		"arguments": map[string]any{"to": "reader-mr", "body": "mark me read"},
+	})
+
+	// Read messages to get the ID
+	resp := callMCP(t, reader, "tools/call", 31, map[string]any{
+		"name":      "waggle_read_messages",
+		"arguments": map[string]any{"limit": 10},
+	})
+	result := resp["result"].(map[string]any)
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var msgs []map[string]any
+	json.Unmarshal([]byte(text), &msgs)
+	if len(msgs) == 0 {
+		t.Fatal("expected at least 1 message")
+	}
+	msgID := msgs[0]["id"].(string)
+
+	// Mark read by ID
+	resp2 := callMCP(t, reader, "tools/call", 32, map[string]any{
+		"name":      "waggle_mark_read",
+		"arguments": map[string]any{"ids": []string{msgID}},
+	})
+	result2 := resp2["result"].(map[string]any)
+	if result2["isError"] != nil && result2["isError"].(bool) {
+		t.Fatalf("mark_read failed: %v", result2)
+	}
+
+	// Mark all read
+	resp3 := callMCP(t, reader, "tools/call", 33, map[string]any{
+		"name":      "waggle_mark_read",
+		"arguments": map[string]any{"mark_all": true},
+	})
+	result3 := resp3["result"].(map[string]any)
+	if result3["isError"] != nil && result3["isError"].(bool) {
+		t.Fatalf("mark_all_read failed: %v", result3)
+	}
+
+	// Neither ids nor mark_all should error
+	resp4 := callMCP(t, reader, "tools/call", 34, map[string]any{
+		"name":      "waggle_mark_read",
+		"arguments": map[string]any{},
+	})
+	result4 := resp4["result"].(map[string]any)
+	if result4["isError"] == nil || !result4["isError"].(bool) {
+		t.Error("expected error when neither ids nor mark_all provided")
+	}
+}
+
 func TestSearchViaMCP(t *testing.T) {
 	adapter, ts := setupMCP(t)
 

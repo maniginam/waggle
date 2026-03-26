@@ -266,6 +266,13 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			},
 			"required": []string{"query"},
 		}),
+		toolDef("waggle_mark_read", "Mark specific messages as read, or mark all messages as read.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"ids":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "List of message IDs to mark as read"},
+				"mark_all": map[string]any{"type": "boolean", "description": "If true, mark all messages as read (ids ignored)"},
+			},
+		}),
 		toolDef("waggle_submit_review", "Submit a git diff for review on a task. The diff will appear in the dashboard for the user to approve or reject.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -668,6 +675,26 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			url += fmt.Sprintf("&limit=%d", int(limit))
 		}
 		return a.get(url)
+
+	case "waggle_mark_read":
+		if a.agentName == "" {
+			return nil, fmt.Errorf("must call waggle_register_agent first")
+		}
+		body := map[string]any{}
+		if markAll, ok := args["mark_all"].(bool); ok && markAll {
+			body["mark_all"] = true
+		} else if ids, ok := args["ids"].([]any); ok && len(ids) > 0 {
+			strIDs := make([]string, 0, len(ids))
+			for _, id := range ids {
+				if s, ok := id.(string); ok {
+					strIDs = append(strIDs, s)
+				}
+			}
+			body["ids"] = strIDs
+		} else {
+			return nil, fmt.Errorf("either ids or mark_all is required")
+		}
+		return a.patchJSON("/api/messages", body)
 
 	case "waggle_submit_review":
 		if a.agentName == "" {
