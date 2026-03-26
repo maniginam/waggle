@@ -688,6 +688,33 @@ func TestSearchViaMCP(t *testing.T) {
 	}
 }
 
+func TestBatchCreateViaMCP(t *testing.T) {
+	_, ts := setupMCP(t)
+	adapter := registeredAdapter(t, ts, "batch-agent")
+
+	resp := callMCP(t, adapter, "tools/call", 36, map[string]any{
+		"name": "waggle_batch_create",
+		"arguments": map[string]any{
+			"tasks": []any{
+				map[string]any{"title": "Batch task 1", "priority": "high"},
+				map[string]any{"title": "Batch task 2", "priority": "medium"},
+				map[string]any{"title": "Batch task 3"},
+			},
+		},
+	})
+	result := resp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("batch_create failed: %v", result)
+	}
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	var created []any
+	json.Unmarshal([]byte(text), &created)
+	if len(created) != 3 {
+		t.Errorf("expected 3 created tasks, got %d", len(created))
+	}
+}
+
 func TestGetStatsViaMCP(t *testing.T) {
 	adapter, ts := setupMCP(t)
 

@@ -139,6 +139,29 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			},
 			"required": []string{"title"},
 		}),
+		toolDef("waggle_batch_create", "Create multiple tasks at once. Returns array of created tasks.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"tasks": map[string]any{
+					"type":        "array",
+					"description": "Array of task objects (each must have at least a title)",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"title":       prop("string", "Task title"),
+							"description": prop("string", "Description"),
+							"priority":    propEnum("string", []string{"critical", "high", "medium", "low"}, "Priority"),
+							"parent_id":   prop("string", "Parent task ID"),
+							"depends_on":  propArray("string", "Dependency IDs"),
+							"task_type":   propEnum("string", []string{"task", "epic", "story", "issue"}, "Task type"),
+							"project_id":  prop("string", "Project ID"),
+						},
+						"required": []string{"title"},
+					},
+				},
+			},
+			"required": []string{"tasks"},
+		}),
 		toolDef("waggle_list_tasks", "List tasks with optional filters.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -432,6 +455,27 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 
 	case "waggle_create_task":
 		return a.postJSON("/api/tasks", args)
+
+	case "waggle_batch_create":
+		taskList, ok := args["tasks"].([]any)
+		if !ok || len(taskList) == 0 {
+			return nil, fmt.Errorf("tasks array is required")
+		}
+		results := make([]any, 0, len(taskList))
+		for _, item := range taskList {
+			taskArgs, ok := item.(map[string]any)
+			if !ok {
+				results = append(results, map[string]string{"error": "invalid task object"})
+				continue
+			}
+			result, err := a.postJSON("/api/tasks", taskArgs)
+			if err != nil {
+				results = append(results, map[string]string{"error": err.Error()})
+			} else {
+				results = append(results, result)
+			}
+		}
+		return results, nil
 
 	case "waggle_list_tasks":
 		params := []string{}
