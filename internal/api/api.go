@@ -440,6 +440,10 @@ func (a *API) handleTaskComments(w http.ResponseWriter, r *http.Request, taskID 
 			writeError(w, http.StatusBadRequest, "missing_fields", "author and body are required")
 			return
 		}
+		if len(c.Body) > 5000 {
+			writeError(w, http.StatusBadRequest, "body_too_long", "comment body max 5000 chars")
+			return
+		}
 		c.TaskID = taskID
 		if err := a.store.AddComment(&c); err != nil {
 			writeError(w, http.StatusInternalServerError, "comment_failed", err.Error())
@@ -556,6 +560,10 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Name == "" {
 			writeError(w, http.StatusBadRequest, "missing_name", "agent name required")
+			return
+		}
+		if len(req.Name) > 64 {
+			writeError(w, http.StatusBadRequest, "name_too_long", "agent name max 64 chars")
 			return
 		}
 		if req.Type == "" {
