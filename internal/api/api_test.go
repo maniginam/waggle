@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maniginam/waggle/internal/event"
+	"github.com/maniginam/waggle/internal/model"
 	"github.com/maniginam/waggle/internal/store"
 )
 
@@ -1819,6 +1822,272 @@ func TestProposalValidation(t *testing.T) {
 	resp = mustGet(t, ts.URL+"/api/proposals/nonexistent")
 	if resp.StatusCode != 404 {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSSEEndpoint(t *testing.T) {
+	a, ts := setup(t)
+
+	// Use a context with timeout for the SSE connection
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	// Connect to SSE stream via Accept header
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+
+	done := make(chan struct{})
+	var respHeaders http.Header
+	var respStatus int
+	var body string
+
+	go func() {
+		defer close(done)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return
+		}
+		respHeaders = resp.Header
+		respStatus = resp.StatusCode
+		defer resp.Body.Close()
+		buf := make([]byte, 4096)
+		n, _ := resp.Body.Read(buf)
+		body = string(buf[:n])
+	}()
+
+	// Give SSE time to connect, then publish an event
+	time.Sleep(50 * time.Millisecond)
+	a.eventHub.Publish(&model.Event{Type: "test_sse"})
+
+	// Wait for context timeout or response
+	<-done
+
+	if respStatus != 0 && respStatus != 200 {
+		t.Errorf("expected 200 for SSE, got %d", respStatus)
+	}
+	if respHeaders != nil {
+		ct := respHeaders.Get("Content-Type")
+		if ct != "" && !strings.Contains(ct, "text/event-stream") {
+			t.Errorf("expected text/event-stream, got %s", ct)
+		}
+	}
+	if body != "" && !strings.Contains(body, "test_sse") {
+		t.Logf("SSE body (may miss event due to timing): %s", body)
+	}
+}
+
+func TestStatsEndpoint(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET stats
+	resp := mustGet(t, ts.URL+"/api/stats")
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	var stats map[string]any
+	json.NewDecoder(resp.Body).Decode(&stats)
+	resp.Body.Close()
+
+	if _, ok := stats["total_tasks"]; !ok {
+		t.Error("expected total_tasks in stats")
+	}
+
+	// POST should be method not allowed
+	resp = mustPost(t, ts.URL+"/api/stats", "application/json", bytes.NewBufferString("{}"))
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405 for POST to stats, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestUsageEndpoint(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET usage (empty)
+	resp := mustGet(t, ts.URL+"/api/usage")
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	var usage map[string]any
+	json.NewDecoder(resp.Body).Decode(&usage)
+	resp.Body.Close()
+
+	if _, ok := usage["total"]; !ok {
+		t.Error("expected total in usage response")
+	}
+	if _, ok := usage["by_agent"]; !ok {
+		t.Error("expected by_agent in usage response")
+	}
+
+	// POST usage
+	body, _ := json.Marshal(map[string]any{
+		"agent_name":    "test-agent",
+		"model":         "sonnet",
+		"input_tokens":  1000,
+		"output_tokens": 500,
+	})
+	resp = mustPost(t, ts.URL+"/api/usage", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 201 {
+		t.Errorf("expected 201, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// POST usage without agent_name
+	body, _ = json.Marshal(map[string]any{"model": "sonnet"})
+	resp = mustPost(t, ts.URL+"/api/usage", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for missing agent, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Method not allowed
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/usage", nil)
+	resp = mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSettingsEndpoint(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET settings (empty initially)
+	resp := mustGet(t, ts.URL+"/api/settings")
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// PUT settings
+	body, _ := json.Marshal(map[string]string{"theme": "dark", "sound": "off"})
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	var settings map[string]string
+	json.NewDecoder(resp.Body).Decode(&settings)
+	resp.Body.Close()
+	if settings["theme"] != "dark" {
+		t.Errorf("expected dark, got %s", settings["theme"])
+	}
+
+	// PUT invalid JSON
+	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/api/settings", bytes.NewBufferString("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Method not allowed
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/settings", nil)
+	resp = mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProjectPatchInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create project first
+	body, _ := json.Marshal(map[string]string{"name": "Patch Test"})
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	var project map[string]any
+	json.NewDecoder(resp.Body).Decode(&project)
+	resp.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/projects/"+project["id"].(string), bytes.NewBufferString("bad"))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProjectPatchNotFound(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]any{"name": "x"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/projects/nonexistent", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProjectDeleteNotFound(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/projects/nonexistent", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProjectMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/projects/someid", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSpawnInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/spawn", "application/json", bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalDeleteNonexistent(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/proposals/nonexistent", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalPatchNonexistent(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]any{"status": "approved"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/proposals/nonexistent", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/proposals", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 }

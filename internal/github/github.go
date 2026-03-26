@@ -13,12 +13,30 @@ type Issue struct {
 	URL    string `json:"url"`
 }
 
+// CommandRunner abstracts command execution for testing.
+type CommandRunner interface {
+	Run(name string, args ...string) ([]byte, error)
+}
+
+type execRunner struct{}
+
+func (execRunner) Run(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).CombinedOutput()
+}
+
+var defaultRunner CommandRunner = execRunner{}
+
 type Client struct {
-	repo string
+	repo   string
+	runner CommandRunner
 }
 
 func NewClient(repo string) *Client {
-	return &Client{repo: repo}
+	return &Client{repo: repo, runner: defaultRunner}
+}
+
+func NewClientWithRunner(repo string, runner CommandRunner) *Client {
+	return &Client{repo: repo, runner: runner}
 }
 
 func (c *Client) CreateIssue(title, body string, labels []string) (*Issue, error) {
@@ -31,7 +49,7 @@ func (c *Client) CreateIssue(title, body string, labels []string) (*Issue, error
 		args = append(args, "--label", l)
 	}
 
-	out, err := exec.Command("gh", args...).CombinedOutput()
+	out, err := c.runner.Run("gh", args...)
 	if err != nil {
 		return nil, fmt.Errorf("gh issue create: %s: %w", strings.TrimSpace(string(out)), err)
 	}
@@ -50,10 +68,10 @@ func (c *Client) CreateIssue(title, body string, labels []string) (*Issue, error
 }
 
 func (c *Client) CloseIssue(number int) error {
-	out, err := exec.Command("gh", "issue", "close",
+	out, err := c.runner.Run("gh", "issue", "close",
 		"--repo", c.repo,
 		fmt.Sprintf("%d", number),
-	).CombinedOutput()
+	)
 	if err != nil {
 		return fmt.Errorf("gh issue close: %s: %w", strings.TrimSpace(string(out)), err)
 	}
@@ -61,10 +79,10 @@ func (c *Client) CloseIssue(number int) error {
 }
 
 func (c *Client) ReopenIssue(number int) error {
-	out, err := exec.Command("gh", "issue", "reopen",
+	out, err := c.runner.Run("gh", "issue", "reopen",
 		"--repo", c.repo,
 		fmt.Sprintf("%d", number),
-	).CombinedOutput()
+	)
 	if err != nil {
 		return fmt.Errorf("gh issue reopen: %s: %w", strings.TrimSpace(string(out)), err)
 	}
@@ -72,20 +90,23 @@ func (c *Client) ReopenIssue(number int) error {
 }
 
 func (c *Client) CommentIssue(number int, body string) error {
-	out, err := exec.Command("gh", "issue", "comment",
+	out, err := c.runner.Run("gh", "issue", "comment",
 		"--repo", c.repo,
 		fmt.Sprintf("%d", number),
 		"--body", body,
-	).CombinedOutput()
+	)
 	if err != nil {
 		return fmt.Errorf("gh issue comment: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }
 
+// availableRunner is package-level so tests can swap it.
+var availableRunner CommandRunner = defaultRunner
+
 // Available checks if the gh CLI is installed and authenticated.
 func Available() bool {
-	out, err := exec.Command("gh", "auth", "status").CombinedOutput()
+	out, err := availableRunner.Run("gh", "auth", "status")
 	if err != nil {
 		log.Printf("gh CLI not available: %s", strings.TrimSpace(string(out)))
 		return false
@@ -149,25 +170,24 @@ func LabelsFromTask(priority, taskType string) []string {
 	return labels
 }
 
-// Ensure labels exist in the repo (creates them if missing).
+// EnsureLabels creates labels in the repo if they don't exist.
 func (c *Client) EnsureLabels(labels []string) {
 	for _, label := range labels {
-		// Try to create; ignore errors if label already exists
-		exec.Command("gh", "label", "create",
+		c.runner.Run("gh", "label", "create",
 			"--repo", c.repo,
 			label,
 			"--force",
-		).Run()
+		)
 	}
 }
 
 // ListIssues returns open issues for the repo (as raw JSON).
 func (c *Client) ListIssues(limit int) ([]json.RawMessage, error) {
-	out, err := exec.Command("gh", "issue", "list",
+	out, err := c.runner.Run("gh", "issue", "list",
 		"--repo", c.repo,
 		"--json", "number,title,state,url",
 		"--limit", fmt.Sprintf("%d", limit),
-	).CombinedOutput()
+	)
 	if err != nil {
 		return nil, fmt.Errorf("gh issue list: %s: %w", strings.TrimSpace(string(out)), err)
 	}
