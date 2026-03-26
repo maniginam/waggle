@@ -50,6 +50,8 @@ func main() {
 		cmdTask(os.Args[2], os.Args[3:])
 	case "tasks":
 		cmdTask("list", os.Args[2:])
+	case "briefing":
+		cmdBriefing()
 	case "agents":
 		cmdAgents()
 	case "agent":
@@ -263,6 +265,105 @@ func cmdStatus() {
 			}
 		}
 	}
+}
+
+func cmdBriefing() {
+	agentName := getAgentName()
+
+	// Health check
+	resp, err := http.Get(baseURL() + "/health")
+	if err != nil {
+		fmt.Println("waggle server is not running")
+		os.Exit(1)
+	}
+	resp.Body.Close()
+
+	fmt.Printf("Briefing for %s\n", agentName)
+	fmt.Println(strings.Repeat("─", 40))
+
+	// My assigned tasks
+	resp, err = http.Get(baseURL() + "/api/tasks?assignee=" + agentName)
+	if err == nil {
+		var tasks []map[string]any
+		json.NewDecoder(resp.Body).Decode(&tasks)
+		resp.Body.Close()
+		if len(tasks) > 0 {
+			fmt.Printf("\nYour tasks (%d):\n", len(tasks))
+			for _, t := range tasks {
+				fmt.Printf("  %s [%s] %-8s %s\n", statusIcon(t["status"]), t["id"], t["priority"], t["title"])
+			}
+		} else {
+			fmt.Println("\nNo tasks assigned to you")
+		}
+	}
+
+	// Unread messages
+	resp, err = http.Get(baseURL() + "/api/messages?to=" + agentName + "&limit=10")
+	if err == nil {
+		var msgs []map[string]any
+		json.NewDecoder(resp.Body).Decode(&msgs)
+		resp.Body.Close()
+		unread := 0
+		for _, m := range msgs {
+			if r, ok := m["read"].(float64); ok && r == 0 {
+				unread++
+			}
+		}
+		if unread > 0 {
+			fmt.Printf("\nUnread messages: %d\n", unread)
+			for _, m := range msgs {
+				if r, ok := m["read"].(float64); ok && r == 0 {
+					fmt.Printf("  [%s] %s: %s\n", m["created_at"], m["from"], m["body"])
+				}
+			}
+		}
+	}
+
+	// Ready tasks
+	resp, err = http.Get(baseURL() + "/api/tasks?status=ready&sort=priority")
+	if err == nil {
+		var tasks []map[string]any
+		json.NewDecoder(resp.Body).Decode(&tasks)
+		resp.Body.Close()
+		if len(tasks) > 0 {
+			limit := len(tasks)
+			if limit > 5 {
+				limit = 5
+			}
+			fmt.Printf("\nReady tasks (%d total, showing top %d):\n", len(tasks), limit)
+			for _, t := range tasks[:limit] {
+				fmt.Printf("  %s [%s] %-8s %s\n", statusIcon(t["status"]), t["id"], t["priority"], t["title"])
+			}
+		}
+	}
+
+	// Team
+	resp, err = http.Get(baseURL() + "/api/agents")
+	if err == nil {
+		var agents []map[string]any
+		json.NewDecoder(resp.Body).Decode(&agents)
+		resp.Body.Close()
+		active := 0
+		for _, a := range agents {
+			if a["status"] != "disconnected" {
+				active++
+			}
+		}
+		if active > 0 {
+			fmt.Printf("\nTeam: %d active agent(s)\n", active)
+			for _, a := range agents {
+				if a["status"] != "disconnected" {
+					task := ""
+					if t, ok := a["current_task"].(string); ok && t != "" {
+						task = " working on " + t
+					}
+					fmt.Printf("  %s (%s) [%s]%s\n", a["name"], a["type"], a["status"], task)
+				}
+			}
+		}
+	}
+
+	fmt.Println()
 }
 
 func cmdTask(subcmd string, args []string) {
@@ -1623,6 +1724,7 @@ Usage:
   waggle start [--port 4740]       Start the server
   waggle stop                      Stop the server
   waggle status                    Server status + connected agents
+  waggle briefing                  Agent briefing: your tasks, messages, team
   waggle mcp                       Start MCP stdio adapter
   waggle connect                   Generate .mcp.json for Claude Code
   waggle tunnel [--port 4740]      Expose dashboard publicly (cloudflared or ngrok)
