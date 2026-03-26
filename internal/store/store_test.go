@@ -485,6 +485,32 @@ func TestStats(t *testing.T) {
 	}
 }
 
+func TestStatsVelocity(t *testing.T) {
+	s := tempStore(t)
+
+	// Create a done task with today's date (auto-set by CreateTask -> updated_at)
+	task := &model.Task{Title: "Done today", Status: model.TaskDone, Priority: model.PriorityMedium}
+	s.CreateTask(task)
+
+	stats, err := s.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats.Velocity) == 0 {
+		t.Error("expected velocity data for today")
+	}
+	today := time.Now().UTC().Format("2006-01-02")
+	found := false
+	for _, v := range stats.Velocity {
+		if v.Date == today && v.Count >= 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected today (%s) in velocity data with count >= 1, got %v", today, stats.Velocity)
+	}
+}
+
 func TestProjectCRUD(t *testing.T) {
 	s := tempStore(t)
 

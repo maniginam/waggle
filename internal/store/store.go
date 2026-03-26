@@ -1230,6 +1230,11 @@ func (s *Store) TokenUsageRecent(limit int) ([]*model.TokenUsage, error) {
 
 // --- Stats ---
 
+type DayCount struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
 type Stats struct {
 	TasksByStatus   map[string]int         `json:"tasks_by_status"`
 	TasksByPriority map[string]int         `json:"tasks_by_priority"`
@@ -1239,6 +1244,7 @@ type Stats struct {
 	UnreadMessages  int                    `json:"unread_messages"`
 	TokenUsage      *model.TokenSummary    `json:"token_usage,omitempty"`
 	TokenByAgent    []*model.TokenSummary  `json:"token_by_agent,omitempty"`
+	Velocity        []DayCount             `json:"velocity,omitempty"`
 }
 
 func (s *Store) Stats() (*Stats, error) {
@@ -1298,6 +1304,21 @@ func (s *Store) Stats() (*Stats, error) {
 	}
 	if byAgent, err := s.TokenUsageByAgent(); err == nil {
 		stats.TokenByAgent = byAgent
+	}
+
+	// Velocity: tasks completed per day over the past 7 days
+	sevenDaysAgo := time.Now().UTC().Add(-7 * 24 * time.Hour).Format("2006-01-02")
+	rows, err = s.db.Query(
+		`SELECT DATE(updated_at) as day, COUNT(*) FROM tasks WHERE status = 'done' AND DATE(updated_at) >= ? GROUP BY day ORDER BY day`,
+		sevenDaysAgo)
+	if err == nil {
+		for rows.Next() {
+			var day string
+			var count int
+			rows.Scan(&day, &count)
+			stats.Velocity = append(stats.Velocity, DayCount{Date: day, Count: count})
+		}
+		rows.Close()
 	}
 
 	return stats, nil
