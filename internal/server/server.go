@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -85,7 +86,8 @@ func New(cfg Config) (*Server, error) {
 	// Version endpoint
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(fmt.Sprintf(`{"version":"%s"}`, cfg.Version)))
+		data, _ := json.Marshal(map[string]string{"version": cfg.Version})
+		w.Write(data)
 	})
 
 	srv := &http.Server{

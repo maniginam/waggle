@@ -14,8 +14,9 @@ func startTestServer(t *testing.T) (string, *Server) {
 	t.Helper()
 	dir := t.TempDir()
 	srv, err := New(Config{
-		Port:   0, // Will be overridden
-		DBPath: filepath.Join(dir, "test.db"),
+		Port:    0, // Will be overridden
+		DBPath:  filepath.Join(dir, "test.db"),
+		Version: "test-v0.0.1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -230,5 +231,24 @@ func TestServerCORS(t *testing.T) {
 	}
 	if resp.Header.Get("Access-Control-Allow-Origin") != "*" {
 		t.Error("expected CORS header")
+	}
+}
+
+func TestServerVersion(t *testing.T) {
+	base, _ := startTestServer(t)
+
+	resp, err := http.Get(base + "/api/version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["version"] != "test-v0.0.1" {
+		t.Errorf("expected version test-v0.0.1, got %s", result["version"])
 	}
 }
