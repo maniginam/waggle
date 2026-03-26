@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -22,9 +23,13 @@ func startTestServer(t *testing.T) (string, *Server) {
 		t.Fatal(err)
 	}
 
-	// Find a free port by starting on 0
-	// Actually, use a fixed high port for testing
-	port := 14740 + time.Now().Nanosecond()%1000
+	// Find a free port by binding to :0
+	ln, err2 := net.Listen("tcp", ":0")
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
 	srv.httpServer.Addr = fmt.Sprintf(":%d", port)
 
 	// Disable tmux session checks in tests to prevent real tmux sessions
