@@ -44,7 +44,7 @@ func main() {
 		cmdProject("list", os.Args[2:])
 	case "task":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: waggle task <add|list|show|update|move|assign|claim|done|comment|rm|next|batch> [args]")
+			fmt.Println("Usage: waggle task <add|list|show|update|move|assign|claim|unclaim|done|comment|rm|next|batch> [args]")
 			os.Exit(1)
 		}
 		cmdTask(os.Args[2], os.Args[3:])
@@ -727,6 +727,26 @@ func cmdTask(subcmd string, args []string) {
 			os.Exit(1)
 		}
 		fmt.Printf("Claimed task %s\n", args[0])
+
+	case "unclaim":
+		if len(args) < 1 {
+			fmt.Println("Usage: waggle task unclaim <id>")
+			os.Exit(1)
+		}
+		body, _ := json.Marshal(map[string]string{"agent": getAgentName()})
+		resp, err := http.Post(baseURL()+"/api/tasks/"+args[0]+"/unclaim", "application/json", strings.NewReader(string(body)))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			var errResp map[string]any
+			json.NewDecoder(resp.Body).Decode(&errResp)
+			fmt.Fprintf(os.Stderr, "error: %v\n", errResp)
+			os.Exit(1)
+		}
+		fmt.Printf("Unclaimed task %s\n", args[0])
 
 	case "done":
 		if len(args) < 1 {
@@ -1767,6 +1787,7 @@ Usage:
   waggle task update <id> [flags]  Update a task
   waggle task assign <id> <agent>  Assign task to a specific agent
   waggle task claim <id>           Claim a task (assign to self)
+  waggle task unclaim <id>         Release a claimed task
   waggle task done <id>            Mark task complete
   waggle task move <id> <status>   Change task status (shorthand)
   waggle task comment <id> "msg"   Add comment to task
