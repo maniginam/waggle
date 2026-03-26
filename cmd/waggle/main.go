@@ -618,6 +618,30 @@ func cmdTask(subcmd string, args []string) {
 		defer resp.Body.Close()
 		fmt.Printf("Completed task %s\n", args[0])
 
+	case "move":
+		if len(args) < 2 {
+			fmt.Println("Usage: waggle task move <id> <status>")
+			fmt.Println("  Shorthand for: waggle task update <id> --status <status>")
+			fmt.Println("  Statuses: ready, in_progress, blocked, done, review")
+			os.Exit(1)
+		}
+		body, _ := json.Marshal(map[string]any{"status": args[1]})
+		req, _ := http.NewRequest(http.MethodPatch, baseURL()+"/api/tasks/"+args[0], strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			var errResp map[string]any
+			json.NewDecoder(resp.Body).Decode(&errResp)
+			fmt.Fprintf(os.Stderr, "error: %v\n", errResp)
+			os.Exit(1)
+		}
+		fmt.Printf("Moved task %s → %s\n", args[0], args[1])
+
 	case "comment":
 		if len(args) < 2 {
 			fmt.Println("Usage: waggle task comment <id> \"message\" [--author name]")
@@ -1619,6 +1643,7 @@ Usage:
   waggle task update <id> [flags]  Update a task
   waggle task claim <id>           Claim a task
   waggle task done <id>            Mark task complete
+  waggle task move <id> <status>   Change task status (shorthand)
   waggle task comment <id> "msg"   Add comment to task
   waggle task rm <id>              Delete a task
   waggle task batch <file.json>   Create multiple tasks from JSON file
