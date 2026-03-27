@@ -1062,12 +1062,14 @@ func (a *API) handleReviews(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		statusFilter := r.URL.Query().Get("status")
 		taskID := r.URL.Query().Get("task_id")
+		agentID := r.URL.Query().Get("agent_id")
+		projectID := r.URL.Query().Get("project_id")
 		var reviews []*model.Review
 		var err error
 		if taskID != "" {
 			reviews, err = a.store.ListReviewsByTask(taskID)
 		} else {
-			reviews, err = a.store.ListReviews(statusFilter)
+			reviews, err = a.store.ListReviews(statusFilter, agentID, projectID)
 		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())

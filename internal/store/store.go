@@ -1152,14 +1152,27 @@ func (s *Store) ListReviewsByTask(taskID string) ([]*model.Review, error) {
 	return reviews, nil
 }
 
-func (s *Store) ListReviews(statusFilter string) ([]*model.Review, error) {
-	query := `SELECT id, task_id, agent_id, branch, diff, summary, status, feedback, created_at, updated_at FROM reviews`
+func (s *Store) ListReviews(statusFilter, agentID, projectID string) ([]*model.Review, error) {
+	query := `SELECT r.id, r.task_id, r.agent_id, r.branch, r.diff, r.summary, r.status, r.feedback, r.created_at, r.updated_at FROM reviews r`
+	var conditions []string
 	var args []any
+	if projectID != "" {
+		query = `SELECT r.id, r.task_id, r.agent_id, r.branch, r.diff, r.summary, r.status, r.feedback, r.created_at, r.updated_at FROM reviews r JOIN tasks t ON r.task_id = t.id`
+		conditions = append(conditions, "t.project_id = ?")
+		args = append(args, projectID)
+	}
 	if statusFilter != "" {
-		query += ` WHERE status = ?`
+		conditions = append(conditions, "r.status = ?")
 		args = append(args, statusFilter)
 	}
-	query += ` ORDER BY created_at DESC`
+	if agentID != "" {
+		conditions = append(conditions, "r.agent_id = ?")
+		args = append(args, agentID)
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += ` ORDER BY r.created_at DESC`
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err

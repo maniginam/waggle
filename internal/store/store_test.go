@@ -713,11 +713,11 @@ func TestReviewCRUD(t *testing.T) {
 	}
 
 	// List by status
-	approved, _ := s.ListReviews("approved")
+	approved, _ := s.ListReviews("approved", "", "")
 	if len(approved) != 1 {
 		t.Errorf("expected 1 approved review, got %d", len(approved))
 	}
-	pending, _ := s.ListReviews("pending")
+	pending, _ := s.ListReviews("pending", "", "")
 	if len(pending) != 0 {
 		t.Errorf("expected 0 pending reviews, got %d", len(pending))
 	}
