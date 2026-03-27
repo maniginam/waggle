@@ -2233,3 +2233,28 @@ func TestPersonaMethodNotAllowed(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+func TestRegisterAgentWithPersona(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a persona first
+	resp := mustPost(t, ts.URL+"/api/personas", "application/json",
+		strings.NewReader(`{"name":"TestBot","role":"Worker","system_prompt":"You are a test bot."}`))
+	var persona model.Persona
+	json.NewDecoder(resp.Body).Decode(&persona)
+	resp.Body.Close()
+
+	// Register agent with persona_id
+	body := fmt.Sprintf(`{"name":"persona-test-agent","type":"claude-code","persona_id":"%s"}`, persona.ID)
+	resp = mustPost(t, ts.URL+"/api/agents/register", "application/json", strings.NewReader(body))
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var agent map[string]any
+	json.NewDecoder(resp.Body).Decode(&agent)
+	resp.Body.Close()
+
+	if agent["persona_id"] != persona.ID {
+		t.Errorf("expected persona_id %s, got %v", persona.ID, agent["persona_id"])
+	}
+}

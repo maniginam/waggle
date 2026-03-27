@@ -557,6 +557,7 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 			ProjectID   string          `json:"project_id"`
 			Role        model.AgentRole `json:"role"`
 			ParentAgent string          `json:"parent_agent"`
+			PersonaID   string          `json:"persona_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
@@ -588,6 +589,11 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "register_failed", err.Error())
 			return
+		}
+		// Link persona if provided
+		if req.PersonaID != "" {
+			a.store.UpdateAgentPersona(agent.Name, req.PersonaID)
+			agent.PersonaID = req.PersonaID
 		}
 		a.store.RecordEvent(&model.Event{Type: model.EventAgentJoined, AgentID: agent.Name, Payload: agent})
 		a.eventHub.Publish(&model.Event{Type: model.EventAgentJoined, AgentID: agent.Name, Payload: agent})
@@ -1160,6 +1166,7 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		WorkDir   string `json:"work_dir"`
 		Prompt    string `json:"prompt"`
 		Model     string `json:"model"`
+		PersonaID string `json:"persona_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
@@ -1187,6 +1194,17 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(workDir); os.IsNotExist(err) {
 		writeError(w, http.StatusBadRequest, "invalid_work_dir", "directory does not exist: "+workDir)
 		return
+	}
+
+	// If persona_id provided, inherit defaults
+	var persona *model.Persona
+	if req.PersonaID != "" {
+		if p, err := a.store.GetPersona(req.PersonaID); err == nil {
+			persona = p
+			if req.Model == "" && p.DefaultModelTier != "" {
+				req.Model = p.DefaultModelTier
+			}
+		}
 	}
 
 	// Ensure .mcp.json has waggle config in the work dir
@@ -1242,6 +1260,12 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	)
 	if req.ProjectID != "" {
 		regPreamble += fmt.Sprintf(" and project_id '%s'", req.ProjectID)
+	}
+	if req.PersonaID != "" {
+		regPreamble += fmt.Sprintf(" and persona_id '%s'", req.PersonaID)
+	}
+	if persona != nil && persona.SystemPrompt != "" {
+		regPreamble += ". Your persona system prompt: " + persona.SystemPrompt
 	}
 	regPreamble += ". Then: " + prompt
 

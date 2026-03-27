@@ -119,6 +119,7 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"project_id":   prop("string", "Project ID to assign this agent to (optional)"),
 				"role":         prop("string", "Agent role: 'alpha', 'leader', or 'worker' (default: 'worker')"),
 				"parent_agent": prop("string", "Name of the parent agent (leader or alpha) that manages this agent"),
+				"persona_id":   prop("string", "Persona template ID to inherit defaults from (optional)"),
 			},
 			"required": []string{"name", "type"},
 		}),
@@ -440,6 +441,10 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		}
 		if parentAgent != "" {
 			regPayload["parent_agent"] = parentAgent
+		}
+		personaID, _ := args["persona_id"].(string)
+		if personaID != "" {
+			regPayload["persona_id"] = personaID
 		}
 		body, _ := json.Marshal(regPayload)
 		resp, err := http.Post(a.baseURL+"/api/agents/register", "application/json", bytes.NewReader(body))
