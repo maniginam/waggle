@@ -86,6 +86,7 @@ type Agent struct {
 	CurrentTask string      `json:"current_task,omitempty"`
 	ProjectID   string      `json:"project_id,omitempty"`
 	ParentAgent string      `json:"parent_agent,omitempty"`
+	PersonaID   string      `json:"persona_id,omitempty"`
 	ConnectedAt time.Time   `json:"connected_at"`
 	LastSeen    time.Time   `json:"last_seen"`
 }
@@ -221,6 +222,19 @@ type Proposal struct {
 	Feedback    string         `json:"feedback,omitempty"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
+}
+
+type Persona struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Description       string   `json:"description,omitempty"`
+	Role              string   `json:"role,omitempty"`
+	Capabilities      []string `json:"capabilities,omitempty"`
+	PersonalityTraits []string `json:"personality_traits,omitempty"`
+	SystemPrompt      string   `json:"system_prompt,omitempty"`
+	DefaultModelTier  string   `json:"default_model_tier,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // CostPerMillion defines token pricing per model (USD per million tokens)
