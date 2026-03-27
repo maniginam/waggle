@@ -1550,3 +1550,187 @@ func TestPendingProposalCounts(t *testing.T) {
 		t.Errorf("expected 1 pending for a3, got %d", counts["a3"])
 	}
 }
+
+// --- Persona Tests ---
+
+func TestPersonaCRUD(t *testing.T) {
+	s := tempStore(t)
+
+	// Create
+	p := &model.Persona{
+		Name:              "Sarah",
+		Description:       "Senior QA engineer with integration testing expertise",
+		Role:              "QA Lead",
+		Capabilities:      []string{"integration testing", "API testing", "test automation"},
+		PersonalityTraits: []string{"thorough", "methodical", "detail-oriented"},
+		SystemPrompt:      "You are a QA lead. Focus on test coverage and edge cases.",
+		DefaultModelTier:  "sonnet",
+	}
+	if err := s.CreatePersona(p); err != nil {
+		t.Fatal(err)
+	}
+	if p.ID == "" {
+		t.Error("expected ID to be set")
+	}
+
+	// Get
+	got, err := s.GetPersona(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Sarah" {
+		t.Errorf("expected Sarah, got %s", got.Name)
+	}
+	if got.Role != "QA Lead" {
+		t.Errorf("expected QA Lead, got %s", got.Role)
+	}
+	if len(got.Capabilities) != 3 {
+		t.Errorf("expected 3 capabilities, got %d", len(got.Capabilities))
+	}
+	if len(got.PersonalityTraits) != 3 {
+		t.Errorf("expected 3 traits, got %d", len(got.PersonalityTraits))
+	}
+	if got.SystemPrompt != "You are a QA lead. Focus on test coverage and edge cases." {
+		t.Errorf("unexpected system prompt: %s", got.SystemPrompt)
+	}
+	if got.DefaultModelTier != "sonnet" {
+		t.Errorf("expected sonnet, got %s", got.DefaultModelTier)
+	}
+
+	// Get not found
+	_, err = s.GetPersona("nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestListPersonas(t *testing.T) {
+	s := tempStore(t)
+	s.CreatePersona(&model.Persona{Name: "Alice", Role: "Backend Engineer"})
+	s.CreatePersona(&model.Persona{Name: "Bob", Role: "Frontend Engineer"})
+	s.CreatePersona(&model.Persona{Name: "Carol", Role: "Backend Engineer"})
+
+	// List all
+	all, err := s.ListPersonas(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Errorf("expected 3 personas, got %d", len(all))
+	}
+
+	// Filter by role
+	backends, err := s.ListPersonas(map[string]string{"role": "Backend Engineer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backends) != 2 {
+		t.Errorf("expected 2 backend personas, got %d", len(backends))
+	}
+
+	// Filter by name
+	byName, err := s.ListPersonas(map[string]string{"name": "Alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byName) != 1 {
+		t.Errorf("expected 1 persona named Alice, got %d", len(byName))
+	}
+}
+
+func TestUpdatePersona(t *testing.T) {
+	s := tempStore(t)
+	p := &model.Persona{Name: "Original", Role: "Tester"}
+	s.CreatePersona(p)
+
+	updated, err := s.UpdatePersona(p.ID, map[string]any{
+		"name":               "Updated",
+		"role":               "Senior Tester",
+		"description":        "Now senior",
+		"system_prompt":      "You are a senior tester.",
+		"default_model_tier": "opus",
+		"capabilities":       []string{"e2e testing"},
+		"personality_traits": []string{"patient"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "Updated" {
+		t.Errorf("expected Updated, got %s", updated.Name)
+	}
+	if updated.Role != "Senior Tester" {
+		t.Errorf("expected Senior Tester, got %s", updated.Role)
+	}
+	if updated.SystemPrompt != "You are a senior tester." {
+		t.Errorf("unexpected system prompt: %s", updated.SystemPrompt)
+	}
+	if updated.DefaultModelTier != "opus" {
+		t.Errorf("expected opus, got %s", updated.DefaultModelTier)
+	}
+	if len(updated.Capabilities) != 1 {
+		t.Errorf("expected 1 capability, got %d", len(updated.Capabilities))
+	}
+
+	// Empty update is no-op
+	same, err := s.UpdatePersona(p.ID, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Name != "Updated" {
+		t.Errorf("expected unchanged, got %s", same.Name)
+	}
+
+	// Update nonexistent
+	_, err = s.UpdatePersona("nonexistent", map[string]any{"name": "x"})
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeletePersona(t *testing.T) {
+	s := tempStore(t)
+	p := &model.Persona{Name: "Delete me"}
+	s.CreatePersona(p)
+
+	if err := s.DeletePersona(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.GetPersona(p.ID)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	}
+
+	// Delete nonexistent
+	err = s.DeletePersona("nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestAgentWithPersona(t *testing.T) {
+	s := tempStore(t)
+
+	// Create a persona
+	p := &model.Persona{Name: "TestBot", Role: "Worker"}
+	s.CreatePersona(p)
+
+	// Register agent with persona_id
+	agent, err := s.RegisterAgent("persona-agent", "claude-code", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Link persona via update
+	err = s.UpdateAgentPersona(agent.Name, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetAgentByName("persona-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PersonaID != p.ID {
+		t.Errorf("expected persona ID %s, got %s", p.ID, got.PersonaID)
+	}
+}

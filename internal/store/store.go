@@ -176,6 +176,20 @@ func (s *Store) migrate() error {
 			updated_at  TEXT NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS personas (
+			id                  TEXT PRIMARY KEY,
+			name                TEXT NOT NULL,
+			description         TEXT DEFAULT '',
+			role                TEXT DEFAULT '',
+			capabilities        TEXT DEFAULT '[]',
+			personality_traits  TEXT DEFAULT '[]',
+			system_prompt       TEXT DEFAULT '',
+			default_model_tier  TEXT DEFAULT 'sonnet',
+			created_at          TEXT NOT NULL,
+			updated_at          TEXT NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_personas_role ON personas(role);
 		CREATE INDEX IF NOT EXISTS idx_proposals_agent ON proposals(agent_id);
 		CREATE INDEX IF NOT EXISTS idx_proposals_project ON proposals(project_id);
 		CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
@@ -204,6 +218,7 @@ func (s *Store) migrate() error {
 		{"agents", "role", "TEXT DEFAULT 'worker'"},
 		{"agents", "parent_agent", "TEXT DEFAULT ''"},
 		{"projects", "leader_agent", "TEXT DEFAULT ''"},
+		{"agents", "persona_id", "TEXT DEFAULT ''"},
 	} {
 		var count int
 		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
@@ -580,17 +595,17 @@ func (s *Store) RegisterAgent(name, agentType, projectID string, role model.Agen
 }
 
 func (s *Store) GetAgent(id string) (*model.Agent, error) {
-	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, role, parent_agent, connected_at, last_seen FROM agents WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents WHERE id = ?`, id)
 	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByName(name string) (*model.Agent, error) {
-	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, role, parent_agent, connected_at, last_seen FROM agents WHERE name = ?`, name)
+	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents WHERE name = ?`, name)
 	return scanAgent(row)
 }
 
 func (s *Store) ListAgents(statusFilter string) ([]*model.Agent, error) {
-	query := `SELECT id, name, type, status, current_task, project_id, role, parent_agent, connected_at, last_seen FROM agents`
+	query := `SELECT id, name, type, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents`
 	var args []any
 	if statusFilter != "" {
 		query += " WHERE status = ?"
@@ -913,7 +928,7 @@ func scanTaskRows(rows *sql.Rows) (*model.Task, error) {
 func scanAgent(row scanner) (*model.Agent, error) {
 	var a model.Agent
 	var connStr, seenStr string
-	err := row.Scan(&a.ID, &a.Name, &a.Type, &a.Status, &a.CurrentTask, &a.ProjectID, &a.Role, &a.ParentAgent, &connStr, &seenStr)
+	err := row.Scan(&a.ID, &a.Name, &a.Type, &a.Status, &a.CurrentTask, &a.ProjectID, &a.Role, &a.ParentAgent, &a.PersonaID, &connStr, &seenStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -1570,6 +1585,160 @@ func scanProposalRows(rows *sql.Rows) (*model.Proposal, error) {
 		return nil, err
 	}
 	json.Unmarshal([]byte(sectionsJSON), &p.Sections)
+	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &p, nil
+}
+
+// --- Personas ---
+
+func (s *Store) CreatePersona(p *model.Persona) error {
+	if p.ID == "" {
+		p.ID = id.New()
+	}
+	now := time.Now().UTC()
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	if p.DefaultModelTier == "" {
+		p.DefaultModelTier = "sonnet"
+	}
+
+	capsJSON, _ := json.Marshal(p.Capabilities)
+	traitsJSON, _ := json.Marshal(p.PersonalityTraits)
+
+	_, err := s.db.Exec(`INSERT INTO personas (id, name, description, role, capabilities, personality_traits, system_prompt, default_model_tier, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.Role, string(capsJSON), string(traitsJSON),
+		p.SystemPrompt, p.DefaultModelTier,
+		now.Format(time.RFC3339), now.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) GetPersona(personaID string) (*model.Persona, error) {
+	row := s.db.QueryRow(`SELECT id, name, description, role, capabilities, personality_traits, system_prompt, default_model_tier, created_at, updated_at FROM personas WHERE id = ?`, personaID)
+	return scanPersona(row)
+}
+
+func (s *Store) ListPersonas(filters map[string]string) ([]*model.Persona, error) {
+	query := `SELECT id, name, description, role, capabilities, personality_traits, system_prompt, default_model_tier, created_at, updated_at FROM personas`
+	var conditions []string
+	var args []any
+	if filters != nil {
+		if role, ok := filters["role"]; ok {
+			conditions = append(conditions, "role = ?")
+			args = append(args, role)
+		}
+		if name, ok := filters["name"]; ok {
+			conditions = append(conditions, "name = ?")
+			args = append(args, name)
+		}
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY name"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var personas []*model.Persona
+	for rows.Next() {
+		p, err := scanPersonaRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		personas = append(personas, p)
+	}
+	return personas, rows.Err()
+}
+
+func (s *Store) UpdatePersona(personaID string, fields map[string]any) (*model.Persona, error) {
+	if len(fields) == 0 {
+		return s.GetPersona(personaID)
+	}
+
+	// Verify persona exists
+	if _, err := s.GetPersona(personaID); err != nil {
+		return nil, err
+	}
+
+	var sets []string
+	var args []any
+	for k, v := range fields {
+		switch k {
+		case "name", "description", "role", "system_prompt", "default_model_tier":
+			sets = append(sets, k+" = ?")
+			args = append(args, v)
+		case "capabilities", "personality_traits":
+			j, _ := json.Marshal(v)
+			sets = append(sets, k+" = ?")
+			args = append(args, string(j))
+		}
+	}
+	sets = append(sets, "updated_at = ?")
+	args = append(args, time.Now().UTC().Format(time.RFC3339))
+	args = append(args, personaID)
+
+	_, err := s.db.Exec("UPDATE personas SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetPersona(personaID)
+}
+
+func (s *Store) DeletePersona(personaID string) error {
+	res, err := s.db.Exec("DELETE FROM personas WHERE id = ?", personaID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) UpdateAgentPersona(agentName, personaID string) error {
+	res, err := s.db.Exec("UPDATE agents SET persona_id = ? WHERE name = ?", personaID, agentName)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func scanPersona(row scanner) (*model.Persona, error) {
+	var p model.Persona
+	var capsJSON, traitsJSON, createdAt, updatedAt string
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Role, &capsJSON, &traitsJSON, &p.SystemPrompt, &p.DefaultModelTier, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal([]byte(capsJSON), &p.Capabilities)
+	json.Unmarshal([]byte(traitsJSON), &p.PersonalityTraits)
+	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &p, nil
+}
+
+func scanPersonaRows(rows *sql.Rows) (*model.Persona, error) {
+	var p model.Persona
+	var capsJSON, traitsJSON, createdAt, updatedAt string
+	err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Role, &capsJSON, &traitsJSON, &p.SystemPrompt, &p.DefaultModelTier, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal([]byte(capsJSON), &p.Capabilities)
+	json.Unmarshal([]byte(traitsJSON), &p.PersonalityTraits)
 	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 	return &p, nil
