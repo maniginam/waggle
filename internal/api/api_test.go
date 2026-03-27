@@ -2091,3 +2091,145 @@ func TestProposalMethodNotAllowed(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// --- Persona API tests ---
+
+func TestPersonaCRUDViaAPI(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create persona
+	body := `{"name":"API Bot","role":"Tester","description":"A test persona","capabilities":["testing"],"personality_traits":["precise"],"system_prompt":"You test things.","default_model_tier":"sonnet"}`
+	resp := mustPost(t, ts.URL+"/api/personas", "application/json", strings.NewReader(body))
+	if resp.StatusCode != 201 {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var created model.Persona
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if created.ID == "" {
+		t.Error("expected ID to be set")
+	}
+	if created.Name != "API Bot" {
+		t.Errorf("expected API Bot, got %s", created.Name)
+	}
+
+	// Get persona
+	resp = mustGet(t, ts.URL+"/api/personas/"+created.ID)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var got model.Persona
+	json.NewDecoder(resp.Body).Decode(&got)
+	resp.Body.Close()
+	if got.Name != "API Bot" {
+		t.Errorf("expected API Bot, got %s", got.Name)
+	}
+
+	// List personas
+	resp = mustGet(t, ts.URL+"/api/personas")
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var list []model.Persona
+	json.NewDecoder(resp.Body).Decode(&list)
+	resp.Body.Close()
+	if len(list) != 1 {
+		t.Errorf("expected 1 persona, got %d", len(list))
+	}
+
+	// Update persona
+	patchBody := `{"name":"Updated Bot","role":"Senior Tester"}`
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/personas/"+created.ID, strings.NewReader(patchBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var updated model.Persona
+	json.NewDecoder(resp.Body).Decode(&updated)
+	resp.Body.Close()
+	if updated.Name != "Updated Bot" {
+		t.Errorf("expected Updated Bot, got %s", updated.Name)
+	}
+
+	// Delete persona
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/personas/"+created.ID, nil)
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify deleted
+	resp = mustGet(t, ts.URL+"/api/personas/"+created.ID)
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404 after delete, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaCreateMissingName(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/personas", "application/json", strings.NewReader(`{"role":"Tester"}`))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaListFilterByRole(t *testing.T) {
+	_, ts := setup(t)
+
+	mustPost(t, ts.URL+"/api/personas", "application/json", strings.NewReader(`{"name":"A","role":"Backend"}`)).Body.Close()
+	mustPost(t, ts.URL+"/api/personas", "application/json", strings.NewReader(`{"name":"B","role":"Frontend"}`)).Body.Close()
+	mustPost(t, ts.URL+"/api/personas", "application/json", strings.NewReader(`{"name":"C","role":"Backend"}`)).Body.Close()
+
+	resp := mustGet(t, ts.URL+"/api/personas?role=Backend")
+	var list []model.Persona
+	json.NewDecoder(resp.Body).Decode(&list)
+	resp.Body.Close()
+	if len(list) != 2 {
+		t.Errorf("expected 2 backend personas, got %d", len(list))
+	}
+}
+
+func TestPersonaGetNotFound(t *testing.T) {
+	_, ts := setup(t)
+	resp := mustGet(t, ts.URL+"/api/personas/nonexistent")
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaPatchNotFound(t *testing.T) {
+	_, ts := setup(t)
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/personas/nonexistent", strings.NewReader(`{"name":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaDeleteNotFound(t *testing.T) {
+	_, ts := setup(t)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/personas/nonexistent", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/personas", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
