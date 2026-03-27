@@ -69,6 +69,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/settings", a.handleSettings)
 	mux.HandleFunc("/api/proposals", a.handleProposals)
 	mux.HandleFunc("/api/proposals/", a.handleProposal)
+	mux.HandleFunc("/api/personas", a.handlePersonas)
+	mux.HandleFunc("/api/personas/", a.handlePersona)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -1711,6 +1713,102 @@ func (a *API) handleProposal(w http.ResponseWriter, r *http.Request) {
 		if err := a.store.DeleteProposal(id); err != nil {
 			if err == store.ErrNotFound {
 				writeError(w, http.StatusNotFound, "not_found", "proposal not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+// --- Personas ---
+
+func (a *API) handlePersonas(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		filters := map[string]string{}
+		if v := r.URL.Query().Get("role"); v != "" {
+			filters["role"] = v
+		}
+		if v := r.URL.Query().Get("name"); v != "" {
+			filters["name"] = v
+		}
+		personas, err := a.store.ListPersonas(filters)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		if personas == nil {
+			personas = []*model.Persona{}
+		}
+		writeJSON(w, http.StatusOK, personas)
+
+	case http.MethodPost:
+		var p model.Persona
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if p.Name == "" {
+			writeError(w, http.StatusBadRequest, "missing_name", "name is required")
+			return
+		}
+		if err := a.store.CreatePersona(&p); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, p)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handlePersona(w http.ResponseWriter, r *http.Request) {
+	personaID := strings.TrimPrefix(r.URL.Path, "/api/personas/")
+	if personaID == "" {
+		writeError(w, http.StatusBadRequest, "missing_id", "persona ID required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		p, err := a.store.GetPersona(personaID)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "not_found", "persona not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "get_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+
+	case http.MethodPatch:
+		var updates map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		p, err := a.store.UpdatePersona(personaID, updates)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "not_found", "persona not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+
+	case http.MethodDelete:
+		if err := a.store.DeletePersona(personaID); err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "not_found", "persona not found")
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
