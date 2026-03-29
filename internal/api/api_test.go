@@ -2258,3 +2258,952 @@ func TestRegisterAgentWithPersona(t *testing.T) {
 		t.Errorf("expected persona_id %s, got %v", persona.ID, agent["persona_id"])
 	}
 }
+
+// --- Additional coverage tests ---
+
+func TestCommentsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json",
+		bytes.NewBufferString(`{"title":"comment test"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/tasks/"+taskID+"/comments", nil)
+	resp = mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestCommentsInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json",
+		bytes.NewBufferString(`{"title":"comment test"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	resp = mustPost(t, ts.URL+"/api/tasks/"+taskID+"/comments", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestCompleteMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json",
+		bytes.NewBufferString(`{"title":"complete test"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	resp = mustGet(t, ts.URL+"/api/tasks/"+taskID+"/complete")
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestUnclaimMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/tasks/some-id/unclaim", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestClaimMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/tasks/some-id/claim")
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProjectEpicsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create project
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json",
+		bytes.NewBufferString(`{"name":"epic test project"}`))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projID := proj["id"].(string)
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/projects/"+projID+"/epics", nil)
+	resp = mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProjectEpicsWithProgress(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create project
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json",
+		bytes.NewBufferString(`{"name":"epic progress test"}`))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projID := proj["id"].(string)
+
+	// Create an epic
+	body, _ := json.Marshal(map[string]any{
+		"title":      "My Epic",
+		"task_type":  "epic",
+		"project_id": projID,
+	})
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	var epic map[string]any
+	json.NewDecoder(resp.Body).Decode(&epic)
+	resp.Body.Close()
+	epicID := epic["id"].(string)
+
+	// Create subtasks
+	for _, title := range []string{"Sub 1", "Sub 2"} {
+		sub, _ := json.Marshal(map[string]any{
+			"title":      title,
+			"parent_id":  epicID,
+			"project_id": projID,
+		})
+		mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(sub)).Body.Close()
+	}
+
+	// Get epics with progress
+	resp = mustGet(t, ts.URL+"/api/projects/"+projID+"/epics")
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var epics []map[string]any
+	json.NewDecoder(resp.Body).Decode(&epics)
+	resp.Body.Close()
+	if len(epics) != 1 {
+		t.Fatalf("expected 1 epic, got %d", len(epics))
+	}
+	progress := epics[0]["progress"].(map[string]any)
+	if int(progress["total"].(float64)) != 2 {
+		t.Errorf("expected total 2, got %v", progress["total"])
+	}
+}
+
+func TestUsageMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/usage", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestUsageInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/usage", "application/json",
+		bytes.NewBufferString("not json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestReviewsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/reviews", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestReviewMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/reviews/some-id", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestReviewPatchInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/reviews/some-id",
+		bytes.NewBufferString("bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestReviewMissingID(t *testing.T) {
+	_, ts := setup(t)
+
+	// GET /api/reviews/ with trailing slash = empty id
+	resp := mustGet(t, ts.URL+"/api/reviews/")
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestReviewDiffTooLarge(t *testing.T) {
+	_, ts := setup(t)
+
+	largeDiff := strings.Repeat("x", 500001)
+	body, _ := json.Marshal(map[string]string{
+		"task_id":  "t1",
+		"agent_id": "a1",
+		"diff":     largeDiff,
+	})
+	resp := mustPost(t, ts.URL+"/api/reviews", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for oversized diff, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestReviewDefaultAgentID(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{
+		"task_id": "t1",
+		"diff":   "some diff",
+	})
+	resp := mustPost(t, ts.URL+"/api/reviews", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 201 {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var rev map[string]any
+	json.NewDecoder(resp.Body).Decode(&rev)
+	resp.Body.Close()
+	if rev["agent_id"] != "unknown" {
+		t.Errorf("expected agent_id 'unknown', got %v", rev["agent_id"])
+	}
+}
+
+func TestReviewFilterByAgent(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create tasks for reviews
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json",
+		bytes.NewBufferString(`{"title":"rev task 1"}`))
+	var t1 map[string]any
+	json.NewDecoder(resp.Body).Decode(&t1)
+	resp.Body.Close()
+
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json",
+		bytes.NewBufferString(`{"title":"rev task 2"}`))
+	var t2 map[string]any
+	json.NewDecoder(resp.Body).Decode(&t2)
+	resp.Body.Close()
+
+	// Submit reviews with different agents
+	for _, r := range []map[string]string{
+		{"task_id": t1["id"].(string), "agent_id": "agent-a", "diff": "d1"},
+		{"task_id": t2["id"].(string), "agent_id": "agent-b", "diff": "d2"},
+	} {
+		body, _ := json.Marshal(r)
+		mustPost(t, ts.URL+"/api/reviews", "application/json", bytes.NewBuffer(body)).Body.Close()
+	}
+
+	// Filter by agent
+	resp = mustGet(t, ts.URL+"/api/reviews?agent_id=agent-a")
+	var reviews []map[string]any
+	json.NewDecoder(resp.Body).Decode(&reviews)
+	resp.Body.Close()
+	if len(reviews) != 1 {
+		t.Errorf("expected 1 review for agent-a, got %d", len(reviews))
+	}
+}
+
+func TestPushSubscribeMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/push/subscribe", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPushSubscribeInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/push/subscribe", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSettingsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/settings", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSettingsInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/settings",
+		bytes.NewBufferString("bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestExportMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/tasks/export", "application/json", nil)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSessionsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/sessions", "application/json", nil)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSessionActionNotFoundSession(t *testing.T) {
+	_, ts := setup(t)
+
+	// Session that doesn't exist should 404
+	resp := mustGet(t, ts.URL+"/api/sessions/nonexistent-xyz/output")
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSessionActionNotFound(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/sessions/nonexistent-session/output")
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalCreateInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/proposals", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalCreateMissingAgentID(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/proposals", "application/json",
+		bytes.NewBufferString(`{"title":"test"}`))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalCreateMissingTitle(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/proposals", "application/json",
+		bytes.NewBufferString(`{"agent_id":"a1"}`))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalPatchInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/proposals/some-id",
+		bytes.NewBufferString("bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalGetNotFound(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/proposals/nonexistent")
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalMissingID(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/proposals/")
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProposalFilters(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create proposals
+	for _, p := range []map[string]string{
+		{"agent_id": "a1", "title": "P1", "project_id": "proj-1"},
+		{"agent_id": "a2", "title": "P2", "project_id": "proj-2"},
+	} {
+		body, _ := json.Marshal(p)
+		mustPost(t, ts.URL+"/api/proposals", "application/json", bytes.NewBuffer(body)).Body.Close()
+	}
+
+	// Filter by agent
+	resp := mustGet(t, ts.URL+"/api/proposals?agent_id=a1")
+	var proposals []map[string]any
+	json.NewDecoder(resp.Body).Decode(&proposals)
+	resp.Body.Close()
+	if len(proposals) != 1 {
+		t.Errorf("expected 1 proposal for a1, got %d", len(proposals))
+	}
+
+	// Filter by project
+	resp = mustGet(t, ts.URL+"/api/proposals?project_id=proj-2")
+	json.NewDecoder(resp.Body).Decode(&proposals)
+	resp.Body.Close()
+	if len(proposals) != 1 {
+		t.Errorf("expected 1 proposal for proj-2, got %d", len(proposals))
+	}
+}
+
+func TestProposalFullCRUD(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create
+	body := `{"agent_id":"test-agent","title":"Test Proposal","description":"A test"}`
+	resp := mustPost(t, ts.URL+"/api/proposals", "application/json", strings.NewReader(body))
+	if resp.StatusCode != 201 {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var created map[string]any
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	id := created["id"].(string)
+
+	// Get
+	resp = mustGet(t, ts.URL+"/api/proposals/"+id)
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Patch
+	patchBody, _ := json.Marshal(map[string]any{"status": "approved"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/proposals/"+id, bytes.NewBuffer(patchBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200 for patch, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Delete
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/proposals/"+id, nil)
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200 for delete, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaCreateInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/personas", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaPatchInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create first
+	resp := mustPost(t, ts.URL+"/api/personas", "application/json",
+		strings.NewReader(`{"name":"Patchable"}`))
+	var p model.Persona
+	json.NewDecoder(resp.Body).Decode(&p)
+	resp.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/personas/"+p.ID,
+		bytes.NewBufferString("bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaMissingID(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/personas/")
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPersonaListFilterByName(t *testing.T) {
+	_, ts := setup(t)
+
+	mustPost(t, ts.URL+"/api/personas", "application/json",
+		strings.NewReader(`{"name":"Alice"}`)).Body.Close()
+	mustPost(t, ts.URL+"/api/personas", "application/json",
+		strings.NewReader(`{"name":"Bob"}`)).Body.Close()
+
+	resp := mustGet(t, ts.URL+"/api/personas?name=Alice")
+	var list []model.Persona
+	json.NewDecoder(resp.Body).Decode(&list)
+	resp.Body.Close()
+	if len(list) != 1 {
+		t.Errorf("expected 1 persona named Alice, got %d", len(list))
+	}
+}
+
+func TestPersonaSingleMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/personas", "application/json",
+		strings.NewReader(`{"name":"Test"}`))
+	var p model.Persona
+	json.NewDecoder(resp.Body).Decode(&p)
+	resp.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/personas/"+p.ID, nil)
+	resp = mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentStatusInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/agents/some-agent/status", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentProjectInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/agents/some-agent/project", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentRegisterInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/agents/register", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentRegisterMissingName(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/agents/register", "application/json",
+		bytes.NewBufferString(`{"type":"test"}`))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestMessagesMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/messages", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestMessagesPatchInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/messages",
+		bytes.NewBufferString("bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestMessagesPatchMarkAll(t *testing.T) {
+	_, ts := setup(t)
+
+	// Send a message first
+	body, _ := json.Marshal(map[string]string{"from": "a1", "to": "a2", "body": "hello"})
+	mustPost(t, ts.URL+"/api/messages", "application/json", bytes.NewBuffer(body)).Body.Close()
+
+	// Mark all read
+	patchBody, _ := json.Marshal(map[string]any{"mark_all": true})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/messages", bytes.NewBuffer(patchBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestMessagesInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/messages", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestEventsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/events", "application/json", nil)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestStatsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/stats", "application/json", nil)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/agents", "application/json", nil)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTasksMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/tasks", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTaskMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/tasks/some-id", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestSpawnWithPersonaID(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create persona with default model tier
+	resp := mustPost(t, ts.URL+"/api/personas", "application/json",
+		strings.NewReader(`{"name":"SpawnBot","default_model_tier":"opus"}`))
+	var persona model.Persona
+	json.NewDecoder(resp.Body).Decode(&persona)
+	resp.Body.Close()
+
+	// Spawn with persona — will fail at exec but exercises persona lookup path
+	body, _ := json.Marshal(map[string]any{
+		"name":       "spawn-test",
+		"work_dir":   "/tmp",
+		"persona_id": persona.ID,
+	})
+	resp = mustPost(t, ts.URL+"/api/spawn", "application/json", bytes.NewBuffer(body))
+	// Will fail because claude binary not found in test, but we exercise the persona path
+	resp.Body.Close()
+}
+
+func TestSpawnRelativeWorkDir(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]any{
+		"name":     "rel-dir-agent",
+		"work_dir": "nonexistent-relative-dir-xyz",
+	})
+	resp := mustPost(t, ts.URL+"/api/spawn", "application/json", bytes.NewBuffer(body))
+	// Either 400 (dir doesn't exist) or it exercises the relative path logic
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for nonexistent relative dir, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestCompleteTaskInternalError(t *testing.T) {
+	_, ts := setup(t)
+
+	// Complete non-existent task triggers not_found
+	resp := mustPost(t, ts.URL+"/api/tasks/nonexistent/complete", "application/json",
+		bytes.NewBufferString(`{}`))
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestUnclaimTaskNotFound(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"agent": "a1"})
+	resp := mustPost(t, ts.URL+"/api/tasks/nonexistent/unclaim", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAgentMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	body, _ := json.Marshal(map[string]string{"name": "test-ma", "type": "test"})
+	mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(body)).Body.Close()
+
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/agents/test-ma", nil)
+	resp := mustDo(t, req)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTaskPatchInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json",
+		bytes.NewBufferString(`{"title":"patch-test"}`))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/tasks/"+task["id"].(string),
+		bytes.NewBufferString("bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTaskCreateInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTaskTitleTooLong(t *testing.T) {
+	_, ts := setup(t)
+
+	longTitle := strings.Repeat("x", 501)
+	body, _ := json.Marshal(map[string]string{"title": longTitle})
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for long title, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestTaskDescriptionTooLong(t *testing.T) {
+	_, ts := setup(t)
+
+	longDesc := strings.Repeat("x", 10001)
+	body, _ := json.Marshal(map[string]string{"title": "test", "description": longDesc})
+	resp := mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for long description, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProjectNameTooLong(t *testing.T) {
+	_, ts := setup(t)
+
+	longName := strings.Repeat("x", 201)
+	body, _ := json.Marshal(map[string]string{"name": longName})
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for long project name, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestProjectCreateInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestPushUnsubscribeInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/push/subscribe",
+		bytes.NewBufferString("bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestReviewsInvalidJSON(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/reviews", "application/json",
+		bytes.NewBufferString("bad json"))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestEventsWithInvalidLimit(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/events?limit=-5")
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = mustGet(t, ts.URL+"/api/events?limit=999")
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200 for oversized limit, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestExportCSVFormat(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a task with project
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json",
+		bytes.NewBufferString(`{"name":"CSV project"}`))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+
+	body, _ := json.Marshal(map[string]any{
+		"title":      "CSV task",
+		"priority":   "high",
+		"project_id": proj["id"],
+	})
+	mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(body)).Body.Close()
+
+	// Export with project filter
+	resp = mustGet(t, ts.URL+"/api/tasks/export?format=csv&project_id="+proj["id"].(string))
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "text/csv") {
+		t.Errorf("expected text/csv content type, got %s", ct)
+	}
+	resp.Body.Close()
+}
