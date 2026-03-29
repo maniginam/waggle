@@ -71,6 +71,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/proposals/", a.handleProposal)
 	mux.HandleFunc("/api/personas", a.handlePersonas)
 	mux.HandleFunc("/api/personas/", a.handlePersona)
+	mux.HandleFunc("/api/alerts", a.handleAlerts)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -1565,6 +1566,114 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (a *API) handleAlerts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	type alert struct {
+		Level   string `json:"level"`   // warning, critical
+		Type    string `json:"type"`    // stale_task, past_deadline, no_agents, stale_agent
+		Title   string `json:"title"`
+		Detail  string `json:"detail,omitempty"`
+		TaskID  string `json:"task_id,omitempty"`
+		AgentID string `json:"agent_id,omitempty"`
+	}
+
+	var alerts []alert
+	now := time.Now().UTC()
+
+	// Check for tasks stuck in_progress > 3 days
+	if tasks, err := a.store.ListTasks(map[string]string{"status": "in_progress"}); err == nil {
+		for _, t := range tasks {
+			stuckDays := int(now.Sub(t.UpdatedAt).Hours() / 24)
+			if stuckDays >= 3 {
+				level := "warning"
+				if stuckDays >= 7 {
+					level = "critical"
+				}
+				alerts = append(alerts, alert{
+					Level:  level,
+					Type:   "stale_task",
+					Title:  fmt.Sprintf("Task stuck for %d days", stuckDays),
+					Detail: t.Title,
+					TaskID: t.ID,
+				})
+			}
+		}
+	}
+
+	// Check for tasks past deadline
+	if tasks, err := a.store.ListTasks(map[string]string{}); err == nil {
+		for _, t := range tasks {
+			if t.Deadline != nil && t.Status != model.TaskDone && now.After(*t.Deadline) {
+				overdueDays := int(now.Sub(*t.Deadline).Hours() / 24)
+				level := "warning"
+				if overdueDays >= 3 {
+					level = "critical"
+				}
+				alerts = append(alerts, alert{
+					Level:  level,
+					Type:   "past_deadline",
+					Title:  fmt.Sprintf("Overdue by %d days", overdueDays),
+					Detail: t.Title,
+					TaskID: t.ID,
+				})
+			}
+		}
+	}
+
+	// Check for blocked tasks
+	if tasks, err := a.store.ListTasks(map[string]string{"status": "blocked"}); err == nil {
+		for _, t := range tasks {
+			blockedDays := int(now.Sub(t.UpdatedAt).Hours() / 24)
+			if blockedDays >= 1 {
+				alerts = append(alerts, alert{
+					Level:  "warning",
+					Type:   "blocked_task",
+					Title:  fmt.Sprintf("Blocked for %d days", blockedDays),
+					Detail: t.Title,
+					TaskID: t.ID,
+				})
+			}
+		}
+	}
+
+	// Check agent health
+	if agents, err := a.store.ListAgents(""); err == nil {
+		activeCount := 0
+		for _, ag := range agents {
+			if ag.Status == model.AgentDisconnected {
+				continue
+			}
+			activeCount++
+			sinceSeen := now.Sub(ag.LastSeen)
+			if sinceSeen > 60*time.Second {
+				alerts = append(alerts, alert{
+					Level:   "warning",
+					Type:    "stale_agent",
+					Title:   "Agent heartbeat late",
+					Detail:  fmt.Sprintf("%s last seen %s ago", ag.Name, sinceSeen.Round(time.Second)),
+					AgentID: ag.Name,
+				})
+			}
+		}
+		if activeCount == 0 {
+			alerts = append(alerts, alert{
+				Level: "critical",
+				Type:  "no_agents",
+				Title: "No active agents",
+			})
+		}
+	}
+
+	if alerts == nil {
+		alerts = []alert{}
+	}
+	writeJSON(w, http.StatusOK, alerts)
 }
 
 func limitBody(r *http.Request) {

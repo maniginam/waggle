@@ -3207,3 +3207,120 @@ func TestExportCSVFormat(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+func TestAlertsEmpty(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/alerts")
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var alerts []map[string]any
+	json.NewDecoder(resp.Body).Decode(&alerts)
+	resp.Body.Close()
+	if len(alerts) != 1 {
+		// Should have "no_agents" alert since no agents are registered
+		t.Errorf("expected 1 alert (no_agents), got %d", len(alerts))
+	}
+	if len(alerts) > 0 && alerts[0]["type"] != "no_agents" {
+		t.Errorf("expected no_agents alert, got %v", alerts[0]["type"])
+	}
+}
+
+func TestAlertsMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/alerts", "application/json", nil)
+	if resp.StatusCode != 405 {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestAlertsStaleTask(t *testing.T) {
+	a, ts := setup(t)
+
+	// Create a task in_progress
+	task := &model.Task{Title: "Stale task", Status: model.TaskInProgress}
+	a.store.CreateTask(task)
+
+	// Backdate updated_at by 4 days via direct store access
+	fourDaysAgo := time.Now().UTC().Add(-4 * 24 * time.Hour).Format(time.RFC3339)
+	a.store.Exec("UPDATE tasks SET updated_at = ? WHERE id = ?", fourDaysAgo, task.ID)
+
+	// Register an agent so we don't get the no_agents alert
+	mustPost(t, ts.URL+"/api/agents/register", "application/json",
+		bytes.NewBufferString(`{"name":"alert-test-agent","type":"test"}`)).Body.Close()
+
+	resp := mustGet(t, ts.URL+"/api/alerts")
+	var alerts []map[string]any
+	json.NewDecoder(resp.Body).Decode(&alerts)
+	resp.Body.Close()
+
+	found := false
+	for _, al := range alerts {
+		if al["type"] == "stale_task" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected stale_task alert for 4-day-old in_progress task")
+	}
+}
+
+func TestAlertsPastDeadline(t *testing.T) {
+	a, ts := setup(t)
+
+	yesterday := time.Now().UTC().Add(-48 * time.Hour)
+	task := &model.Task{Title: "Overdue task", Status: model.TaskReady, Deadline: &yesterday}
+	a.store.CreateTask(task)
+
+	mustPost(t, ts.URL+"/api/agents/register", "application/json",
+		bytes.NewBufferString(`{"name":"dl-agent","type":"test"}`)).Body.Close()
+
+	resp := mustGet(t, ts.URL+"/api/alerts")
+	var alerts []map[string]any
+	json.NewDecoder(resp.Body).Decode(&alerts)
+	resp.Body.Close()
+
+	found := false
+	for _, al := range alerts {
+		if al["type"] == "past_deadline" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected past_deadline alert for overdue task")
+	}
+}
+
+func TestAlertsBlockedTask(t *testing.T) {
+	a, ts := setup(t)
+
+	task := &model.Task{Title: "Blocked task", Status: model.TaskBlocked}
+	a.store.CreateTask(task)
+
+	twoDaysAgo := time.Now().UTC().Add(-2 * 24 * time.Hour).Format(time.RFC3339)
+	a.store.Exec("UPDATE tasks SET updated_at = ? WHERE id = ?", twoDaysAgo, task.ID)
+
+	mustPost(t, ts.URL+"/api/agents/register", "application/json",
+		bytes.NewBufferString(`{"name":"blk-agent","type":"test"}`)).Body.Close()
+
+	resp := mustGet(t, ts.URL+"/api/alerts")
+	var alerts []map[string]any
+	json.NewDecoder(resp.Body).Decode(&alerts)
+	resp.Body.Close()
+
+	found := false
+	for _, al := range alerts {
+		if al["type"] == "blocked_task" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected blocked_task alert for 2-day-old blocked task")
+	}
+}
