@@ -124,6 +124,37 @@ body {
 .sse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; }
 .sse-dot.connected { background: var(--green); }
 .sse-dot.error { background: var(--red); }
+.alerts-bar {
+  display: none; padding: 6px 24px; background: var(--bg-surface);
+  border-bottom: 1px solid var(--border); overflow-x: auto; white-space: nowrap;
+}
+.alerts-bar.has-alerts { display: flex; gap: 8px; align-items: center; }
+.alerts-bar-label {
+  font-size: 0.65rem; font-family: var(--font-mono); color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
+}
+.alert-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px;
+  border-radius: 12px; font-size: 0.65rem; font-family: var(--font-mono);
+  cursor: pointer; transition: all 0.15s; border: 1px solid; flex-shrink: 0;
+}
+.alert-chip.warning { background: var(--amber-glow); color: var(--amber); border-color: var(--amber-dim); }
+.alert-chip.warning:hover { background: var(--amber-glow-strong); }
+.alert-chip.critical { background: var(--red-dim); color: var(--red); border-color: rgba(248,113,113,0.3); }
+.alert-chip.critical:hover { background: rgba(248,113,113,0.25); }
+.alert-chip-icon { font-size: 0.7rem; }
+.header-alerts-btn {
+  position: relative; display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-secondary); cursor: pointer;
+  font-family: var(--font-mono); font-size: 0.75rem; transition: all 0.15s;
+}
+.header-alerts-btn:hover { border-color: var(--amber-dim); color: var(--text-primary); }
+.header-alerts-btn.has-alerts { border-color: var(--red); color: var(--red); }
+.header-alerts-badge {
+  background: var(--red); color: #fff; font-size: 0.6rem; font-weight: 700;
+  padding: 1px 5px; border-radius: 8px; min-width: 16px; text-align: center;
+}
 
 /* ── LAYOUT ── */
 .app-shell {
@@ -1703,6 +1734,9 @@ select.form-input { cursor: pointer; }
     <div class="header-stats" id="header-stats"></div>
   </div>
   <div class="header-right">
+    <button class="header-alerts-btn" id="header-alerts-btn" onclick="toggleAlertsBar()" title="Alerts">
+      &#x26A0; <span id="header-alerts-badge" class="header-alerts-badge" style="display:none">0</span>
+    </button>
     <button class="header-inbox-btn" id="header-inbox-btn" onclick="navigateTo('inbox')" title="Inbox (m)">
       &#x2709; Inbox <span class="header-inbox-badge" id="header-inbox-badge" style="display:none">0</span>
     </button>
@@ -1724,6 +1758,7 @@ select.form-input { cursor: pointer; }
   </div>
 </div>
 
+<div class="alerts-bar" id="alerts-bar"></div>
 <div class="mobile-nav-backdrop" id="mobile-nav-backdrop" onclick="closeMobileNav()"></div>
 <div class="app-shell">
   <!-- Left project navigation -->
@@ -1845,6 +1880,8 @@ let inboxMessages = [];
 let tmuxSessions = [];
 let proposals = [];
 let proposalCounts = {};
+let currentAlerts = [];
+let alertsBarVisible = false;
 let commandTarget = 'broadcast'; // 'broadcast' or agent name
 let projectPaths = JSON.parse(localStorage.getItem('waggle_project_paths') || '{}');
 
@@ -3652,7 +3689,7 @@ function closePanel() {
 
 async function fetchAll() {
   try {
-    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes, reviewsRes, msgsRes, sessRes, proposalsRes] = await Promise.all([
+    const [tasksRes, agentsRes, statsRes, projectsRes, usageRes, reviewsRes, msgsRes, sessRes, proposalsRes, alertsRes] = await Promise.all([
       fetch('/api/tasks'),
       fetch('/api/agents'),
       fetch('/api/stats'),
@@ -3662,6 +3699,7 @@ async function fetchAll() {
       fetch('/api/messages?limit=100'),
       fetch('/api/sessions?all=true'),
       fetch('/api/proposals?status=pending'),
+      fetch('/api/alerts'),
     ]);
     tasks = await tasksRes.json();
     agents = await agentsRes.json();
@@ -3672,6 +3710,7 @@ async function fetchAll() {
     inboxMessages = await msgsRes.json().catch(() => []);
     tmuxSessions = await sessRes.json().catch(() => []);
     proposals = await proposalsRes.json().catch(() => []);
+    currentAlerts = await alertsRes.json().catch(() => []);
     // Build proposal counts by project_id and agent_id
     proposalCounts = {};
     for (const p of proposals) {
@@ -3693,6 +3732,7 @@ async function fetchAll() {
       renderUsage();
     }
     renderAgents();
+    renderAlerts();
     updatePageTitle();
     updateFavicon();
   } catch(e) {
@@ -5392,6 +5432,51 @@ function toggleColumn(status) {
 }
 
 // ── FAVICON BADGE ──
+
+function renderAlerts() {
+  const bar = document.getElementById('alerts-bar');
+  const btn = document.getElementById('header-alerts-btn');
+  const badge = document.getElementById('header-alerts-badge');
+  if (!bar || !btn) return;
+
+  const count = currentAlerts.length;
+  const critCount = currentAlerts.filter(a => a.level === 'critical').length;
+
+  // Update header button
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = '';
+    btn.classList.add('has-alerts');
+  } else {
+    badge.style.display = 'none';
+    btn.classList.remove('has-alerts');
+  }
+
+  // Render alerts bar
+  if (count === 0 || !alertsBarVisible) {
+    bar.className = 'alerts-bar';
+    bar.innerHTML = '';
+    return;
+  }
+
+  bar.className = 'alerts-bar has-alerts';
+  const icons = { stale_task: '&#x23F3;', past_deadline: '&#x1F4C5;', blocked_task: '&#x1F6AB;', stale_agent: '&#x1F4E1;', no_agents: '&#x26A0;' };
+  bar.innerHTML = `
+    <span class="alerts-bar-label">${critCount > 0 ? '&#x1F534;' : '&#x1F7E1;'} ${count} alert${count !== 1 ? 's' : ''}</span>
+    ${currentAlerts.map(a => `
+      <span class="alert-chip ${a.level}" onclick="${a.task_id ? `openTaskDetail('${a.task_id}')` : ''}" title="${esc(a.detail || '')}">
+        <span class="alert-chip-icon">${icons[a.type] || '&#x26A0;'}</span>
+        ${esc(a.title)}${a.detail ? ': ' + esc(a.detail.length > 30 ? a.detail.slice(0,30)+'...' : a.detail) : ''}
+      </span>
+    `).join('')}
+    <span class="alert-chip warning" onclick="toggleAlertsBar()" style="border-style:dashed;margin-left:auto">dismiss</span>
+  `;
+}
+
+function toggleAlertsBar() {
+  alertsBarVisible = !alertsBarVisible;
+  renderAlerts();
+}
 
 function updateFavicon() {
   const inProg = tasks.filter(t => t.status === 'in_progress').length;

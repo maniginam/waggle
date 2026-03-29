@@ -59,6 +59,10 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) Exec(query string, args ...any) (sql.Result, error) {
+	return s.db.Exec(query, args...)
+}
+
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS tasks (
