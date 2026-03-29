@@ -107,6 +107,18 @@ body {
   50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(52,211,153,0); }
 }
 .header-right { display: flex; align-items: center; gap: 12px; }
+.header-inbox-btn {
+  position: relative; display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-secondary); cursor: pointer;
+  font-family: var(--font-mono); font-size: 0.75rem; transition: all 0.15s;
+}
+.header-inbox-btn:hover { border-color: var(--amber-dim); color: var(--text-primary); background: var(--bg-card-hover); }
+.header-inbox-btn.has-unread { border-color: var(--amber-dim); color: var(--amber); }
+.header-inbox-badge {
+  background: var(--amber); color: #000; font-size: 0.6rem; font-weight: 700;
+  padding: 1px 5px; border-radius: 8px; min-width: 16px; text-align: center;
+}
 
 .sse-status { font-size: 0.75rem; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
 .sse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; }
@@ -870,6 +882,32 @@ select.form-input { cursor: pointer; }
 .btn-changes:hover { filter: brightness(1.1); }
 .btn-reject-review { background: var(--red); border-color: var(--red); color: #fff; }
 .btn-reject-review:hover { filter: brightness(1.1); }
+.btn-view-html {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
+  border-radius: var(--radius); border: 1px solid var(--cyan); background: var(--cyan-dim);
+  color: var(--cyan); font-family: var(--font-mono); font-size: 0.65rem;
+  cursor: pointer; transition: all 0.15s; margin-top: 6px;
+}
+.btn-view-html:hover { background: var(--cyan); color: #000; }
+.html-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1100;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px); animation: modalFadeIn 0.15s ease-out;
+}
+.html-modal {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 12px; width: 90vw; max-width: 1000px; max-height: 85vh;
+  display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.html-modal-header {
+  display: flex; align-items: center; gap: 12px; padding: 14px 20px;
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.html-modal-header h3 { margin: 0; font-size: 0.85rem; color: var(--text-primary); flex: 1; }
+.html-modal iframe {
+  flex: 1; border: none; border-radius: 0 0 12px 12px; background: #fff;
+  min-height: 400px;
+}
 
 /* ── INLINE TASK CREATOR ── */
 .inline-creator {
@@ -1665,6 +1703,9 @@ select.form-input { cursor: pointer; }
     <div class="header-stats" id="header-stats"></div>
   </div>
   <div class="header-right">
+    <button class="header-inbox-btn" id="header-inbox-btn" onclick="navigateTo('inbox')" title="Inbox (m)">
+      &#x2709; Inbox <span class="header-inbox-badge" id="header-inbox-badge" style="display:none">0</span>
+    </button>
     <div class="search-bar">
       <span class="search-icon">&#x1F50D;</span>
       <input class="search-input" id="search-input" placeholder="Search tasks..." oninput="onSearch(this.value)" onkeydown="handleSearchKey(event)" onfocus="showSearchResults()" onblur="setTimeout(hideSearchResults,200)">
@@ -3204,6 +3245,7 @@ async function loadChatMessages(agentName) {
     <div class="chat-msg ${m.dir}">
       <div class="chat-msg-meta">${m.dir === 'from-me' ? 'you' : esc(m.from)} · ${new Date(m.created_at).toLocaleTimeString()}</div>
       ${esc(m.body)}
+      ${hasHtml(m.body) ? (storeHtml(m.id, m.body), `<button class="btn-view-html" onclick="showHtmlModal('${m.id}', '${esc(m.from)}')">&#x2B9A; View HTML</button>`) : ''}
     </div>
   `).join('');
 
@@ -3662,15 +3704,23 @@ function renderProjectNav() {
   const container = document.getElementById('project-nav-list');
   const allCount = tasks.length;
   const unreadCount = inboxMessages.filter(m => !m.read).length;
+  // Update header inbox badge
+  const badge = document.getElementById('header-inbox-badge');
+  const btn = document.getElementById('header-inbox-btn');
+  if (badge && btn) {
+    if (unreadCount > 0) {
+      badge.textContent = unreadCount;
+      badge.style.display = '';
+      btn.classList.add('has-unread');
+    } else {
+      badge.style.display = 'none';
+      btn.classList.remove('has-unread');
+    }
+  }
   let html = `<button class="project-nav-item${currentView==='overview'?' active':''} overview-item" data-view="overview">
     <div class="nav-icon"></div>
     <span class="project-nav-name">Overview</span>
     <span class="project-nav-count">${allCount}</span>
-  </button>
-  <button class="project-nav-item${currentView==='inbox'?' active':''}" data-view="inbox" style="border-left:2px solid ${unreadCount > 0 ? 'var(--amber)' : 'transparent'}">
-    <div class="nav-icon" style="background:var(--purple-dim);border-color:var(--purple)"></div>
-    <span class="project-nav-name">Inbox</span>
-    ${unreadCount > 0 ? `<span class="project-nav-count" style="background:var(--amber-glow-strong);color:var(--amber)">${unreadCount}</span>` : `<span class="project-nav-count">${inboxMessages.length}</span>`}
   </button>
   <button class="project-nav-item${currentView==='sessions'?' active':''}" data-view="sessions">
     <div class="nav-icon" style="background:var(--cyan-dim);border-color:var(--cyan)"></div>
@@ -4069,6 +4119,7 @@ function renderInbox() {
             <span class="inbox-msg-time">${m.created_at ? timeSince(new Date(m.created_at)) : ''}</span>
           </div>
           <div class="inbox-msg-text">${esc(m.body)}</div>
+          ${hasHtml(m.body) ? (storeHtml(m.id, m.body), `<button class="btn-view-html" onclick="event.stopPropagation();showHtmlModal('${m.id}', '${esc(m.from)}')">&#x2B9A; View HTML</button>`) : ''}
         </div>
         ${!isMine ? `<button class="msg-btn" style="align-self:center;flex-shrink:0" onclick="setCommandTarget('${esc(m.from)}');document.getElementById('cmd-input').focus()">Reply</button>` : ''}
       </div>`;
@@ -5521,6 +5572,33 @@ function esc(s) {
   const d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
+}
+
+function hasHtml(s) {
+  return s && /<[a-z][\s\S]*?>/i.test(s);
+}
+
+const _htmlStore = {};
+function storeHtml(id, html) { _htmlStore[id] = html; }
+
+function showHtmlModal(id, from) {
+  const html = _htmlStore[id];
+  if (!html) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'html-modal-overlay';
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="html-modal">
+      <div class="html-modal-header">
+        <h3>HTML from ${esc(from || 'agent')}</h3>
+        <button class="diff-modal-close" onclick="this.closest('.html-modal-overlay').remove()">&times;</button>
+      </div>
+      <iframe sandbox="allow-same-origin" srcdoc=""></iframe>
+    </div>`;
+  const closeOnEsc = e => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeOnEsc); } };
+  document.addEventListener('keydown', closeOnEsc);
+  document.body.appendChild(overlay);
+  overlay.querySelector('iframe').srcdoc = html;
 }
 
 // ── PUSH NOTIFICATIONS ──
