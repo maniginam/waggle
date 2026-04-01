@@ -687,6 +687,7 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		to := r.URL.Query().Get("to")
+		agent := r.URL.Query().Get("agent")
 		q := r.URL.Query().Get("q")
 		limit := 50
 		if l := r.URL.Query().Get("limit"); l != "" {
@@ -696,6 +697,8 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 		var err error
 		if q != "" {
 			msgs, err = a.store.SearchMessages(q, limit)
+		} else if agent != "" {
+			msgs, err = a.store.AgentMessages(agent, limit)
 		} else if to == "" {
 			msgs, err = a.store.ListAllMessages(limit)
 		} else {

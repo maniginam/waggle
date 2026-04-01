@@ -2714,8 +2714,8 @@ async function openAgentPanel(evtOrNull, agentName) {
   content.innerHTML = `
     <div class="panel-tabs">
       <div class="panel-tab active" data-tab="prompt">Prompt</div>
+      <div class="panel-tab" data-tab="comms">Comms</div>
       <div class="panel-tab" data-tab="terminal">Terminal</div>
-      <div class="panel-tab" data-tab="messages">Messages</div>
       <div class="panel-tab" data-tab="diffs">Diffs</div>
     </div>
     <div id="agent-tab-prompt">
@@ -2770,11 +2770,11 @@ async function openAgentPanel(evtOrNull, agentName) {
         <button class="btn-ghost btn-sm" onclick="refreshTerminal('${esc(agentName)}')">Refresh</button>
       </div>
     </div>
-    <div id="agent-tab-messages" style="display:none;flex:1;display:none;flex-direction:column;height:100%">
-      <div class="chat-messages" id="chat-messages" style="flex:1"></div>
-      <div class="chat-input-bar">
-        <input class="chat-input" id="chat-input" placeholder="Message ${esc(agentName)}..." onkeydown="if(event.key==='Enter')sendChat()">
-        <button class="chat-send" onclick="sendChat()">&#9654;</button>
+    <div id="agent-tab-comms" style="display:none;flex-direction:column;height:100%">
+      <div id="comms-stream" style="flex:1;overflow-y:auto;background:var(--bg-deep);padding:8px 12px;font-family:var(--font-mono);font-size:0.7rem;line-height:1.6;min-height:200px;max-height:60vh;border:1px solid var(--border);border-radius:var(--radius);margin:8px"></div>
+      <div style="display:flex;gap:6px;padding:0 8px 8px">
+        <input class="command-input" id="comms-input" placeholder="Message ${esc(agentName)}..." onkeydown="if(event.key==='Enter'){sendComms('${esc(agentName)}');}" style="font-size:0.75rem">
+        <button class="btn btn-sm" onclick="sendComms('${esc(agentName)}')">Send</button>
       </div>
     </div>
     <div id="agent-tab-diffs" style="display:none;flex:1;overflow-y:auto;padding:12px">
@@ -2789,21 +2789,25 @@ async function openAgentPanel(evtOrNull, agentName) {
     tab.addEventListener('click', () => {
       content.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      const promptTab = document.getElementById('agent-tab-prompt');
-      const termTab = document.getElementById('agent-tab-terminal');
-      const msgTab = document.getElementById('agent-tab-messages');
-      const diffsTab = document.getElementById('agent-tab-diffs');
-      promptTab.style.display = 'none'; termTab.style.display = 'none'; msgTab.style.display = 'none'; diffsTab.style.display = 'none';
-      if (tab.dataset.tab === 'prompt') {
-        promptTab.style.display = '';
-      } else if (tab.dataset.tab === 'terminal') {
-        termTab.style.display = 'flex'; termTab.style.flexDirection = 'column';
+      const tabs = ['prompt','comms','terminal','diffs'];
+      tabs.forEach(t => {
+        const el = document.getElementById('agent-tab-' + t);
+        if (el) el.style.display = 'none';
+      });
+      const active = tab.dataset.tab;
+      if (active === 'prompt') {
+        document.getElementById('agent-tab-prompt').style.display = '';
+      } else if (active === 'comms') {
+        const el = document.getElementById('agent-tab-comms');
+        el.style.display = 'flex'; el.style.flexDirection = 'column';
+        loadCommsStream(agentName);
+      } else if (active === 'terminal') {
+        const el = document.getElementById('agent-tab-terminal');
+        el.style.display = 'flex'; el.style.flexDirection = 'column';
         refreshTerminal(agentName);
-      } else if (tab.dataset.tab === 'diffs') {
-        diffsTab.style.display = ''; loadAgentDiffs(agentName);
-      } else {
-        msgTab.style.display = 'flex'; msgTab.style.flexDirection = 'column';
-        loadChatMessages(agentName);
+      } else if (active === 'diffs') {
+        document.getElementById('agent-tab-diffs').style.display = '';
+        loadAgentDiffs(agentName);
       }
     });
   });
@@ -3472,6 +3476,84 @@ async function sendChat() {
       lastDelivery.style.color = 'var(--green)';
     }
   }
+}
+
+// ── COMMS STREAM ──
+
+let commsRefreshTimer = null;
+
+async function loadCommsStream(agentName) {
+  const el = document.getElementById('comms-stream');
+  if (!el) return;
+
+  const msgs = await fetch(`/api/messages?agent=${encodeURIComponent(agentName)}&limit=100`).then(r => r.json()).catch(() => []);
+  msgs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  if (msgs.length === 0) {
+    el.innerHTML = `<div style="color:var(--text-dim);padding:20px 0;text-align:center">No messages yet. Send a message below.</div>`;
+  } else {
+    el.innerHTML = msgs.map(m => {
+      const time = new Date(m.created_at).toLocaleTimeString();
+      const isUser = m.from === 'user' || m.from === 'dashboard' || m.from === 'alpha';
+      const isAgent = m.from === agentName;
+      // Color: user=amber, this agent=green, other agents=cyan
+      let fromColor, arrowColor;
+      if (isUser) { fromColor = 'var(--amber)'; arrowColor = 'var(--amber-dim)'; }
+      else if (isAgent) { fromColor = 'var(--green)'; arrowColor = 'var(--green)'; }
+      else { fromColor = 'var(--cyan)'; arrowColor = 'var(--cyan)'; }
+
+      const toLabel = m.to || 'all';
+      const bodyText = esc(m.body);
+      const truncated = m.body.length > 300 ? bodyText.substring(0, 300) + '...' : bodyText;
+
+      return `<div style="margin-bottom:6px;padding:4px 0;border-bottom:1px solid var(--border-subtle)">
+        <span style="color:var(--text-dim);font-size:0.6rem">${time}</span>
+        <span style="color:${fromColor};font-weight:600">${esc(m.from)}</span>
+        <span style="color:${arrowColor}"> → </span>
+        <span style="color:var(--text-dim)">${esc(toLabel)}</span>
+        <div style="color:var(--text-secondary);margin-top:2px;white-space:pre-wrap;word-break:break-word">${truncated}</div>
+        ${hasHtml(m.body) ? (storeHtml(m.id, m.body), `<button class="btn-view-html" onclick="showHtmlModal('${m.id}', '${esc(m.from)}')">&#x2B9A; View HTML</button>`) : ''}
+      </div>`;
+    }).join('');
+  }
+  el.scrollTop = el.scrollHeight;
+
+  // Auto-refresh
+  if (commsRefreshTimer) clearInterval(commsRefreshTimer);
+  commsRefreshTimer = setInterval(async () => {
+    const tab = document.getElementById('agent-tab-comms');
+    if (!tab || tab.style.display === 'none') {
+      clearInterval(commsRefreshTimer); commsRefreshTimer = null; return;
+    }
+    const fresh = await fetch(`/api/messages?agent=${encodeURIComponent(agentName)}&limit=100`).then(r => r.json()).catch(() => []);
+    if (fresh.length !== msgs.length) loadCommsStream(agentName);
+  }, 3000);
+}
+
+async function sendComms(agentName) {
+  const input = document.getElementById('comms-input');
+  const body = input ? input.value.trim() : '';
+  if (!body) return;
+  input.value = '';
+
+  await fetch('/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from: 'user', to: agentName, body}),
+  });
+
+  // Also inject into tmux if session exists
+  const session = tmuxSessions.find(s => s.agent === agentName);
+  if (session) {
+    fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys: body}),
+    }).catch(() => {});
+  }
+
+  showToast(`Sent to ${agentName}`, 'var(--amber)');
+  setTimeout(() => loadCommsStream(agentName), 300);
 }
 
 // ── TASK ACTIONS ──
