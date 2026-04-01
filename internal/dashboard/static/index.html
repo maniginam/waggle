@@ -411,6 +411,71 @@ body {
   color: var(--text-dim); font-size: 0.6rem; flex-shrink: 0;
 }
 
+/* ── SWIMLANE VIEW ── */
+.swimlane { overflow: auto; padding: 0; height: calc(100vh - 60px); }
+.swimlane-grid {
+  display: grid; border-collapse: collapse;
+  min-width: max-content;
+}
+.swimlane-grid .sl-header {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  padding: 10px 12px; font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--text-secondary); font-weight: 600;
+  text-align: center; white-space: nowrap;
+}
+.swimlane-grid .sl-project {
+  position: sticky; left: 0; z-index: 5;
+  background: var(--bg-surface); border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 14px; min-width: 160px; max-width: 180px; cursor: pointer;
+}
+.swimlane-grid .sl-project:hover { background: var(--bg-card-hover); }
+.sl-project-name {
+  font-family: var(--font-sans); font-weight: 600; font-size: 0.85rem;
+  color: var(--text-primary); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sl-project-meta { font-size: 0.6rem; color: var(--text-dim); margin-top: 3px; }
+.sl-project-bar {
+  display: flex; gap: 1px; height: 3px; margin-top: 5px; border-radius: 1px; overflow: hidden;
+}
+.sl-project-bar-seg { border-radius: 1px; }
+.swimlane-grid .sl-cell {
+  background: var(--bg-deep); border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  padding: 6px; min-width: 180px; min-height: 60px;
+  display: flex; flex-direction: column; gap: 4px;
+  overflow-y: auto; max-height: 200px;
+}
+.swimlane-grid .sl-cell.drag-over { background: var(--amber-glow); }
+.sl-compact-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 6px 8px; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  font-size: 0.75rem;
+}
+.sl-compact-card:hover { background: var(--bg-card-hover); border-color: var(--border); }
+.sl-compact-card[draggable="true"] { cursor: grab; }
+.sl-compact-card.dragging { opacity: 0.4; }
+.sl-card-title {
+  color: var(--text-primary); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
+}
+.sl-card-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.sl-card-assignee {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  font-size: 0.45rem; display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); flex-shrink: 0;
+}
+.sl-card-deadline { font-size: 0.6rem; color: var(--red); }
+@media (max-width: 768px) {
+  .swimlane-grid { min-width: unset; }
+  .swimlane-grid .sl-project { min-width: 120px; max-width: 120px; }
+  .swimlane-grid .sl-cell { min-width: 140px; }
+}
+
 /* ── STATS BAR ── */
 .stats-bar { display: flex; gap: 1px; background: var(--border-subtle); border-bottom: 1px solid var(--border); }
 .stat-cell { flex: 1; background: var(--bg-surface); padding: 14px 20px; display: flex; flex-direction: column; gap: 4px; }
@@ -1787,6 +1852,7 @@ select.form-input { cursor: pointer; }
     <div id="overview-view" class="overview"></div>
     <div id="inbox-view" class="inbox" style="display:none"></div>
     <div id="sessions-view" style="display:none"></div>
+    <div id="swimlane-view" style="display:none"></div>
     <div id="board-view" style="display:none">
       <div class="board-header" id="board-header"></div>
       <div class="main-panel">
@@ -1824,6 +1890,7 @@ select.form-input { cursor: pointer; }
     <div class="shortcut-row"><span class="shortcut-desc">Spawn agent</span><span class="shortcut-key">a</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Focus mode</span><span class="shortcut-key">f</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Sessions view</span><span class="shortcut-key">s</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Swimlane view</span><span class="shortcut-key">w</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Command palette</span><span class="shortcut-key">&#8984;P</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Command bar</span><span class="shortcut-key">&#8984;K</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Overview / projects 1-8</span><span class="shortcut-key">1-9</span></div>
@@ -3724,6 +3791,8 @@ async function fetchAll() {
       renderInbox();
     } else if (currentView === 'sessions') {
       renderSessions();
+    } else if (currentView === 'swimlane') {
+      renderSwimlane();
     } else {
       renderBoardHeader();
       renderFilterBar();
@@ -3766,6 +3835,11 @@ function renderProjectNav() {
     <div class="nav-icon" style="background:var(--cyan-dim);border-color:var(--cyan)"></div>
     <span class="project-nav-name">Sessions</span>
     <span class="project-nav-count">${tmuxSessions.length}</span>
+  </button>
+  <button class="project-nav-item${currentView==='swimlane'?' active':''}" data-view="swimlane">
+    <div class="nav-icon" style="background:var(--purple-dim);border-color:var(--purple)"></div>
+    <span class="project-nav-name">Swimlane</span>
+    <span class="project-nav-count">${tasks.filter(t=>t.status!=='done').length}</span>
   </button>`;
 
   for (const p of projects) {
@@ -3810,8 +3884,9 @@ function navigateTo(view) {
   const boardEl = document.getElementById('board-view');
   const inboxEl = document.getElementById('inbox-view');
   const sessEl = document.getElementById('sessions-view');
+  const swimEl = document.getElementById('swimlane-view');
 
-  const hideAll = () => { overviewEl.style.display='none'; boardEl.style.display='none'; inboxEl.style.display='none'; sessEl.style.display='none'; };
+  const hideAll = () => { overviewEl.style.display='none'; boardEl.style.display='none'; inboxEl.style.display='none'; sessEl.style.display='none'; swimEl.style.display='none'; };
 
   if (view === 'overview') {
     selectedProject = '';
@@ -3825,6 +3900,10 @@ function navigateTo(view) {
     selectedProject = '';
     hideAll(); sessEl.style.display = '';
     renderSessions();
+  } else if (view === 'swimlane') {
+    selectedProject = '';
+    hideAll(); swimEl.style.display = '';
+    renderSwimlane();
   } else {
     selectedProject = view === 'none' ? 'none' : view;
     hideAll(); boardEl.style.display = '';
@@ -3959,6 +4038,7 @@ function renderOverview() {
         <div class="overview-subtitle">${totalTasks} tasks across ${projects.length} projects \u00b7 ${activeAgents} agents online${totalCost > 0 ? ` \u00b7 $${totalCost.toFixed(2)} spent` : ''}</div>
       </div>
       <div style="display:flex;gap:8px">
+        <button class="btn-ghost btn-sm${currentView==='swimlane'?' active':''}" onclick="navigateTo('swimlane')" style="${currentView==='swimlane'?'color:var(--amber);border-color:var(--amber-dim)':''}">Swimlane</button>
         <button class="btn-ghost btn-sm" onclick="exportTasks('json')" title="Export tasks as JSON">Export JSON</button>
         <button class="btn-ghost btn-sm" onclick="exportTasks('csv')" title="Export tasks as CSV">Export CSV</button>
         <button class="btn-ghost btn-sm" onclick="openCreatePanel('project')">+ Project</button>
@@ -4119,6 +4199,157 @@ function renderOverview() {
       row.addEventListener('click', () => openTaskPanel(row.dataset.taskId));
     });
   }).catch(() => {});
+}
+
+// ── SWIMLANE VIEW ──
+
+function renderCompactCard(t) {
+  const priorityColors = {critical:'var(--red)',high:'var(--amber)',medium:'var(--text-dim)',low:'var(--text-dim)'};
+  const pColor = priorityColors[t.priority] || 'var(--text-dim)';
+  let deadlineHtml = '';
+  if (t.deadline && t.status !== 'done') {
+    const daysLeft = Math.ceil((new Date(t.deadline) - new Date()) / 86400000);
+    if (daysLeft < 0) deadlineHtml = `<span class="sl-card-deadline">${Math.abs(daysLeft)}d late</span>`;
+    else if (daysLeft <= 2) deadlineHtml = `<span class="sl-card-deadline" style="color:var(--amber)">${daysLeft === 0 ? 'today' : daysLeft + 'd'}</span>`;
+  }
+  const assigneeDot = t.assignee
+    ? `<span class="sl-card-assignee" title="${esc(t.assignee)}" style="background:var(--amber-glow-strong);color:var(--amber)">${esc(t.assignee.slice(0,2))}</span>`
+    : '';
+  return `<div class="sl-compact-card" data-id="${esc(t.id)}" draggable="true">
+    <div class="sl-card-meta">
+      <span class="priority-badge priority-${t.priority}" style="font-size:0.55rem;padding:1px 4px">${t.priority}</span>
+      ${assigneeDot}${deadlineHtml}
+    </div>
+    <div class="sl-card-title">${esc(t.title)}</div>
+  </div>`;
+}
+
+function renderSwimlane() {
+  const el = document.getElementById('swimlane-view');
+  if (!el) return;
+
+  const displayStatuses = focusMode ? STATUSES.filter(s => s !== 'done') : STATUSES;
+  const cols = displayStatuses.length;
+
+  // Group tasks by project
+  const byProject = {};
+  for (const t of tasks) {
+    const pid = t.project_id || '__none__';
+    (byProject[pid] = byProject[pid] || []).push(t);
+  }
+
+  // Sort projects: most in-progress first, unassigned last
+  const projectOrder = [...projects].sort((a, b) => {
+    const aActive = (byProject[a.id] || []).filter(t => t.status === 'in_progress' || t.status === 'review').length;
+    const bActive = (byProject[b.id] || []).filter(t => t.status === 'in_progress' || t.status === 'review').length;
+    return bActive - aActive;
+  });
+
+  // Build grid
+  let html = `<div class="swimlane"><div class="swimlane-grid" style="grid-template-columns:160px repeat(${cols},minmax(180px,1fr))">`;
+
+  // Header row
+  html += `<div class="sl-header" style="position:sticky;left:0;z-index:11;background:var(--bg-surface);border-right:1px solid var(--border)"></div>`;
+  for (const s of displayStatuses) {
+    html += `<div class="sl-header">${STATUS_LABELS[s]}</div>`;
+  }
+
+  // Project rows
+  const renderRow = (pid, name, rowTasks) => {
+    const total = rowTasks.length;
+    const done = rowTasks.filter(t => t.status === 'done').length;
+    const active = rowTasks.filter(t => t.status === 'in_progress' || t.status === 'review').length;
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+    const pAgents = agents.filter(a => a.project_id === pid && a.status !== 'disconnected').length;
+
+    // Progress bar segments
+    let barHtml = '';
+    if (total > 0) {
+      for (const s of STATUSES) {
+        const cnt = rowTasks.filter(t => t.status === s).length;
+        if (cnt > 0) barHtml += `<div class="sl-project-bar-seg" style="flex:${cnt};background:${STATUS_COLORS[s]}"></div>`;
+      }
+    }
+
+    const clickTarget = pid === '__none__' ? 'none' : pid;
+    html += `<div class="sl-project" onclick="navigateTo('${esc(clickTarget)}')">
+      <div class="sl-project-name">${esc(name)}</div>
+      <div class="sl-project-meta">${active} active${pAgents ? ' · ' + pAgents + ' agent' + (pAgents > 1 ? 's' : '') : ''}</div>
+      <div class="sl-project-bar">${barHtml}</div>
+    </div>`;
+
+    for (const s of displayStatuses) {
+      const cellTasks = rowTasks.filter(t => t.status === s)
+        .sort((a, b) => (({critical:0,high:1,medium:2,low:3})[a.priority]||4) - (({critical:0,high:1,medium:2,low:3})[b.priority]||4));
+      html += `<div class="sl-cell" data-status="${s}" data-project="${esc(pid)}">`;
+      html += cellTasks.map(t => renderCompactCard(t)).join('');
+      html += '</div>';
+    }
+  };
+
+  for (const p of projectOrder) {
+    renderRow(p.id, p.name, byProject[p.id] || []);
+  }
+
+  // Unassigned row
+  if (byProject.__none__ && byProject.__none__.length > 0) {
+    renderRow('__none__', 'Unassigned', byProject.__none__);
+  }
+
+  html += '</div></div>';
+  el.innerHTML = html;
+
+  // Attach card click handlers
+  el.querySelectorAll('.sl-compact-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if (card.classList.contains('dragging')) return;
+      openTaskPanel(card.dataset.id);
+    });
+
+    // Drag start
+    card.addEventListener('dragstart', (e) => {
+      draggedTaskId = card.dataset.id;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.id);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      draggedTaskId = null;
+      el.querySelectorAll('.sl-cell').forEach(c => c.classList.remove('drag-over'));
+    });
+  });
+
+  // Drop targets
+  el.querySelectorAll('.sl-cell').forEach(cell => {
+    cell.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      cell.classList.add('drag-over');
+    });
+    cell.addEventListener('dragleave', (e) => {
+      if (!cell.contains(e.relatedTarget)) cell.classList.remove('drag-over');
+    });
+    cell.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      cell.classList.remove('drag-over');
+      const taskId = e.dataTransfer.getData('text/plain');
+      const newStatus = cell.dataset.status;
+      if (!taskId || !newStatus) return;
+      const task = tasks.find(t => t.id === taskId);
+      if (task && task.status !== newStatus) {
+        await fetch(`/api/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({status: newStatus}),
+        });
+        await fetchAll();
+        if (currentPanel && currentPanel.type === 'task' && currentPanel.id === taskId) {
+          openTaskPanel(taskId);
+        }
+      }
+    });
+  });
 }
 
 // ── INBOX ──
@@ -4504,7 +4735,8 @@ function slashView(args) {
   if (page === 'overview' || page === 'home') { navigateTo('overview'); }
   else if (page === 'inbox' || page === 'messages') { navigateTo('inbox'); }
   else if (page === 'sessions' || page === 'cctv') { navigateTo('sessions'); }
-  else { showToast('Views: overview, inbox, sessions', 'var(--amber)'); }
+  else if (page === 'swimlane') { navigateTo('swimlane'); }
+  else { showToast('Views: overview, inbox, sessions, swimlane', 'var(--amber)'); }
 }
 
 async function slashTask(args) {
@@ -4896,7 +5128,8 @@ let searchHighlight = -1;
 
 function onSearch(query) {
   searchQuery = query;
-  if (currentView !== 'overview') renderBoard();
+  if (currentView === 'swimlane') renderSwimlane();
+  else if (currentView !== 'overview') renderBoard();
   showSearchResults();
 }
 
@@ -5297,6 +5530,11 @@ document.addEventListener('keydown', e => {
     navigateTo('sessions');
     return;
   }
+  if (e.key === 'w' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    navigateTo('swimlane');
+    return;
+  }
   // Number keys 1-9 to jump to projects
   if (e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.metaKey) {
     const idx = parseInt(e.key) - 1;
@@ -5563,6 +5801,7 @@ function renderPaletteResults(query) {
     {icon: '↻', label: 'Refresh', hint: 'r', action: () => { closePalette(); fetchAll(); }},
     {icon: '✉', label: 'Inbox', hint: 'm', action: () => { closePalette(); navigateTo('inbox'); }},
     {icon: '▣', label: 'Sessions', hint: 's', action: () => { closePalette(); navigateTo('sessions'); }},
+    {icon: '≡', label: 'Swimlane', hint: 'w', action: () => { closePalette(); navigateTo('swimlane'); }},
     {icon: '⌂', label: 'Overview', hint: '1', action: () => { closePalette(); navigateTo('overview'); }},
   ];
   const filteredCmds = q ? cmds.filter(c => c.label.toLowerCase().includes(q)) : cmds;
@@ -5808,11 +6047,19 @@ if (currentView === 'inbox') {
   document.getElementById('inbox-view').style.display = '';
   document.getElementById('board-view').style.display = 'none';
   document.getElementById('sessions-view').style.display = 'none';
+  document.getElementById('swimlane-view').style.display = 'none';
 } else if (currentView === 'sessions') {
   document.getElementById('overview-view').style.display = 'none';
   document.getElementById('inbox-view').style.display = 'none';
   document.getElementById('board-view').style.display = 'none';
   document.getElementById('sessions-view').style.display = '';
+  document.getElementById('swimlane-view').style.display = 'none';
+} else if (currentView === 'swimlane') {
+  document.getElementById('overview-view').style.display = 'none';
+  document.getElementById('inbox-view').style.display = 'none';
+  document.getElementById('board-view').style.display = 'none';
+  document.getElementById('sessions-view').style.display = 'none';
+  document.getElementById('swimlane-view').style.display = '';
 } else if (currentView !== 'overview') {
   selectedProject = currentView === 'none' ? 'none' : currentView;
   document.getElementById('overview-view').style.display = 'none';
