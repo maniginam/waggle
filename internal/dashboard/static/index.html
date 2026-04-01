@@ -2765,7 +2765,7 @@ async function openAgentPanel(evtOrNull, agentName) {
     <div id="agent-tab-terminal" style="display:none;flex-direction:column;height:100%">
       <div id="term-output" style="flex:1;overflow-y:auto;background:var(--bg-deep);padding:8px 12px;font-family:var(--font-mono);font-size:0.7rem;line-height:1.5;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;min-height:200px;max-height:60vh;border:1px solid var(--border);border-radius:var(--radius);margin:8px"></div>
       <div style="display:flex;gap:6px;padding:0 8px 8px">
-        <input class="command-input" id="term-input" placeholder="Send to terminal..." onkeydown="if(event.key==='Enter'){sendToTerminal('${esc(agentName)}');}" style="font-size:0.75rem">
+        <input class="command-input" id="term-input" placeholder="Send to agent..." onkeydown="if(event.key==='Enter'){sendToTerminal('${esc(agentName)}');}" style="font-size:0.75rem">
         <button class="btn btn-sm" onclick="sendToTerminal('${esc(agentName)}')">Send</button>
         <button class="btn-ghost btn-sm" onclick="refreshTerminal('${esc(agentName)}')">Refresh</button>
       </div>
@@ -2833,32 +2833,76 @@ let termRefreshTimer = null;
 async function refreshTerminal(agentName) {
   const el = document.getElementById('term-output');
   if (!el) return;
-  // Try waggle-prefixed first, then bare session name
+
+  // Try tmux session first
   let resp = await fetch(`/api/sessions/${encodeURIComponent(agentName)}/output?lines=80`);
-  if (!resp.ok) {
-    el.textContent = 'No tmux session found for ' + agentName + '.\nSpawn an agent or check session names.';
+  if (resp.ok) {
+    const data = await resp.json();
+    el.textContent = data.output || '(empty)';
+    el.scrollTop = el.scrollHeight;
+    el.dataset.mode = 'tmux';
+
+    if (termRefreshTimer) clearInterval(termRefreshTimer);
+    termRefreshTimer = setInterval(async () => {
+      const termTab = document.getElementById('agent-tab-terminal');
+      if (!termTab || termTab.style.display === 'none') {
+        clearInterval(termRefreshTimer); termRefreshTimer = null; return;
+      }
+      const r = await fetch(`/api/sessions/${encodeURIComponent(agentName)}/output?lines=80`).catch(() => null);
+      if (r && r.ok) {
+        const d = await r.json();
+        el.textContent = d.output || '(empty)';
+        el.scrollTop = el.scrollHeight;
+      }
+    }, 3000);
     return;
   }
-  const data = await resp.json();
-  el.textContent = data.output || '(empty)';
-  el.scrollTop = el.scrollHeight;
 
-  // Auto-refresh every 3 seconds while terminal tab is visible
+  // No tmux — fall back to MCP message stream
+  el.dataset.mode = 'mcp';
+  await refreshTerminalMcp(agentName, el);
+
   if (termRefreshTimer) clearInterval(termRefreshTimer);
   termRefreshTimer = setInterval(async () => {
     const termTab = document.getElementById('agent-tab-terminal');
     if (!termTab || termTab.style.display === 'none') {
-      clearInterval(termRefreshTimer);
-      termRefreshTimer = null;
-      return;
+      clearInterval(termRefreshTimer); termRefreshTimer = null; return;
     }
-    const r = await fetch(`/api/sessions/${encodeURIComponent(agentName)}/output?lines=80`).catch(() => null);
-    if (r && r.ok) {
-      const d = await r.json();
-      el.textContent = d.output || '(empty)';
-      el.scrollTop = el.scrollHeight;
-    }
+    await refreshTerminalMcp(agentName, el);
   }, 3000);
+}
+
+async function refreshTerminalMcp(agentName, el) {
+  // Get messages TO this agent and FROM this agent (via to=dashboard/user)
+  const [toAgent, toDashboard, toUser] = await Promise.all([
+    fetch(`/api/messages?to=${encodeURIComponent(agentName)}&limit=50`).then(r => r.json()).catch(() => []),
+    fetch(`/api/messages?to=dashboard&limit=50`).then(r => r.json()).catch(() => []),
+    fetch(`/api/messages?to=user&limit=50`).then(r => r.json()).catch(() => []),
+  ]);
+
+  const allMsgs = [
+    ...toAgent,
+    ...toDashboard.filter(m => m.from === agentName),
+    ...toUser.filter(m => m.from === agentName),
+  ];
+  const seen = new Set();
+  const unique = allMsgs.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+  unique.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  if (unique.length === 0) {
+    el.textContent = `Connected via MCP (no tmux session)\n\nAgent "${agentName}" is registered and reachable via messaging.\nType below to send a message.\n\nNo messages yet.`;
+    return;
+  }
+
+  const lines = unique.map(m => {
+    const time = new Date(m.created_at).toLocaleTimeString();
+    const dir = m.from === agentName ? '\x1b[32m' : '\x1b[33m';
+    const from = m.from || '?';
+    const to = m.to || 'all';
+    return `[${time}] ${from} → ${to}: ${m.body}`;
+  });
+  el.textContent = `Connected via MCP (no tmux session)\n${'─'.repeat(50)}\n${lines.join('\n')}`;
+  el.scrollTop = el.scrollHeight;
 }
 
 async function sendToTerminal(agentName) {
@@ -2866,12 +2910,28 @@ async function sendToTerminal(agentName) {
   const keys = input ? input.value : '';
   if (!keys) return;
   input.value = '';
-  await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({keys}),
-  });
-  setTimeout(() => refreshTerminal(agentName), 500);
+
+  const el = document.getElementById('term-output');
+  const mode = el ? el.dataset.mode : 'tmux';
+
+  if (mode === 'mcp') {
+    // Send as MCP message
+    await fetch('/api/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({from: 'user', to: agentName, body: keys}),
+    });
+    showToast(`Message sent to ${agentName}`, 'var(--amber)');
+    setTimeout(() => refreshTerminal(agentName), 300);
+  } else {
+    // Send via tmux
+    await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({keys}),
+    });
+    setTimeout(() => refreshTerminal(agentName), 500);
+  }
 }
 
 async function sendAgentPrompt(agentName) {
