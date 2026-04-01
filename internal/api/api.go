@@ -30,6 +30,8 @@ type API struct {
 	push        *push.Notifier
 	ghAvail     bool
 	rateLimiter *rateLimiter
+	procsMu     sync.Mutex
+	procs       map[string]*exec.Cmd // spawned agent processes by name
 }
 
 func New(s *store.Store, eh *event.Hub) *API {
@@ -38,6 +40,7 @@ func New(s *store.Store, eh *event.Hub) *API {
 		eventHub:    eh,
 		ghAvail:     gh.Available(),
 		rateLimiter: newRateLimiter(120, time.Minute),
+		procs:       make(map[string]*exec.Cmd),
 	}
 	if p, err := push.NewNotifier(s); err == nil {
 		a.push = p
@@ -1160,6 +1163,11 @@ func (a *API) handleReview(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func agentLogPath(name string) string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".waggle", "logs", name+".log")
+}
+
 func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -1253,7 +1261,6 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build the initial prompt
-	sessionName := "waggle-" + req.Name
 	prompt := req.Prompt
 	if prompt == "" {
 		prompt = "You are agent '" + req.Name + "'. Register with waggle and check for tasks."
@@ -1275,8 +1282,14 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	regPreamble += ". Then: " + prompt
 
-	// Kill existing tmux session if any
-	exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	// Kill existing spawned process if any
+	a.procsMu.Lock()
+	if existing, ok := a.procs[req.Name]; ok {
+		existing.Process.Kill()
+		existing.Wait()
+		delete(a.procs, req.Name)
+	}
+	a.procsMu.Unlock()
 
 	// Write prompt to a temp file to avoid shell escaping issues
 	promptFile := filepath.Join(os.TempDir(), "waggle-prompt-"+req.Name+".txt")
@@ -1289,40 +1302,67 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	shellCmd += fmt.Sprintf(` -p "$(cat '%s')"`, promptFile)
 
+	// Set up log file
+	logPath := agentLogPath(req.Name)
+	os.MkdirAll(filepath.Dir(logPath), 0755)
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "log_failed", "cannot create log file: "+err.Error())
+		return
+	}
+
 	// Write a launch script to avoid shell escaping issues entirely
 	launchScript := filepath.Join(os.TempDir(), "waggle-launch-"+req.Name+".sh")
-	os.WriteFile(launchScript, []byte("#!/bin/sh\nunset CLAUDECODE\n"+shellCmd+"\nexec $SHELL"), 0755)
+	os.WriteFile(launchScript, []byte("#!/bin/sh\nunset CLAUDECODE\n"+shellCmd), 0755)
 
-	// Spawn tmux session with the launch script
-	tmuxCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName, "-c", workDir, launchScript)
+	// Spawn as child process
+	cmd := exec.Command("/bin/sh", launchScript)
+	cmd.Dir = workDir
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	// Filter out CLAUDECODE env var to allow nested Claude Code sessions
 	for _, e := range os.Environ() {
 		if !strings.HasPrefix(e, "CLAUDECODE=") {
-			tmuxCmd.Env = append(tmuxCmd.Env, e)
+			cmd.Env = append(cmd.Env, e)
 		}
 	}
 
-	if out, err := tmuxCmd.CombinedOutput(); err != nil {
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		writeError(w, http.StatusInternalServerError, "spawn_failed",
-			fmt.Sprintf("failed to create tmux session: %v — %s", err, string(out)))
+			fmt.Sprintf("failed to start agent process: %v", err))
 		return
 	}
+
+	// Track the process
+	a.procsMu.Lock()
+	a.procs[req.Name] = cmd
+	a.procsMu.Unlock()
+
+	// Clean up when process exits
+	go func() {
+		cmd.Wait()
+		logFile.Close()
+		a.procsMu.Lock()
+		delete(a.procs, req.Name)
+		a.procsMu.Unlock()
+	}()
 
 	// Record event
 	a.eventHub.Publish(&model.Event{
 		Type:    model.EventAgentJoined,
 		AgentID: req.Name,
 		Payload: map[string]string{
-			"session": sessionName,
 			"work_dir": workDir,
-			"prompt":  prompt,
+			"prompt":   prompt,
+			"log":      logPath,
 		},
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status":  "spawned",
-		"session": sessionName,
-		"name":    req.Name,
+		"status": "spawned",
+		"name":   req.Name,
+		"log":    logPath,
 	})
 }
 
@@ -1332,40 +1372,25 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// List active tmux sessions matching waggle-*
-	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}|#{session_created}|#{session_activity}|#{session_windows}").Output()
-	if err != nil {
-		writeJSON(w, http.StatusOK, []any{})
-		return
+	a.procsMu.Lock()
+	var sessions []map[string]any
+	for name, cmd := range a.procs {
+		logPath := agentLogPath(name)
+		hasLog := false
+		if _, err := os.Stat(logPath); err == nil {
+			hasLog = true
+		}
+		sessions = append(sessions, map[string]any{
+			"name":    name,
+			"agent":   name,
+			"pid":     cmd.Process.Pid,
+			"has_log": hasLog,
+		})
 	}
+	a.procsMu.Unlock()
 
-	showAll := r.URL.Query().Get("all") == "true"
-
-	var sessions []map[string]string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "|", 4)
-		name := parts[0]
-		if !showAll && !strings.HasPrefix(name, "waggle-") {
-			continue
-		}
-		agent := strings.TrimPrefix(name, "waggle-")
-		if !strings.HasPrefix(name, "waggle-") {
-			agent = name
-		}
-		s := map[string]string{"name": name, "agent": agent}
-		if len(parts) > 1 {
-			s["created"] = parts[1]
-		}
-		if len(parts) > 2 {
-			s["activity"] = parts[2]
-		}
-		sessions = append(sessions, s)
-	}
 	if sessions == nil {
-		sessions = []map[string]string{}
+		sessions = []map[string]any{}
 	}
 	writeJSON(w, http.StatusOK, sessions)
 }
@@ -1384,60 +1409,48 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try waggle-prefixed first, fall back to bare name
-	sessionName := "waggle-" + name
-	if out, err := exec.Command("tmux", "has-session", "-t", sessionName).CombinedOutput(); err != nil {
-		// Try bare name (for existing non-waggle sessions)
-		if out2, err2 := exec.Command("tmux", "has-session", "-t", name).CombinedOutput(); err2 != nil {
-			_ = out
-			_ = out2
-			writeError(w, http.StatusNotFound, "session_not_found", "no tmux session: "+sessionName+" or "+name)
-			return
-		}
-		sessionName = name
-	}
-
 	switch {
 	case action == "output" && r.Method == http.MethodGet:
-		// Capture tmux pane output
+		// Read from log file
+		logPath := agentLogPath(name)
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "no_log", "no log file for agent: "+name)
+			return
+		}
 		lines := 100
 		if l := r.URL.Query().Get("lines"); l != "" {
 			fmt.Sscanf(l, "%d", &lines)
 		}
-		out, err := exec.Command("tmux", "capture-pane", "-t", sessionName, "-p", "-S", fmt.Sprintf("-%d", lines)).Output()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "capture_failed", err.Error())
-			return
+		// Tail the output to requested number of lines
+		allLines := strings.Split(string(data), "\n")
+		start := 0
+		if len(allLines) > lines {
+			start = len(allLines) - lines
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"output": string(out), "session": sessionName})
-
-	case action == "send" && r.Method == http.MethodPost:
-		// Send keys to tmux session (type into the terminal)
-		limitBody(r)
-		var req struct {
-			Keys string `json:"keys"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Keys == "" {
-			writeError(w, http.StatusBadRequest, "missing_keys", "keys field required")
-			return
-		}
-		// Limit key length to prevent abuse
-		if len(req.Keys) > 10000 {
-			writeError(w, http.StatusBadRequest, "keys_too_long", "keys must be under 10000 chars")
-			return
-		}
-		if err := exec.Command("tmux", "send-keys", "-t", sessionName, req.Keys, "Enter").Run(); err != nil {
-			writeError(w, http.StatusInternalServerError, "send_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+		output := strings.Join(allLines[start:], "\n")
+		writeJSON(w, http.StatusOK, map[string]string{"output": output, "agent": name})
 
 	case action == "" && r.Method == http.MethodDelete:
-		if err := exec.Command("tmux", "kill-session", "-t", sessionName).Run(); err != nil {
-			writeError(w, http.StatusInternalServerError, "kill_failed", err.Error())
+		a.procsMu.Lock()
+		cmd, ok := a.procs[name]
+		if ok {
+			cmd.Process.Kill()
+			delete(a.procs, name)
+		}
+		a.procsMu.Unlock()
+
+		if !ok {
+			writeError(w, http.StatusNotFound, "not_found", "no spawned process for: "+name)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "killed", "session": sessionName})
+		// Also disconnect the agent
+		a.store.DisconnectAgent(name)
+		a.eventHub.Publish(&model.Event{
+			Type:    model.EventAgentLeft,
+			AgentID: name,
+		})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "killed", "agent": name})
 
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

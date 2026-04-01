@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os/exec"
 	"time"
 
 	"github.com/maniginam/waggle/internal/api"
@@ -28,7 +27,6 @@ type Server struct {
 	push         *push.Notifier
 	stopReaper   chan struct{}
 	startedAt    time.Time
-	tmuxChecker  func(string) bool // injectable for testing; defaults to tmuxSessionAlive
 }
 
 type Config struct {
@@ -119,7 +117,6 @@ func New(cfg Config) (*Server, error) {
 		api:         restAPI,
 		push:        pushNotifier,
 		startedAt:   startedAt,
-		tmuxChecker: tmuxSessionAlive,
 	}, nil
 }
 
@@ -168,15 +165,7 @@ func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
 			continue
 		}
 		if agent.LastSeen.Before(cutoff) {
-			// Check if agent has an active tmux session before reaping
-			sessionName := "waggle-" + agent.Name
-			if s.tmuxChecker(sessionName) {
-				// Agent has a live tmux session — refresh its heartbeat
-				s.store.TouchAgent(agent.Name)
-				continue
-			}
 			log.Printf("reaping stale agent: %s (last seen %s)", agent.Name, agent.LastSeen)
-			// Emit stale event before disconnecting (for push notifications)
 			s.eventHub.Publish(&model.Event{
 				Type:    model.EventAgentStale,
 				AgentID: agent.Name,
@@ -185,7 +174,9 @@ func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
 					"last_seen":  agent.LastSeen.Format("2006-01-02T15:04:05Z"),
 				},
 			})
-			s.store.DisconnectAgent(agent.Name)
+			if err := s.store.DisconnectAgent(agent.Name); err != nil {
+				log.Printf("failed to disconnect agent %s: %v", agent.Name, err)
+			}
 			s.eventHub.Publish(&model.Event{
 				Type:    model.EventAgentLeft,
 				AgentID: agent.Name,
@@ -196,22 +187,6 @@ func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
 	if purged, err := s.store.PurgeStaleAgents(24 * time.Hour); err == nil && purged > 0 {
 		log.Printf("purged %d agents disconnected for 24+ hours", purged)
 	}
-}
-
-// tmuxSessionAlive checks if a tmux session exists and has a running process (not just a shell).
-func tmuxSessionAlive(sessionName string) bool {
-	// Check if session exists
-	if err := exec.Command("tmux", "has-session", "-t", sessionName).Run(); err != nil {
-		return false
-	}
-	// Check if there's a claude process in the session
-	out, err := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_current_command}").Output()
-	if err != nil {
-		return false
-	}
-	cmd := string(out)
-	// If the pane is running claude or a launch script, the agent is alive
-	return cmd != "" && cmd != "zsh\n" && cmd != "bash\n" && cmd != "sh\n"
 }
 
 func (s *Server) retentionCleanup() {
