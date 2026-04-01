@@ -2862,51 +2862,9 @@ async function refreshTerminal(agentName) {
     return;
   }
 
-  // No tmux — fall back to MCP message stream
+  // No tmux session — point user to Comms tab
   el.dataset.mode = 'mcp';
-  await refreshTerminalMcp(agentName, el);
-
-  if (termRefreshTimer) clearInterval(termRefreshTimer);
-  termRefreshTimer = setInterval(async () => {
-    const termTab = document.getElementById('agent-tab-terminal');
-    if (!termTab || termTab.style.display === 'none') {
-      clearInterval(termRefreshTimer); termRefreshTimer = null; return;
-    }
-    await refreshTerminalMcp(agentName, el);
-  }, 3000);
-}
-
-async function refreshTerminalMcp(agentName, el) {
-  // Get messages TO this agent and FROM this agent (via to=dashboard/user)
-  const [toAgent, toDashboard, toUser] = await Promise.all([
-    fetch(`/api/messages?to=${encodeURIComponent(agentName)}&limit=50`).then(r => r.json()).catch(() => []),
-    fetch(`/api/messages?to=dashboard&limit=50`).then(r => r.json()).catch(() => []),
-    fetch(`/api/messages?to=user&limit=50`).then(r => r.json()).catch(() => []),
-  ]);
-
-  const allMsgs = [
-    ...toAgent,
-    ...toDashboard.filter(m => m.from === agentName),
-    ...toUser.filter(m => m.from === agentName),
-  ];
-  const seen = new Set();
-  const unique = allMsgs.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
-  unique.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-
-  if (unique.length === 0) {
-    el.textContent = `Connected via MCP (no tmux session)\n\nAgent "${agentName}" is registered and reachable via messaging.\nType below to send a message.\n\nNo messages yet.`;
-    return;
-  }
-
-  const lines = unique.map(m => {
-    const time = new Date(m.created_at).toLocaleTimeString();
-    const dir = m.from === agentName ? '\x1b[32m' : '\x1b[33m';
-    const from = m.from || '?';
-    const to = m.to || 'all';
-    return `[${time}] ${from} → ${to}: ${m.body}`;
-  });
-  el.textContent = `Connected via MCP (no tmux session)\n${'─'.repeat(50)}\n${lines.join('\n')}`;
-  el.scrollTop = el.scrollHeight;
+  el.innerHTML = `<span style="color:var(--text-dim)">No tmux session for this agent.</span>\n\n<span style="color:var(--amber)">Use the <b>Comms</b> tab to view and send messages.</span>\n<span style="color:var(--text-dim)">This agent communicates via MCP messaging, not a terminal.</span>`;
 }
 
 async function sendToTerminal(agentName) {
@@ -2914,28 +2872,12 @@ async function sendToTerminal(agentName) {
   const keys = input ? input.value : '';
   if (!keys) return;
   input.value = '';
-
-  const el = document.getElementById('term-output');
-  const mode = el ? el.dataset.mode : 'tmux';
-
-  if (mode === 'mcp') {
-    // Send as MCP message
-    await fetch('/api/messages', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({from: 'user', to: agentName, body: keys}),
-    });
-    showToast(`Message sent to ${agentName}`, 'var(--amber)');
-    setTimeout(() => refreshTerminal(agentName), 300);
-  } else {
-    // Send via tmux
-    await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({keys}),
-    });
-    setTimeout(() => refreshTerminal(agentName), 500);
-  }
+  await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({keys}),
+  });
+  setTimeout(() => refreshTerminal(agentName), 500);
 }
 
 async function sendAgentPrompt(agentName) {
