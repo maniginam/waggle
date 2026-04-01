@@ -1944,7 +1944,7 @@ let bulkMode = false;
 let bulkSelected = new Set();
 let pendingReviews = [];
 let inboxMessages = [];
-let tmuxSessions = [];
+let spawnedAgents = [];
 let proposals = [];
 let proposalCounts = {};
 let currentAlerts = [];
@@ -2293,12 +2293,12 @@ function renderAgents() {
   orphans.forEach(w => { html += renderAgentRow(w, false); });
 
   el.innerHTML = html;
-  // Show tmux sessions not registered as agents
+  // Show spawned agents not registered
   const agentNames = new Set(agents.map(a => a.name));
-  const unregistered = tmuxSessions.filter(s => !agentNames.has(s.agent));
+  const unregistered = spawnedAgents.filter(s => !agentNames.has(s.agent));
   if (unregistered.length > 0 && currentView === 'overview') {
     el.innerHTML += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">
-      <div style="font-size:0.55rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:2px 0 4px;font-weight:600">tmux sessions</div>
+      <div style="font-size:0.55rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;padding:2px 0 4px;font-weight:600">spawned agents</div>
       ${unregistered.map(s => `
         <div class="agent-row" data-agent="${esc(s.agent)}" data-is-session="true" style="opacity:0.7">
           <div class="agent-status-dot working" style="background:var(--purple)"></div>
@@ -2363,7 +2363,7 @@ function renderStats() {
   document.getElementById('header-stats').innerHTML = `
     <div class="header-stat"><span class="val">${taskCount}</span> tasks${scopeLabel ? ` <span style="color:var(--amber);font-size:0.7rem">${esc(scopeLabel)}</span>` : ''}</div>
     <div class="header-stat"><span class="val">${s.total_agents}</span> agents</div>
-    ${tmuxSessions.length > 0 ? `<div class="header-stat"><span class="val" style="color:var(--purple)">${tmuxSessions.length}</span> sessions</div>` : ''}
+    ${spawnedAgents.length > 0 ? `<div class="header-stat"><span class="val" style="color:var(--purple)">${spawnedAgents.length}</span> sessions</div>` : ''}
     ${costStr}
     ${pendingReviews.length > 0 ? `<div class="header-stat" style="cursor:pointer" onclick="navigateTo('overview')"><span class="val" style="color:var(--amber)">${pendingReviews.length}</span> review${pendingReviews.length !== 1 ? 's' : ''}</div>` : ''}
     <div class="header-stat"><div class="pulse-dot"></div> live</div>
@@ -2764,9 +2764,7 @@ async function openAgentPanel(evtOrNull, agentName) {
     </div>
     <div id="agent-tab-terminal" style="display:none;flex-direction:column;height:100%">
       <div id="term-output" style="flex:1;overflow-y:auto;background:var(--bg-deep);padding:8px 12px;font-family:var(--font-mono);font-size:0.7rem;line-height:1.5;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;min-height:200px;max-height:60vh;border:1px solid var(--border);border-radius:var(--radius);margin:8px"></div>
-      <div style="display:flex;gap:6px;padding:0 8px 8px">
-        <input class="command-input" id="term-input" placeholder="Send to agent..." onkeydown="if(event.key==='Enter'){sendToTerminal('${esc(agentName)}');}" style="font-size:0.75rem">
-        <button class="btn btn-sm" onclick="sendToTerminal('${esc(agentName)}')">Send</button>
+      <div style="display:flex;gap:6px;padding:0 8px 8px;justify-content:flex-end">
         <button class="btn-ghost btn-sm" onclick="refreshTerminal('${esc(agentName)}')">Refresh</button>
       </div>
     </div>
@@ -2838,13 +2836,12 @@ async function refreshTerminal(agentName) {
   const el = document.getElementById('term-output');
   if (!el) return;
 
-  // Try tmux session first
+  // Try to read agent log file
   let resp = await fetch(`/api/sessions/${encodeURIComponent(agentName)}/output?lines=80`);
   if (resp.ok) {
     const data = await resp.json();
     el.textContent = data.output || '(empty)';
     el.scrollTop = el.scrollHeight;
-    el.dataset.mode = 'tmux';
 
     if (termRefreshTimer) clearInterval(termRefreshTimer);
     termRefreshTimer = setInterval(async () => {
@@ -2862,22 +2859,8 @@ async function refreshTerminal(agentName) {
     return;
   }
 
-  // No tmux session — point user to Comms tab
-  el.dataset.mode = 'mcp';
-  el.innerHTML = `<span style="color:var(--text-dim)">No tmux session for this agent.</span>\n\n<span style="color:var(--amber)">Use the <b>Comms</b> tab to view and send messages.</span>\n<span style="color:var(--text-dim)">This agent communicates via MCP messaging, not a terminal.</span>`;
-}
-
-async function sendToTerminal(agentName) {
-  const input = document.getElementById('term-input');
-  const keys = input ? input.value : '';
-  if (!keys) return;
-  input.value = '';
-  await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({keys}),
-  });
-  setTimeout(() => refreshTerminal(agentName), 500);
+  // No log file — point user to Comms tab
+  el.innerHTML = `<span style="color:var(--text-dim)">No log file for this agent.</span>\n\n<span style="color:var(--amber)">Use the <b>Comms</b> tab to view and send messages.</span>\n<span style="color:var(--text-dim)">This agent communicates via MCP messaging.</span>\n<span style="color:var(--text-dim)">Agents spawned via Waggle will show log output here.</span>`;
 }
 
 async function sendAgentPrompt(agentName) {
@@ -2891,18 +2874,7 @@ async function sendAgentPrompt(agentName) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({from: 'user', to: agentName, body}),
   });
-  // Also inject into tmux if session exists
-  const session = tmuxSessions.find(s => s.agent === agentName);
-  if (session) {
-    await fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({keys: body}),
-    }).catch(() => {});
-    showToast(`Sent to ${agentName} (message + terminal)`, 'var(--amber)');
-  } else {
-    showToast(`Instruction sent to ${agentName}`, 'var(--amber)');
-  }
+  showToast(`Instruction sent to ${agentName}`, 'var(--amber)');
 }
 
 async function assignAgentProject(agentName, projectId) {
@@ -3121,9 +3093,9 @@ async function openSpawnPanel() {
   const overlay = document.getElementById('overlay');
 
   document.getElementById('panel-title').textContent = 'Spawn Agent';
-  document.getElementById('panel-subtitle').textContent = 'Launch a new Claude Code agent in a tmux session';
+  document.getElementById('panel-subtitle').textContent = 'Launch a new Claude Code agent';
 
-  // Fetch active sessions (all tmux sessions)
+  // Fetch active sessions
   const sessions = await fetch('/api/sessions?all=true').then(r => r.json()).catch(() => []);
 
   const projectOpts = projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
@@ -3309,16 +3281,7 @@ async function sendBroadcast() {
       body: JSON.stringify({from: 'user', to: a.name, body}),
     })
   ));
-  // Also inject into tmux sessions
-  const injected = await Promise.all(tmuxSessions.map(s =>
-    fetch(`/api/sessions/${encodeURIComponent(s.agent)}/send`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({keys: body}),
-    }).then(() => true).catch(() => false)
-  ));
-  const injectedCount = injected.filter(Boolean).length;
-  showToast(`Broadcast: ${active.length} messages${injectedCount > 0 ? `, ${injectedCount} terminal injections` : ''}`, 'var(--amber)');
+  showToast(`Broadcast: ${active.length} messages sent`, 'var(--amber)');
   fetchAll();
 }
 
@@ -3403,21 +3366,6 @@ async function sendChat() {
     return;
   }
 
-  // If agent is online, also inject into their tmux session for immediate pickup
-  if (isOnline) {
-    fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({keys: `# Message from user: ${body.replace(/'/g, "'\\''").substring(0, 500)}`}),
-    }).catch(() => {}); // Best effort — don't block on tmux injection
-
-    // Update delivery status
-    const lastDelivery = container.querySelector('.chat-msg.from-me:last-child .chat-delivery');
-    if (lastDelivery) {
-      lastDelivery.textContent = 'Delivered & injected into session';
-      lastDelivery.style.color = 'var(--green)';
-    }
-  }
 }
 
 // ── COMMS STREAM ──
@@ -3483,16 +3431,6 @@ async function sendComms(agentName) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({from: 'user', to: agentName, body}),
   });
-
-  // Also inject into tmux if session exists
-  const session = tmuxSessions.find(s => s.agent === agentName);
-  if (session) {
-    fetch(`/api/sessions/${encodeURIComponent(agentName)}/send`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({keys: body}),
-    }).catch(() => {});
-  }
 
   showToast(`Sent to ${agentName}`, 'var(--amber)');
   setTimeout(() => loadCommsStream(agentName), 300);
@@ -3859,7 +3797,7 @@ async function fetchAll() {
     usageData = await usageRes.json();
     pendingReviews = await reviewsRes.json().catch(() => []);
     inboxMessages = await msgsRes.json().catch(() => []);
-    tmuxSessions = await sessRes.json().catch(() => []);
+    spawnedAgents = await sessRes.json().catch(() => []);
     proposals = await proposalsRes.json().catch(() => []);
     currentAlerts = await alertsRes.json().catch(() => []);
     // Build proposal counts by project_id and agent_id
@@ -3918,7 +3856,7 @@ function renderProjectNav() {
   <button class="project-nav-item${currentView==='sessions'?' active':''}" data-view="sessions">
     <div class="nav-icon" style="background:var(--cyan-dim);border-color:var(--cyan)"></div>
     <span class="project-nav-name">Sessions</span>
-    <span class="project-nav-count">${tmuxSessions.length}</span>
+    <span class="project-nav-count">${spawnedAgents.length}</span>
   </button>
   <button class="project-nav-item${currentView==='swimlane'?' active':''}" data-view="swimlane">
     <div class="nav-icon" style="background:var(--purple-dim);border-color:var(--purple)"></div>
@@ -4179,7 +4117,7 @@ function renderOverview() {
       <div class="overview-agents">${agentCards}</div>
     </div>` : ''}
 
-    ${tmuxSessions.length > 0 ? `<div>
+    ${spawnedAgents.length > 0 ? `<div>
       <div class="overview-section-title">Live Sessions <span style="font-size:0.6rem;color:var(--text-dim);font-weight:400;cursor:pointer" onclick="navigateTo('sessions')">view all &rarr;</span></div>
       <div id="overview-sessions" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px"></div>
     </div>` : ''}
@@ -4231,8 +4169,8 @@ function renderOverview() {
 
   // Fetch session previews for overview
   const sessContainer = document.getElementById('overview-sessions');
-  if (sessContainer && tmuxSessions.length > 0) {
-    Promise.all(tmuxSessions.slice(0, 6).map(async s => {
+  if (sessContainer && spawnedAgents.length > 0) {
+    Promise.all(spawnedAgents.slice(0, 6).map(async s => {
       try {
         const resp = await fetch(`/api/sessions/${encodeURIComponent(s.agent)}/output?lines=6`);
         if (!resp.ok) return null;
@@ -4502,8 +4440,8 @@ async function renderSessions() {
   const el = document.getElementById('sessions-view');
   if (!el) return;
 
-  if (tmuxSessions.length === 0) {
-    el.innerHTML = '<div class="inbox" style="padding:40px"><div class="empty-state"><p>No tmux sessions running. Spawn an agent to get started.</p><button class="btn" onclick="openSpawnPanel()" style="margin-top:12px">+ Spawn Agent</button></div></div>';
+  if (spawnedAgents.length === 0) {
+    el.innerHTML = '<div class="inbox" style="padding:40px"><div class="empty-state"><p>No active sessions. Spawn an agent to get started.</p><button class="btn" onclick="openSpawnPanel()" style="margin-top:12px">+ Spawn Agent</button></div></div>';
     return;
   }
 
@@ -4511,7 +4449,7 @@ async function renderSessions() {
     <div style="padding:16px 24px 0;display:flex;align-items:center;justify-content:space-between">
       <div>
         <div style="font-family:var(--font-sans);font-size:1.3rem;font-weight:700">Sessions</div>
-        <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">${tmuxSessions.length} tmux sessions</div>
+        <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">${spawnedAgents.length} sessions</div>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn-ghost btn-sm" onclick="openSpawnPanel()">+ Spawn</button>
@@ -4519,7 +4457,7 @@ async function renderSessions() {
       </div>
     </div>
     <div class="sessions-grid">
-      ${tmuxSessions.map(s => `
+      ${spawnedAgents.map(s => `
         <div class="session-card" data-session="${esc(s.agent)}">
           <div class="session-card-header">
             <span class="session-card-name">${esc(s.agent)}</span>
@@ -4551,7 +4489,7 @@ async function renderSessions() {
 }
 
 async function refreshAllSessions() {
-  for (const s of tmuxSessions) {
+  for (const s of spawnedAgents) {
     const el = document.getElementById('sess-out-' + s.agent);
     if (!el) continue;
     try {
@@ -4603,7 +4541,7 @@ function toggleTargetPicker() {
 function setCommandTarget(target) {
   commandTarget = target;
   const btn = document.getElementById('cmd-target-btn');
-  const hasSession = target !== 'broadcast' && tmuxSessions.some(s => s.agent === target);
+  const hasSession = target !== 'broadcast' && spawnedAgents.some(s => s.agent === target);
   btn.textContent = '@' + target + (hasSession ? ' (live)' : '');
   btn.className = 'command-bar-target' + (target === 'broadcast' ? ' broadcast' : '');
   document.getElementById('cmd-target-picker').classList.remove('open');
@@ -4611,8 +4549,8 @@ function setCommandTarget(target) {
 }
 
 const SLASH_COMMANDS = [
-  {cmd: '/spawn', args: '<name> [prompt]', desc: 'Spawn a new agent in tmux', fn: slashSpawn},
-  {cmd: '/kill', args: '<agent>', desc: 'Kill an agent tmux session', fn: slashKill},
+  {cmd: '/spawn', args: '<name> [prompt]', desc: 'Spawn a new agent process', fn: slashSpawn},
+  {cmd: '/kill', args: '<agent>', desc: 'Kill a spawned agent', fn: slashKill},
   {cmd: '/status', args: '', desc: 'Show agent statuses', fn: slashStatus},
   {cmd: '/view', args: '<page>', desc: 'Navigate (overview, inbox, sessions)', fn: slashView},
   {cmd: '/task', args: '<title>', desc: 'Quick-create a backlog task', fn: slashTask},
@@ -4713,21 +4651,7 @@ async function sendCommand() {
           body: JSON.stringify({from: 'user', to: a.name, body}),
         })
       ));
-      // Also inject into tmux sessions for guaranteed delivery
-      const injected = [];
-      for (const a of active) {
-        const sess = tmuxSessions.find(s => s.agent === a.name);
-        if (sess) {
-          await fetch(`/api/sessions/${encodeURIComponent(a.name)}/send`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({keys: body}),
-          }).catch(() => {});
-          injected.push(a.name);
-        }
-      }
-      const tmuxNote = injected.length > 0 ? ` (${injected.length} via terminal)` : '';
-      showToast(`Sent to ${active.length} agents${tmuxNote}`, 'var(--amber)');
+      showToast(`Sent to ${active.length} agents`, 'var(--amber)');
     }
   } else {
     // Send as waggle message
@@ -4736,18 +4660,7 @@ async function sendCommand() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({from: 'user', to: commandTarget, body}),
     });
-    // Also try to inject directly into tmux session
-    const session = tmuxSessions.find(s => s.agent === commandTarget);
-    if (session) {
-      await fetch(`/api/sessions/${encodeURIComponent(commandTarget)}/send`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({keys: body}),
-      }).catch(() => {});
-      showToast(`Sent to ${commandTarget} (message + terminal)`, 'var(--cyan)');
-    } else {
-      showToast(`Sent to ${commandTarget} (message only — no tmux session)`, 'var(--cyan)');
-    }
+    showToast(`Sent to ${commandTarget}`, 'var(--cyan)');
   }
 
   await fetchAll();
@@ -4944,12 +4857,11 @@ function connectSSE() {
           }
         }
       }
-      // Refresh chat if agent panel is open with messages tab visible
+      // Refresh comms if agent panel is open with comms tab visible
       if (currentPanel && currentPanel.type === 'agent') {
-        const msgTab = document.getElementById('agent-tab-messages');
-        if (msgTab && msgTab.style.display !== 'none') loadChatMessages(currentPanel.agent);
+        const commsTab = document.getElementById('agent-tab-comms');
+        if (commsTab && commsTab.style.display !== 'none') loadCommsStream(currentPanel.agent);
       }
-      if (currentPanel && currentPanel.type === 'chat') loadChatMessages(currentPanel.agent);
     } catch(err) {}
   };
   evtSource.onerror = () => {

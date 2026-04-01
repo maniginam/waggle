@@ -32,10 +32,6 @@ func startTestServer(t *testing.T) (string, *Server) {
 	ln.Close()
 	srv.httpServer.Addr = fmt.Sprintf(":%d", port)
 
-	// Disable tmux session checks in tests to prevent real tmux sessions
-	// from interfering with agent reaping logic
-	srv.tmuxChecker = func(string) bool { return false }
-
 	go srv.Start()
 	t.Cleanup(func() {
 		srv.Shutdown(t.Context())
@@ -291,33 +287,6 @@ func TestServerStoreAccessor(t *testing.T) {
 	}
 }
 
-func TestReapAgentsWithTmuxAlive(t *testing.T) {
-	base, srv := startTestServer(t)
-
-	// Register an agent
-	resp, _ := http.Post(base+"/api/agents/register", "application/json",
-		strings.NewReader(`{"name":"tmux-alive-agent","type":"claude-code"}`))
-	resp.Body.Close()
-
-	// Override tmux checker to return true (agent has live tmux session)
-	srv.tmuxChecker = func(session string) bool {
-		return session == "waggle-tmux-alive-agent"
-	}
-
-	// Reap with future cutoff — agent should NOT be reaped because tmux is alive
-	cutoff := time.Now().UTC().Add(time.Second)
-	srv.reapAgentsStaleBefore(cutoff)
-
-	resp, _ = http.Get(base + "/api/agents/tmux-alive-agent")
-	var agent map[string]any
-	json.NewDecoder(resp.Body).Decode(&agent)
-	resp.Body.Close()
-
-	if agent["status"] != "connected" {
-		t.Errorf("expected connected (tmux alive), got %v", agent["status"])
-	}
-}
-
 func TestReapSkipsDisconnectedAgents(t *testing.T) {
 	base, srv := startTestServer(t)
 
@@ -326,8 +295,8 @@ func TestReapSkipsDisconnectedAgents(t *testing.T) {
 		strings.NewReader(`{"name":"already-disconnected","type":"claude-code"}`))
 	resp.Body.Close()
 
-	req, _ := http.NewRequest(http.MethodPost, base+"/api/agents/already-disconnected/disconnect", nil)
-	resp, _ = http.DefaultClient.Do(req)
+	resp, _ = http.Post(base+"/api/agents/already-disconnected/status", "application/json",
+		strings.NewReader(`{"status":"disconnected"}`))
 	resp.Body.Close()
 
 	// Reap with future cutoff — should skip already disconnected agents
