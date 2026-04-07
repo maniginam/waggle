@@ -3324,3 +3324,245 @@ func TestAlertsBlockedTask(t *testing.T) {
 		t.Error("expected blocked_task alert for 2-day-old blocked task")
 	}
 }
+
+func TestProjectAutoDispatchSetting(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create a project
+	body, _ := json.Marshal(map[string]string{"name": "auto-test"})
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projectID := proj["id"].(string)
+
+	// Default auto_dispatch should be false
+	if proj["auto_dispatch"] != false {
+		t.Errorf("expected auto_dispatch default false, got %v", proj["auto_dispatch"])
+	}
+
+	// Enable auto_dispatch via PATCH
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/projects/"+projectID,
+		bytes.NewBufferString(`{"auto_dispatch": true}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var updated map[string]any
+	json.NewDecoder(resp.Body).Decode(&updated)
+	resp.Body.Close()
+
+	if updated["auto_dispatch"] != true {
+		t.Errorf("expected auto_dispatch true after update, got %v", updated["auto_dispatch"])
+	}
+
+	// GET should also return auto_dispatch: true
+	resp = mustGet(t, ts.URL+"/api/projects/"+projectID)
+	var fetched map[string]any
+	json.NewDecoder(resp.Body).Decode(&fetched)
+	resp.Body.Close()
+
+	if fetched["auto_dispatch"] != true {
+		t.Errorf("expected auto_dispatch true on GET, got %v", fetched["auto_dispatch"])
+	}
+
+	// Disable it
+	req, _ = http.NewRequest(http.MethodPatch, ts.URL+"/api/projects/"+projectID,
+		bytes.NewBufferString(`{"auto_dispatch": false}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp = mustDo(t, req)
+	var disabled map[string]any
+	json.NewDecoder(resp.Body).Decode(&disabled)
+	resp.Body.Close()
+
+	if disabled["auto_dispatch"] != false {
+		t.Errorf("expected auto_dispatch false after disable, got %v", disabled["auto_dispatch"])
+	}
+}
+
+func TestAutoDispatchOnAgentIdle(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create project with auto_dispatch enabled
+	body, _ := json.Marshal(map[string]string{"name": "dispatch-proj"})
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projectID := proj["id"].(string)
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/projects/"+projectID,
+		bytes.NewBufferString(`{"auto_dispatch": true}`))
+	req.Header.Set("Content-Type", "application/json")
+	mustDo(t, req).Body.Close()
+
+	// Create a ready task in that project
+	taskBody, _ := json.Marshal(map[string]any{
+		"title":      "Auto-dispatch me",
+		"priority":   "high",
+		"project_id": projectID,
+		"status":     "ready",
+	})
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(taskBody))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	// Register an agent on this project
+	agentBody, _ := json.Marshal(map[string]string{
+		"name": "dispatch-worker", "type": "claude-code", "project_id": projectID,
+	})
+	resp = mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(agentBody))
+	resp.Body.Close()
+
+	// Set agent to idle — should trigger auto-dispatch
+	resp = mustPost(t, ts.URL+"/api/agents/dispatch-worker/status", "application/json",
+		bytes.NewBufferString(`{"status": "idle"}`))
+	resp.Body.Close()
+
+	// Check that the task is now in_progress and assigned
+	resp = mustGet(t, ts.URL+"/api/tasks/"+taskID)
+	var dispatched map[string]any
+	json.NewDecoder(resp.Body).Decode(&dispatched)
+	resp.Body.Close()
+
+	if dispatched["status"] != "in_progress" {
+		t.Errorf("expected task status in_progress after auto-dispatch, got %v", dispatched["status"])
+	}
+	if dispatched["assignee"] != "dispatch-worker" {
+		t.Errorf("expected assignee dispatch-worker, got %v", dispatched["assignee"])
+	}
+
+	// Check that agent received a message about the assignment
+	resp = mustGet(t, ts.URL+"/api/messages?to=dispatch-worker&limit=5")
+	var msgs []map[string]any
+	json.NewDecoder(resp.Body).Decode(&msgs)
+	resp.Body.Close()
+
+	found := false
+	for _, m := range msgs {
+		if strings.Contains(m["body"].(string), "Auto-assigned task") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected auto-dispatch message to agent")
+	}
+}
+
+func TestAutoDispatchRespectsDisabledSetting(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create project with auto_dispatch OFF (default)
+	body, _ := json.Marshal(map[string]string{"name": "no-dispatch-proj"})
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projectID := proj["id"].(string)
+
+	// Create a ready task
+	taskBody, _ := json.Marshal(map[string]any{
+		"title":      "Should not auto-dispatch",
+		"priority":   "high",
+		"project_id": projectID,
+		"status":     "ready",
+	})
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(taskBody))
+	var task map[string]any
+	json.NewDecoder(resp.Body).Decode(&task)
+	resp.Body.Close()
+	taskID := task["id"].(string)
+
+	// Register agent and go idle
+	agentBody, _ := json.Marshal(map[string]string{
+		"name": "idle-worker", "type": "claude-code", "project_id": projectID,
+	})
+	resp = mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(agentBody))
+	resp.Body.Close()
+
+	resp = mustPost(t, ts.URL+"/api/agents/idle-worker/status", "application/json",
+		bytes.NewBufferString(`{"status": "idle"}`))
+	resp.Body.Close()
+
+	// Task should still be ready and unassigned
+	resp = mustGet(t, ts.URL+"/api/tasks/"+taskID)
+	var check map[string]any
+	json.NewDecoder(resp.Body).Decode(&check)
+	resp.Body.Close()
+
+	if check["status"] != "ready" {
+		t.Errorf("expected task to remain ready when auto_dispatch is off, got %v", check["status"])
+	}
+	if check["assignee"] != nil && check["assignee"] != "" {
+		t.Errorf("expected task to remain unassigned, got %v", check["assignee"])
+	}
+}
+
+func TestAutoDispatchSkipsTasksWithUnmetDeps(t *testing.T) {
+	_, ts := setup(t)
+
+	// Create project with auto_dispatch enabled
+	body, _ := json.Marshal(map[string]string{"name": "deps-proj"})
+	resp := mustPost(t, ts.URL+"/api/projects", "application/json", bytes.NewBuffer(body))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projectID := proj["id"].(string)
+
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/projects/"+projectID,
+		bytes.NewBufferString(`{"auto_dispatch": true}`))
+	req.Header.Set("Content-Type", "application/json")
+	mustDo(t, req).Body.Close()
+
+	// Create a blocker task (in_progress, not done)
+	blockerBody, _ := json.Marshal(map[string]any{
+		"title":      "Blocker task",
+		"priority":   "high",
+		"project_id": projectID,
+		"status":     "in_progress",
+	})
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(blockerBody))
+	var blocker map[string]any
+	json.NewDecoder(resp.Body).Decode(&blocker)
+	resp.Body.Close()
+	blockerID := blocker["id"].(string)
+
+	// Create a task that depends on the blocker
+	depBody, _ := json.Marshal(map[string]any{
+		"title":      "Blocked task",
+		"priority":   "high",
+		"project_id": projectID,
+		"status":     "ready",
+		"depends_on": []string{blockerID},
+	})
+	resp = mustPost(t, ts.URL+"/api/tasks", "application/json", bytes.NewBuffer(depBody))
+	var blocked map[string]any
+	json.NewDecoder(resp.Body).Decode(&blocked)
+	resp.Body.Close()
+	blockedID := blocked["id"].(string)
+
+	// Register agent and go idle
+	agentBody, _ := json.Marshal(map[string]string{
+		"name": "dep-worker", "type": "claude-code", "project_id": projectID,
+	})
+	resp = mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(agentBody))
+	resp.Body.Close()
+
+	resp = mustPost(t, ts.URL+"/api/agents/dep-worker/status", "application/json",
+		bytes.NewBufferString(`{"status": "idle"}`))
+	resp.Body.Close()
+
+	// Blocked task should NOT be auto-dispatched
+	resp = mustGet(t, ts.URL+"/api/tasks/"+blockedID)
+	var check map[string]any
+	json.NewDecoder(resp.Body).Decode(&check)
+	resp.Body.Close()
+
+	if check["status"] != "ready" {
+		t.Errorf("expected blocked task to remain ready, got %v", check["status"])
+	}
+}

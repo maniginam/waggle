@@ -3656,6 +3656,13 @@ function editProjectDetails(projectId) {
         <input class="form-input" id="edit-proj-path" placeholder="/Users/maniginam/projects/..." value="${esc(projectPaths[projectId] || '')}">
         <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">Used when spawning agents for this project</div>
       </div>
+      <div class="form-group">
+        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="edit-proj-autodispatch" ${project.auto_dispatch ? 'checked' : ''} style="accent-color:var(--amber);width:16px;height:16px">
+          Auto-dispatch tasks
+        </label>
+        <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">When enabled, idle agents on this project automatically receive the next highest-priority ready task</div>
+      </div>
       <div class="form-actions">
         <button class="btn-ghost btn-sm" onclick="closePanel()">Cancel</button>
         <button class="btn" onclick="saveProjectDetails('${esc(projectId)}')">Save</button>
@@ -3671,11 +3678,12 @@ async function saveProjectDetails(projectId) {
   const desc = document.getElementById('edit-proj-desc').value.trim();
   const leader = document.getElementById('edit-proj-leader').value;
   const path = document.getElementById('edit-proj-path').value.trim();
+  const autoDispatch = document.getElementById('edit-proj-autodispatch').checked;
   if (!name) { showToast('Name required', 'var(--red)'); return; }
   await fetch(`/api/projects/${projectId}`, {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name, description: desc, leader_agent: leader}),
+    body: JSON.stringify({name, description: desc, leader_agent: leader, auto_dispatch: autoDispatch}),
   });
   if (path) {
     projectPaths[projectId] = path;
@@ -3875,6 +3883,7 @@ function renderProjectNav() {
     html += `<button class="project-nav-item${currentView===p.id?' active':''}" data-view="${esc(p.id)}">
       <div class="nav-icon">${proposalCount > 0 ? `<span class="proposal-badge" onclick="event.stopPropagation();openProjectProposalModal('${esc(p.id)}')">${proposalCount}</span>` : ''}</div>
       <span class="project-nav-name">${esc(p.name)}</span>
+      ${p.auto_dispatch ? '<span title="Auto-dispatch enabled" style="font-size:0.6rem;color:var(--amber)">&#x26A1;</span>' : ''}
       ${activityDot}
       <span class="project-nav-count">${count}</span>
     </button>`;
@@ -3991,7 +4000,7 @@ function renderOverview() {
     projectCards += `
       <div class="project-card" data-project-id="${esc(p.id)}">
         <div class="project-card-accent"></div>
-        <div class="project-card-name">${esc(p.name)}${pAgents > 0 ? ` <span style="font-size:0.6rem;color:var(--cyan)">${pAgents} agent${pAgents !== 1 ? 's' : ''}</span>` : ''}</div>
+        <div class="project-card-name">${esc(p.name)}${p.auto_dispatch ? ' <span title="Auto-dispatch" style="font-size:0.7rem;color:var(--amber)">&#x26A1;</span>' : ''}${pAgents > 0 ? ` <span style="font-size:0.6rem;color:var(--cyan)">${pAgents} agent${pAgents !== 1 ? 's' : ''}</span>` : ''}</div>
         ${p.leader_agent ? `<div style="font-size:0.6rem;color:var(--purple);font-weight:600;margin-bottom:4px">Leader: ${esc(p.leader_agent)}</div>` : ''}
         ${p.description ? `<div class="project-card-desc">${esc(p.description)}</div>` : '<div class="project-card-desc" style="color:var(--border)">No description</div>'}
         <div class="project-card-stats">

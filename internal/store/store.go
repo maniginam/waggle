@@ -223,6 +223,7 @@ func (s *Store) migrate() error {
 		{"agents", "parent_agent", "TEXT DEFAULT ''"},
 		{"projects", "leader_agent", "TEXT DEFAULT ''"},
 		{"agents", "persona_id", "TEXT DEFAULT ''"},
+		{"projects", "auto_dispatch", "INTEGER DEFAULT 0"},
 	} {
 		var count int
 		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
@@ -1060,29 +1061,35 @@ func (s *Store) CreateProject(p *model.Project) error {
 	now := time.Now().UTC()
 	p.CreatedAt = now
 	p.UpdatedAt = now
-	_, err := s.db.Exec(`INSERT INTO projects (id, name, description, leader_agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.LeaderAgent, p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339))
+	autoDispatch := 0
+	if p.AutoDispatch {
+		autoDispatch = 1
+	}
+	_, err := s.db.Exec(`INSERT INTO projects (id, name, description, leader_agent, auto_dispatch, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.LeaderAgent, autoDispatch, p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339))
 	return err
 }
 
 func (s *Store) GetProject(id string) (*model.Project, error) {
 	var p model.Project
 	var createdStr, updatedStr string
-	err := s.db.QueryRow(`SELECT id, name, description, leader_agent, created_at, updated_at FROM projects WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &createdStr, &updatedStr)
+	var autoDispatch int
+	err := s.db.QueryRow(`SELECT id, name, description, leader_agent, auto_dispatch, created_at, updated_at FROM projects WHERE id = ?`, id).
+		Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &autoDispatch, &createdStr, &updatedStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	p.AutoDispatch = autoDispatch != 0
 	p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
 	return &p, nil
 }
 
 func (s *Store) ListProjects() ([]*model.Project, error) {
-	rows, err := s.db.Query(`SELECT id, name, description, leader_agent, created_at, updated_at FROM projects ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, name, description, leader_agent, auto_dispatch, created_at, updated_at FROM projects ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1091,9 +1098,11 @@ func (s *Store) ListProjects() ([]*model.Project, error) {
 	for rows.Next() {
 		var p model.Project
 		var createdStr, updatedStr string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &createdStr, &updatedStr); err != nil {
+		var autoDispatch int
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &autoDispatch, &createdStr, &updatedStr); err != nil {
 			return nil, err
 		}
+		p.AutoDispatch = autoDispatch != 0
 		p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
 		projects = append(projects, &p)
@@ -1119,6 +1128,20 @@ func (s *Store) UpdateProject(id string, updates map[string]any) (*model.Project
 		case "leader_agent":
 			sets = append(sets, "leader_agent = ?")
 			args = append(args, v)
+		case "auto_dispatch":
+			val := 0
+			switch b := v.(type) {
+			case bool:
+				if b {
+					val = 1
+				}
+			case float64:
+				if b != 0 {
+					val = 1
+				}
+			}
+			sets = append(sets, "auto_dispatch = ?")
+			args = append(args, val)
 		}
 	}
 	if len(sets) == 0 {

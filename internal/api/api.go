@@ -629,6 +629,13 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 			}
 			a.store.RecordEvent(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
 			a.eventHub.Publish(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
+
+			// Auto-dispatch when agent goes idle or connected (no current task)
+			if req.Status == "idle" || req.Status == "connected" {
+				if agent, err := a.store.GetAgentByName(name); err == nil && agent.ProjectID != "" {
+					a.tryAutoDispatch(name, agent.ProjectID)
+				}
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 		return
@@ -1160,6 +1167,69 @@ func (a *API) handleReview(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+// tryAutoDispatch checks if the agent's project has auto_dispatch enabled,
+// and if so, assigns the highest-priority ready task with satisfied deps.
+func (a *API) tryAutoDispatch(agentName, projectID string) {
+	if projectID == "" {
+		return
+	}
+	proj, err := a.store.GetProject(projectID)
+	if err != nil || !proj.AutoDispatch {
+		return
+	}
+
+	// Get ready tasks for the project, sorted by priority
+	tasks, err := a.store.ListTasks(map[string]string{
+		"status":     "ready",
+		"project_id": projectID,
+		"sort":       "priority",
+	})
+	if err != nil || len(tasks) == 0 {
+		return
+	}
+
+	for _, task := range tasks {
+		if task.Assignee != "" {
+			continue
+		}
+		// Check deps are all satisfied (done)
+		if len(task.DependsOn) > 0 {
+			allDone := true
+			for _, depID := range task.DependsOn {
+				dep, err := a.store.GetTask(depID)
+				if err != nil || dep.Status != model.TaskDone {
+					allDone = false
+					break
+				}
+			}
+			if !allDone {
+				continue
+			}
+		}
+
+		// Claim the task for the agent
+		if err := a.store.ClaimTask(task.ID, agentName); err != nil {
+			continue
+		}
+
+		// Send message to agent
+		msg := &model.Message{
+			From: "waggle",
+			To:   agentName,
+			Body: fmt.Sprintf("Auto-assigned task: %s (%s). Priority: %s.", task.Title, task.ID, task.Priority),
+		}
+		a.store.SendMessage(msg)
+		a.eventHub.Publish(&model.Event{
+			Type:    model.EventTaskClaimed,
+			AgentID: agentName,
+			TaskID:  task.ID,
+			Payload: map[string]string{"auto_dispatch": "true"},
+		})
+		log.Printf("Auto-dispatched task %s to agent %s", task.ID, agentName)
+		return
 	}
 }
 

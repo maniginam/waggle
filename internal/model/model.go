@@ -134,12 +134,13 @@ func (t TaskType) Valid() bool {
 }
 
 type Project struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	LeaderAgent string    `json:"leader_agent,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description,omitempty"`
+	LeaderAgent  string    `json:"leader_agent,omitempty"`
+	AutoDispatch bool      `json:"auto_dispatch"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type Comment struct {
