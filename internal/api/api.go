@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -31,8 +32,10 @@ type API struct {
 	push        *push.Notifier
 	ghAvail     bool
 	rateLimiter *rateLimiter
-	procsMu     sync.Mutex
-	procs       map[string]*exec.Cmd // spawned agent processes by name
+	procsMu    sync.Mutex
+	procs      map[string]*exec.Cmd    // spawned agent processes by name
+	procsStdin map[string]io.WriteCloser // stdin pipes for spawned agents
+	agentDirs  map[string]string        // last-known work_dir per agent name
 }
 
 func New(s *store.Store, eh *event.Hub) *API {
@@ -42,6 +45,8 @@ func New(s *store.Store, eh *event.Hub) *API {
 		ghAvail:     gh.Available(),
 		rateLimiter: newRateLimiter(120, time.Minute),
 		procs:       make(map[string]*exec.Cmd),
+		procsStdin:  make(map[string]io.WriteCloser),
+		agentDirs:   make(map[string]string),
 	}
 	if p, err := push.NewNotifier(s); err == nil {
 		a.push = p
@@ -790,6 +795,12 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 		a.store.RecordEvent(&model.Event{Type: model.EventMessage, AgentID: msg.From, Payload: msg})
 		a.eventHub.Publish(&model.Event{Type: model.EventMessage, AgentID: msg.From, Payload: msg})
+
+		// If message targets a specific agent, wake them up
+		if msg.To != "" && msg.To != "user" && msg.From == "user" {
+			a.wakeAgent(msg.To, msg.Body)
+		}
+
 		writeJSON(w, http.StatusCreated, msg)
 
 	case http.MethodPatch:
@@ -1276,6 +1287,101 @@ func (a *API) tryAutoDispatch(agentName, projectID string) {
 	}
 }
 
+// wakeAgent ensures an agent is alive to handle a message.
+// If the agent has a live session, the message is already stored and they'll pick it up via MCP.
+// If not, auto-spawn the agent with a prompt to check their messages.
+func (a *API) wakeAgent(agentName, message string) {
+	a.procsMu.Lock()
+	_, alive := a.procs[agentName]
+	a.procsMu.Unlock()
+
+	if alive {
+		// Agent is running — message is stored in waggle, they'll read it via MCP polling
+		return
+	}
+
+	// Agent not running — find their project and work_dir, then spawn
+	agent, err := a.store.GetAgentByName(agentName)
+	if err != nil {
+		log.Printf("wakeAgent: unknown agent %s: %v", agentName, err)
+		return
+	}
+
+	// Try to find work_dir: check agentDirs cache, then fall back to known project paths
+	a.procsMu.Lock()
+	workDir := a.agentDirs[agentName]
+	a.procsMu.Unlock()
+
+	if workDir == "" {
+		// Fall back to well-known project directories
+		home, _ := os.UserHomeDir()
+		// Derive base name from agent name (strip -lead, -dev, -worker suffixes)
+		baseName := agentName
+		for _, suffix := range []string{"-lead", "-dev", "-worker", "-reviewer", "-tester"} {
+			baseName = strings.TrimSuffix(baseName, suffix)
+		}
+		candidates := []string{
+			filepath.Join(home, "projects", baseName),
+			filepath.Join(home, "projects", agentName),
+		}
+		// Try project name if agent has a project
+		if agent.ProjectID != "" {
+			if proj, err := a.store.GetProject(agent.ProjectID); err == nil {
+				projLower := strings.ToLower(proj.Name)
+				candidates = append([]string{
+					filepath.Join(home, "projects", projLower),
+					filepath.Join(home, "projects", strings.ReplaceAll(projLower, " ", "-")),
+				}, candidates...)
+			}
+		}
+		for _, c := range candidates {
+			if info, err := os.Stat(c); err == nil && info.IsDir() {
+				workDir = c
+				break
+			}
+		}
+	}
+
+	if workDir == "" {
+		log.Printf("wakeAgent: no work_dir for agent %s, cannot auto-spawn", agentName)
+		return
+	}
+
+	// Build spawn request — tell agent to check messages (the message is already stored in waggle)
+	spawnBody, _ := json.Marshal(map[string]string{
+		"name":       agentName,
+		"project_id": agent.ProjectID,
+		"work_dir":   workDir,
+		"prompt":     "You have a new message from the user. Read your waggle messages and respond.",
+	})
+	spawnReq, _ := http.NewRequest(http.MethodPost, "/api/spawn", bytes.NewBuffer(spawnBody))
+	spawnReq.Header.Set("Content-Type", "application/json")
+
+	// Use a discard response writer — we don't need the spawn response here
+	rec := &discardResponseWriter{code: 200}
+	a.handleSpawn(rec, spawnReq)
+	if rec.code >= 400 {
+		log.Printf("wakeAgent: auto-spawn failed for %s (status %d)", agentName, rec.code)
+	} else {
+		log.Printf("wakeAgent: auto-spawned %s in %s", agentName, workDir)
+	}
+}
+
+// discardResponseWriter captures status code but discards body
+type discardResponseWriter struct {
+	code   int
+	header http.Header
+}
+
+func (d *discardResponseWriter) Header() http.Header {
+	if d.header == nil {
+		d.header = make(http.Header)
+	}
+	return d.header
+}
+func (d *discardResponseWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (d *discardResponseWriter) WriteHeader(code int)         { d.code = code }
+
 func agentLogPath(name string) string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".waggle", "logs", name+".log")
@@ -1398,22 +1504,15 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	// Kill existing spawned process if any
 	a.procsMu.Lock()
 	if existing, ok := a.procs[req.Name]; ok {
+		if pipe, ok := a.procsStdin[req.Name]; ok {
+			pipe.Close()
+		}
 		existing.Process.Kill()
 		existing.Wait()
 		delete(a.procs, req.Name)
+		delete(a.procsStdin, req.Name)
 	}
 	a.procsMu.Unlock()
-
-	// Write prompt to a temp file to avoid shell escaping issues
-	promptFile := filepath.Join(os.TempDir(), "waggle-prompt-"+req.Name+".txt")
-	os.WriteFile(promptFile, []byte(regPreamble), 0644)
-
-	// Build shell command — read prompt from file to avoid quoting issues
-	shellCmd := fmt.Sprintf("%s --dangerously-skip-permissions", claudeBin)
-	if req.Model != "" {
-		shellCmd += " --model " + req.Model
-	}
-	shellCmd += fmt.Sprintf(` -p "$(cat '%s')"`, promptFile)
 
 	// Set up log file
 	logPath := agentLogPath(req.Name)
@@ -1423,6 +1522,17 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "log_failed", "cannot create log file: "+err.Error())
 		return
 	}
+
+	// Write prompt to a temp file to avoid shell escaping issues
+	promptFile := filepath.Join(os.TempDir(), "waggle-prompt-"+req.Name+".txt")
+	os.WriteFile(promptFile, []byte(regPreamble), 0644)
+
+	// Build shell command using -p mode (single-turn, proven to work)
+	shellCmd := fmt.Sprintf("%s --dangerously-skip-permissions", claudeBin)
+	if req.Model != "" {
+		shellCmd += " --model " + req.Model
+	}
+	shellCmd += fmt.Sprintf(` -p "$(cat '%s')"`, promptFile)
 
 	// Write a launch script to avoid shell escaping issues entirely
 	launchScript := filepath.Join(os.TempDir(), "waggle-launch-"+req.Name+".sh")
@@ -1447,9 +1557,10 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Track the process
+	// Track the process and work dir
 	a.procsMu.Lock()
 	a.procs[req.Name] = cmd
+	a.agentDirs[req.Name] = workDir
 	a.procsMu.Unlock()
 
 	// Clean up when process exits
@@ -1458,6 +1569,7 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		logFile.Close()
 		a.procsMu.Lock()
 		delete(a.procs, req.Name)
+		delete(a.procsStdin, req.Name)
 		a.procsMu.Unlock()
 	}()
 
@@ -1544,12 +1656,39 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 		output := strings.Join(allLines[start:], "\n")
 		writeJSON(w, http.StatusOK, map[string]string{"output": output, "agent": name})
 
+	case action == "input" && r.Method == http.MethodPost:
+		var req struct {
+			Input string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Input == "" {
+			writeError(w, http.StatusBadRequest, "invalid_input", "input field required")
+			return
+		}
+		a.procsMu.Lock()
+		pipe, ok := a.procsStdin[name]
+		a.procsMu.Unlock()
+		if !ok {
+			writeError(w, http.StatusNotFound, "not_found", "no spawned process for: "+name)
+			return
+		}
+		// Write the input as a stream-json user message
+		userMsg, _ := json.Marshal(map[string]string{"type": "user", "content": req.Input})
+		if _, err := fmt.Fprintf(pipe, "%s\n", userMsg); err != nil {
+			writeError(w, http.StatusInternalServerError, "write_failed", "failed to write to agent stdin: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "sent", "agent": name})
+
 	case action == "" && r.Method == http.MethodDelete:
 		a.procsMu.Lock()
 		cmd, ok := a.procs[name]
 		if ok {
+			if pipe, pok := a.procsStdin[name]; pok {
+				pipe.Close()
+			}
 			cmd.Process.Kill()
 			delete(a.procs, name)
+			delete(a.procsStdin, name)
 		}
 		a.procsMu.Unlock()
 

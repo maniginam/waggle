@@ -4875,6 +4875,15 @@ async function sendCommand() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({from: 'user', to: commandTarget, body}),
     });
+    // Also inject into agent's stdin if it has a live session
+    const hasSession = spawnedAgents.some(s => s.agent === commandTarget);
+    if (hasSession) {
+      await fetch(`/api/sessions/${encodeURIComponent(commandTarget)}/input`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({input: body}),
+      }).catch(() => {});
+    }
     showToast(`Sent to ${commandTarget}`, 'var(--cyan)');
   }
 
