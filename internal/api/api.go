@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -655,6 +656,48 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+		return
+	}
+
+	// POST /api/agents/:name/respawn
+	if subAction == "respawn" && r.Method == http.MethodPost {
+		// Look up the agent
+		agent, err := a.store.GetAgentByName(name)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "agent_not_found", "Agent "+name+" not found")
+			return
+		}
+
+		var req struct {
+			WorkDir string `json:"work_dir"`
+			Prompt  string `json:"prompt"`
+			Model   string `json:"model"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+
+		// Disconnect the old agent record
+		a.store.DisconnectAgent(name)
+
+		if req.WorkDir == "" {
+			writeError(w, http.StatusBadRequest, "missing_work_dir", "work_dir is required for respawn")
+			return
+		}
+		if _, err := os.Stat(req.WorkDir); os.IsNotExist(err) {
+			writeError(w, http.StatusBadRequest, "invalid_work_dir", "directory does not exist: "+req.WorkDir)
+			return
+		}
+
+		// Re-spawn via the existing spawn endpoint by synthesizing a request
+		spawnBody, _ := json.Marshal(map[string]string{
+			"name":       name,
+			"project_id": agent.ProjectID,
+			"work_dir":   req.WorkDir,
+			"prompt":     req.Prompt,
+			"model":      req.Model,
+		})
+		spawnReq, _ := http.NewRequest(http.MethodPost, "/api/spawn", bytes.NewBuffer(spawnBody))
+		spawnReq.Header.Set("Content-Type", "application/json")
+		a.handleSpawn(w, spawnReq)
 		return
 	}
 

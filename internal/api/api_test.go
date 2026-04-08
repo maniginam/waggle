@@ -3566,3 +3566,48 @@ func TestAutoDispatchSkipsTasksWithUnmetDeps(t *testing.T) {
 		t.Errorf("expected blocked task to remain ready, got %v", check["status"])
 	}
 }
+
+func TestRespawnEndpointValidation(t *testing.T) {
+	_, ts := setup(t)
+
+	// Respawn unknown agent should 404
+	resp := mustPost(t, ts.URL+"/api/agents/nonexistent/respawn", "application/json",
+		bytes.NewBufferString(`{"work_dir":"/tmp"}`))
+	if resp.StatusCode != 404 {
+		t.Errorf("expected 404 for unknown agent, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Register an agent
+	agentBody, _ := json.Marshal(map[string]string{
+		"name": "respawn-test", "type": "claude-code", "project_id": "",
+	})
+	resp = mustPost(t, ts.URL+"/api/agents/register", "application/json", bytes.NewBuffer(agentBody))
+	resp.Body.Close()
+
+	// Respawn without work_dir should 400
+	resp = mustPost(t, ts.URL+"/api/agents/respawn-test/respawn", "application/json",
+		bytes.NewBufferString(`{}`))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for missing work_dir, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Respawn with invalid work_dir should 400
+	resp = mustPost(t, ts.URL+"/api/agents/respawn-test/respawn", "application/json",
+		bytes.NewBufferString(`{"work_dir":"/nonexistent/path/that/does/not/exist"}`))
+	if resp.StatusCode != 400 {
+		t.Errorf("expected 400 for invalid work_dir, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify agent was disconnected as part of respawn attempt (cleanup happens before spawn)
+	resp = mustGet(t, ts.URL+"/api/agents/respawn-test")
+	var agent map[string]any
+	json.NewDecoder(resp.Body).Decode(&agent)
+	resp.Body.Close()
+
+	if agent["status"] != "disconnected" {
+		t.Errorf("expected agent disconnected after respawn attempt, got %v", agent["status"])
+	}
+}

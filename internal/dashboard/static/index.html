@@ -3218,6 +3218,32 @@ async function killSession(agentName) {
   }
 }
 
+async function respawnStaleAgent(agentName) {
+  // Find the agent to get project info
+  const agent = agents.find(a => a.name === agentName);
+  const projectId = agent ? agent.project_id : '';
+  let workDir = '';
+  if (projectId && projectPaths[projectId]) {
+    workDir = projectPaths[projectId];
+  }
+  if (!workDir) {
+    workDir = await showPrompt('Working directory for respawn:', {title: 'Respawn ' + agentName, placeholder: '/path/to/project'});
+    if (!workDir) return;
+  }
+  const resp = await fetch(`/api/agents/${encodeURIComponent(agentName)}/respawn`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({work_dir: workDir}),
+  });
+  if (resp.ok) {
+    showToast('Respawned ' + agentName, 'var(--cyan)');
+    await fetchAll();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast('Respawn failed: ' + (err.error?.message || 'unknown'), 'var(--red)');
+  }
+}
+
 async function openBroadcastPanel() {
   currentPanel = {type:'broadcast'};
   const panel = document.getElementById('panel');
@@ -5004,6 +5030,13 @@ function renderBulkBar() {
     <span>${bulkSelected.size} selected</span>
     <button class="bulk-move" onclick="bulkSelectAll()">Select all visible</button>
     ${STATUSES.map(s => `<button class="bulk-move" onclick="bulkMoveTo('${s}')">${STATUS_LABELS[s]}</button>`).join('')}
+    <div style="position:relative;display:inline-block">
+      <button class="bulk-move" onclick="toggleBulkAssignDropdown()" style="color:var(--cyan);border-color:var(--cyan-dim)">Assign &#x25BE;</button>
+      <div id="bulk-assign-dropdown" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);min-width:160px;z-index:50;max-height:200px;overflow-y:auto">
+        <div onclick="bulkAssignTo('')" style="padding:6px 12px;cursor:pointer;font-size:0.7rem;color:var(--text-dim);border-bottom:1px solid var(--border)">Unassign</div>
+        ${agents.filter(a => a.status !== 'disconnected').map(a => `<div onclick="bulkAssignTo('${esc(a.name)}')" style="padding:6px 12px;cursor:pointer;font-size:0.7rem;color:var(--text-primary)">${esc(a.name)}</div>`).join('')}
+      </div>
+    </div>
     <button class="bulk-danger" onclick="bulkDelete()">Delete</button>
     <button class="bulk-move" onclick="bulkSelected.clear();renderBoard()">Deselect</button>
   `;
@@ -5032,6 +5065,27 @@ async function bulkDelete() {
   ));
   bulkSelected.clear();
   showToast(`Deleted ${ids.length} tasks`, 'var(--red)');
+  fetchAll();
+}
+
+function toggleBulkAssignDropdown() {
+  const dd = document.getElementById('bulk-assign-dropdown');
+  if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+async function bulkAssignTo(agentName) {
+  const dd = document.getElementById('bulk-assign-dropdown');
+  if (dd) dd.style.display = 'none';
+  const ids = [...bulkSelected];
+  await Promise.all(ids.map(id =>
+    fetch('/api/tasks/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({assignee: agentName}),
+    })
+  ));
+  bulkSelected.clear();
+  showToast(`Assigned ${ids.length} tasks to ${agentName || 'nobody'}`, 'var(--cyan)');
   fetchAll();
 }
 
@@ -5710,6 +5764,7 @@ function renderAlerts() {
       <span class="alert-chip ${a.level}" onclick="${a.task_id ? `openTaskDetail('${a.task_id}')` : ''}" title="${esc(a.detail || '')}">
         <span class="alert-chip-icon">${icons[a.type] || '&#x26A0;'}</span>
         ${esc(a.title)}${a.detail ? ': ' + esc(a.detail.length > 30 ? a.detail.slice(0,30)+'...' : a.detail) : ''}
+        ${a.type === 'stale_agent' && a.agent_id ? `<button onclick="event.stopPropagation();respawnStaleAgent('${esc(a.agent_id)}')" style="margin-left:6px;font-size:0.55rem;padding:1px 6px;border-radius:3px;border:1px solid var(--cyan);background:transparent;color:var(--cyan);cursor:pointer;font-family:var(--font-mono)">respawn</button>` : ''}
       </span>
     `).join('')}
     <span class="alert-chip warning" onclick="toggleAlertsBar()" style="border-style:dashed;margin-left:auto">dismiss</span>
