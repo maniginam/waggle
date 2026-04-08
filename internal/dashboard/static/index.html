@@ -2562,7 +2562,14 @@ async function openTaskPanel(taskId, defaultTab) {
         </div>
       </div>
       ${(task.criteria||[]).length ? `<div class="detail-section"><div class="detail-label">Acceptance Criteria</div>${(task.criteria||[]).map(c => `<div style="color:var(--text-secondary);font-size:0.8rem;padding:3px 0">&#x2022; ${esc(c)}</div>`).join('')}</div>` : ''}
-      ${(deps.depends_on||[]).length ? `<div class="detail-section"><div class="detail-label">Depends On</div><div class="detail-deps">${(deps.depends_on||[]).map(d => depRow(d)).join('')}</div></div>` : ''}
+      <div class="detail-section">
+        <div class="detail-label">Depends On <span class="edit-hint" onclick="addDependency('${esc(taskId)}')">+ add</span></div>
+        <div class="detail-deps" id="deps-list">
+          ${(deps.depends_on||[]).map(d => depRowEditable(d, taskId)).join('')}
+          ${(deps.depends_on||[]).length === 0 ? '<div style="color:var(--text-dim);font-size:0.75rem;cursor:pointer" onclick="addDependency(\''+esc(taskId)+'\')">No dependencies — click + to add</div>' : ''}
+        </div>
+        <div id="dep-search-container" style="display:none;margin-top:6px"></div>
+      </div>
       ${(deps.blocking||[]).length ? `<div class="detail-section"><div class="detail-label">Blocking</div><div class="detail-deps">${(deps.blocking||[]).map(d => depRow(d)).join('')}</div></div>` : ''}
       <div class="detail-section">
         <div class="detail-label">Project</div>
@@ -2588,6 +2595,17 @@ async function openTaskPanel(taskId, defaultTab) {
         ).join('')}
       </div>
       <div class="action-bar" style="border-top:none;padding-top:8px">
+        <div style="position:relative;display:inline-block">
+          <button class="btn-sm" onclick="toggleSendToAgent('${esc(taskId)}')" style="color:var(--cyan);border-color:var(--cyan-dim)">Send to Agent &#x25BE;</button>
+          <div id="send-agent-dropdown" style="display:none;position:absolute;bottom:100%;left:0;margin-bottom:4px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);min-width:180px;z-index:50;max-height:200px;overflow-y:auto">
+            ${agents.filter(a => a.status !== 'disconnected').map(a => {
+              const hasSession = spawnedAgents.some(s => s.agent === a.name);
+              return `<div onclick="sendTaskToAgent('${esc(taskId)}','${esc(a.name)}')" style="padding:6px 12px;cursor:pointer;font-size:0.7rem;color:var(--text-primary);display:flex;align-items:center;gap:6px" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='transparent'">
+                <span style="color:var(--cyan)">${esc(a.name)}</span>${hasSession ? '<span style="font-size:0.55rem;color:var(--green)">live</span>' : ''}
+              </div>`;
+            }).join('') || '<div style="padding:8px 12px;font-size:0.65rem;color:var(--text-dim)">No connected agents</div>'}
+          </div>
+        </div>
         <button class="btn-sm" onclick="duplicateTask('${taskId}')">Duplicate</button>
         <button class="btn-sm danger" onclick="deleteTask('${taskId}')">Delete task</button>
       </div>
@@ -2674,6 +2692,87 @@ async function openTaskPanel(taskId, defaultTab) {
 
 function depRow(d) {
   return `<div class="dep-row" data-id="${d.id}"><div class="dep-status ${d.status}"></div><span class="dep-id">${d.id}</span><span class="dep-title">${esc(d.title)}</span></div>`;
+}
+
+function depRowEditable(d, taskId) {
+  return `<div class="dep-row" data-id="${d.id}" style="justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:8px;flex:1">
+      <div class="dep-status ${d.status}"></div><span class="dep-id">${d.id}</span><span class="dep-title">${esc(d.title)}</span>
+    </div>
+    <button onclick="event.stopPropagation();removeDependency('${esc(taskId)}','${esc(d.id)}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:0.75rem;padding:2px 4px;opacity:0.5" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">&times;</button>
+  </div>`;
+}
+
+let depSearchTimeout = null;
+async function addDependency(taskId) {
+  const container = document.getElementById('dep-search-container');
+  if (!container) return;
+  container.style.display = 'block';
+  container.innerHTML = `
+    <input class="form-input" id="dep-search-input" placeholder="Search tasks by title or ID..." style="font-size:0.75rem;padding:6px 10px" oninput="searchDepsDebounced('${esc(taskId)}')">
+    <div id="dep-search-results" style="max-height:150px;overflow-y:auto;margin-top:4px"></div>
+  `;
+  document.getElementById('dep-search-input').focus();
+}
+
+function searchDepsDebounced(taskId) {
+  clearTimeout(depSearchTimeout);
+  depSearchTimeout = setTimeout(() => searchDeps(taskId), 250);
+}
+
+async function searchDeps(taskId) {
+  const query = document.getElementById('dep-search-input')?.value?.trim();
+  const resultsEl = document.getElementById('dep-search-results');
+  if (!resultsEl || !query || query.length < 2) { if (resultsEl) resultsEl.innerHTML = ''; return; }
+
+  const resp = await fetch(`/api/tasks?q=${encodeURIComponent(query)}&limit=10`);
+  const tasks = await resp.json();
+  // Filter out self and already-depended tasks
+  const currentTask = tasks.find(t => t.id === taskId);
+  const existingDeps = new Set(currentTask?.depends_on || []);
+  const filtered = tasks.filter(t => t.id !== taskId && !existingDeps.has(t.id));
+
+  resultsEl.innerHTML = filtered.slice(0, 8).map(t => `
+    <div onclick="confirmAddDep('${esc(taskId)}','${esc(t.id)}')" style="padding:5px 10px;cursor:pointer;font-size:0.7rem;border-radius:var(--radius);display:flex;align-items:center;gap:6px;transition:background 0.1s" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='transparent'">
+      <div class="dep-status ${t.status}"></div>
+      <span style="color:var(--text-dim)">${esc(t.id)}</span>
+      <span style="color:var(--text-secondary)">${esc(t.title)}</span>
+    </div>
+  `).join('') || '<div style="padding:5px 10px;font-size:0.65rem;color:var(--text-dim)">No matching tasks</div>';
+}
+
+async function confirmAddDep(taskId, depId) {
+  const task = tasks.find(t => t.id === taskId);
+  const newDeps = [...(task?.depends_on || []), depId];
+  const resp = await fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({depends_on: newDeps}),
+  });
+  if (resp.ok) {
+    showToast('Dependency added', 'var(--green)');
+    openTaskPanel(taskId);
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast(err.error?.message || 'Failed to add dependency', 'var(--red)');
+  }
+}
+
+async function removeDependency(taskId, depId) {
+  const task = tasks.find(t => t.id === taskId);
+  const newDeps = (task?.depends_on || []).filter(d => d !== depId);
+  const resp = await fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({depends_on: newDeps}),
+  });
+  if (resp.ok) {
+    showToast('Dependency removed', 'var(--green)');
+    openTaskPanel(taskId);
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast(err.error?.message || 'Failed to remove dependency', 'var(--red)');
+  }
 }
 
 function statusColor(status) {
@@ -3482,6 +3581,52 @@ async function updateTaskPriority(taskId, newPriority) {
   });
   await fetchAll();
   openTaskPanel(taskId);
+}
+
+function toggleSendToAgent(taskId) {
+  const dd = document.getElementById('send-agent-dropdown');
+  if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+async function sendTaskToAgent(taskId, agentName) {
+  const dd = document.getElementById('send-agent-dropdown');
+  if (dd) dd.style.display = 'none';
+
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  // Build a prompt from task details
+  let prompt = `Please work on task ${task.id}: ${task.title}.`;
+  if (task.description) prompt += ` Description: ${task.description}`;
+  if (task.criteria && task.criteria.length) prompt += ` Criteria: ${task.criteria.join('; ')}`;
+
+  // Send as a waggle message
+  await fetch('/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from: 'user', to: agentName, body: prompt}),
+  });
+
+  // Assign task to agent
+  await fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({assignee: agentName, status: 'in_progress'}),
+  });
+
+  // If agent has a live session, also inject the prompt
+  const hasSession = spawnedAgents.some(s => s.agent === agentName);
+  if (hasSession) {
+    await fetch(`/api/sessions/${encodeURIComponent(agentName)}/input`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({input: prompt}),
+    }).catch(() => {});
+  }
+
+  showToast(`Sent task to ${agentName}`, 'var(--cyan)');
+  openTaskPanel(taskId);
+  fetchAll();
 }
 
 async function duplicateTask(taskId) {
