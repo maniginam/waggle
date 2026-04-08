@@ -3305,6 +3305,17 @@ async function doSpawn() {
   await fetchAll();
 }
 
+async function spawnForProject(projectId, projectName) {
+  await openSpawnPanel();
+  const projSelect = document.getElementById('spawn-project');
+  if (projSelect) {
+    projSelect.value = projectId;
+    onSpawnProjectChange();
+  }
+  const nameInput = document.getElementById('spawn-name');
+  if (nameInput) nameInput.focus();
+}
+
 async function killSession(agentName) {
   if (!await showConfirm('Kill session for ' + agentName + '?', {title: 'Kill Session', danger: true})) return;
   const resp = await fetch('/api/sessions/' + encodeURIComponent(agentName), {method: 'DELETE'});
@@ -4130,15 +4141,38 @@ function renderBoardHeader() {
   const pAgents = project ? agents.filter(a => a.project_id === project.id && a.status !== 'disconnected') : [];
   const agentInfo = pAgents.length > 0 ? `<span style="font-size:0.7rem;color:var(--cyan);margin-left:8px">${pAgents.length} agent${pAgents.length !== 1 ? 's' : ''} active</span>` : '';
 
+  // Project stats for header
+  const pTasks = project ? tasks.filter(t => t.project_id === project.id) : tasks.filter(t => !t.project_id);
+  const pDone = pTasks.filter(t => t.status === 'done').length;
+  const pTotal = pTasks.length || 1;
+  const pct = Math.round(pDone / pTotal * 100);
+  const pReady = pTasks.filter(t => t.status === 'ready').length;
+  const pInProg = pTasks.filter(t => t.status === 'in_progress').length;
+
+  // Velocity: tasks completed in last 7 days
+  const sevenDaysAgo = Date.now() - 7 * 86400000;
+  const recentDone = pTasks.filter(t => t.status === 'done' && new Date(t.updated_at).getTime() > sevenDaysAgo).length;
+  const velocity = (recentDone / 7).toFixed(1);
+
   el.innerHTML = `
     <div class="board-header-left">
       <span class="board-breadcrumb" onclick="navigateTo('overview')">Overview</span>
       <span class="board-project-name">${esc(name)}</span>
+      ${project && project.auto_dispatch ? '<span title="Auto-dispatch enabled" style="font-size:0.7rem;color:var(--amber)">&#x26A1;</span>' : ''}
       ${agentInfo}
       ${desc ? `<span class="board-project-desc">${esc(desc)}</span>` : ''}
-      ${project ? `<span style="font-size:0.6rem;color:var(--text-dim);font-family:var(--font-mono)">created ${timeSince(new Date(project.created_at))} · updated ${timeSince(new Date(project.updated_at))}</span>` : ''}
+      <div style="display:flex;align-items:center;gap:12px;font-size:0.65rem;color:var(--text-dim);font-family:var(--font-mono);margin-top:2px">
+        <span>${pDone}/${pTasks.length} done (${pct}%)</span>
+        <span>${pReady} ready</span>
+        <span>${pInProg} active</span>
+        <span>${velocity}/day velocity</span>
+        <div style="flex:1;max-width:120px;height:4px;background:var(--bg-elevated);border-radius:2px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:var(--green);border-radius:2px;transition:width 0.3s"></div>
+        </div>
+      </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
+      ${project ? `<button class="btn-ghost btn-sm" style="color:var(--cyan);border-color:var(--cyan-dim)" onclick="spawnForProject('${esc(project.id)}','${esc(project.name)}')" title="Spawn agent for this project">+ Agent</button>` : ''}
       <button class="btn-ghost btn-sm" onclick="toggleBulkMode()" title="Select multiple tasks">${bulkMode ? 'Exit Select' : 'Select'}</button>
       <button class="btn-ghost btn-sm" onclick="openCreatePanel('task')">+ Task</button>
       ${project ? `<button class="btn-ghost btn-sm" style="color:var(--purple)" onclick="loadProjectDiffs('${esc(project.id)}')" title="View diffs for this project">Diffs</button>` : ''}
@@ -4735,6 +4769,7 @@ const SLASH_COMMANDS = [
   {cmd: '/view', args: '<page>', desc: 'Navigate (overview, inbox, sessions)', fn: slashView},
   {cmd: '/task', args: '<title>', desc: 'Quick-create a backlog task', fn: slashTask},
   {cmd: '/assign', args: '<task-id> <agent>', desc: 'Assign a task to an agent', fn: slashAssign},
+  {cmd: '/unassign', args: '<task-id>', desc: 'Unassign a task', fn: slashUnassign},
   {cmd: '/move', args: '<task-id> <status>', desc: 'Move task to status column', fn: slashMove},
   {cmd: '/focus', args: '', desc: 'Toggle focus mode (hide done)', fn: () => toggleFocusMode()},
   {cmd: '/find', args: '<query>', desc: 'Search tasks by title or ID', fn: slashFind},
@@ -4939,6 +4974,24 @@ async function slashAssign(args) {
   const task = tasks.find(t => t.id === taskId || t.id.startsWith(taskId));
   if (!task) { showToast('Task not found: ' + taskId, 'var(--red)'); return; }
   await doClaimTask(task.id, agentName);
+}
+
+async function slashUnassign(args) {
+  const taskId = args.trim();
+  if (!taskId) { showToast('Usage: /unassign <task-id>', 'var(--amber)'); return; }
+  const task = tasks.find(t => t.id === taskId || t.id.startsWith(taskId));
+  if (!task) { showToast('Task not found: ' + taskId, 'var(--red)'); return; }
+  const resp = await fetch(`/api/tasks/${task.id}`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({assignee: ''}),
+  });
+  if (resp.ok) {
+    showToast(`Unassigned ${task.id}`, 'var(--green)');
+    fetchAll();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast(err.error?.message || 'Failed to unassign', 'var(--red)');
+  }
 }
 
 async function slashMove(args) {
