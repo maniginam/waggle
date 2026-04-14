@@ -139,6 +139,7 @@ type Project struct {
 	Description  string    `json:"description,omitempty"`
 	LeaderAgent  string    `json:"leader_agent,omitempty"`
 	AutoDispatch bool      `json:"auto_dispatch"`
+	WorkDir      string    `json:"work_dir,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

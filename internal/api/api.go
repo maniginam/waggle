@@ -69,6 +69,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/messages", a.handleMessages)
 	mux.HandleFunc("/api/reviews", a.handleReviews)
 	mux.HandleFunc("/api/reviews/", a.handleReview)
+	mux.HandleFunc("/api/git", a.handleGitOverview)
 	mux.HandleFunc("/api/stats", a.handleStats)
 	mux.HandleFunc("/api/usage", a.handleUsage)
 	mux.HandleFunc("/api/spawn", a.handleSpawn)
@@ -975,6 +976,10 @@ func (a *API) handleProject(w http.ResponseWriter, r *http.Request) {
 		a.handleProjectEpics(w, r, id)
 		return
 	}
+	if subAction == "git" {
+		a.handleProjectGit(w, r, id)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -1053,6 +1058,141 @@ func (a *API) handleProjectEpics(w http.ResponseWriter, r *http.Request, project
 		})
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) handleGitOverview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	projects, err := a.store.ListProjects()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+		return
+	}
+
+	type gitSummary struct {
+		ProjectID   string `json:"project_id"`
+		ProjectName string `json:"project_name"`
+		WorkDir     string `json:"work_dir"`
+		Branch      string `json:"branch"`
+		Status      string `json:"status"`
+		Ahead       string `json:"ahead"`
+		Behind      string `json:"behind"`
+		Dirty       bool   `json:"dirty"`
+	}
+
+	var results []gitSummary
+	for _, p := range projects {
+		if p.WorkDir == "" {
+			continue
+		}
+		if _, err := os.Stat(p.WorkDir); os.IsNotExist(err) {
+			continue
+		}
+		runGit := func(args ...string) string {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = p.WorkDir
+			out, _ := cmd.Output()
+			return strings.TrimSpace(string(out))
+		}
+		branch := runGit("rev-parse", "--abbrev-ref", "HEAD")
+		status := runGit("status", "--short")
+		remote := runGit("rev-parse", "--abbrev-ref", "@{upstream}")
+		ahead, behind := "0", "0"
+		if remote != "" {
+			ab := runGit("rev-list", "--left-right", "--count", remote+"...HEAD")
+			parts := strings.Fields(ab)
+			if len(parts) == 2 {
+				behind, ahead = parts[0], parts[1]
+			}
+		}
+		results = append(results, gitSummary{
+			ProjectID:   p.ID,
+			ProjectName: p.Name,
+			WorkDir:     p.WorkDir,
+			Branch:      branch,
+			Status:      status,
+			Ahead:       ahead,
+			Behind:      behind,
+			Dirty:       status != "",
+		})
+	}
+	if results == nil {
+		results = []gitSummary{}
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
+func (a *API) handleProjectGit(w http.ResponseWriter, r *http.Request, projectID string) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	proj, err := a.store.GetProject(projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project_not_found", "Project not found")
+		return
+	}
+	if proj.WorkDir == "" {
+		writeError(w, http.StatusBadRequest, "no_work_dir", "Project has no work_dir configured")
+		return
+	}
+	if _, err := os.Stat(proj.WorkDir); os.IsNotExist(err) {
+		writeError(w, http.StatusBadRequest, "invalid_work_dir", "work_dir does not exist: "+proj.WorkDir)
+		return
+	}
+
+	// Run git commands in the project directory
+	runGit := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = proj.WorkDir
+		out, _ := cmd.Output()
+		return string(out)
+	}
+
+	// Get current branch
+	branch := strings.TrimSpace(runGit("rev-parse", "--abbrev-ref", "HEAD"))
+
+	// Get remote tracking branch
+	remote := strings.TrimSpace(runGit("rev-parse", "--abbrev-ref", "@{upstream}"))
+
+	// Fetch latest from origin (non-blocking, best-effort)
+	exec.Command("git", "-C", proj.WorkDir, "fetch", "--quiet").Run()
+
+	// Status
+	status := runGit("status", "--short")
+
+	// Diff: uncommitted changes
+	diffLocal := runGit("diff")
+
+	// Diff: staged changes
+	diffStaged := runGit("diff", "--cached")
+
+	// Diff: local commits not on remote
+	var diffUpstream string
+	var aheadBehind string
+	if remote != "" {
+		diffUpstream = runGit("diff", remote+"...HEAD")
+		aheadBehind = strings.TrimSpace(runGit("rev-list", "--left-right", "--count", remote+"...HEAD"))
+	}
+
+	// Recent log
+	logOutput := runGit("log", "--oneline", "-20")
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"project_id":    projectID,
+		"work_dir":      proj.WorkDir,
+		"branch":        branch,
+		"remote":        remote,
+		"status":        status,
+		"diff_local":    diffLocal,
+		"diff_staged":   diffStaged,
+		"diff_upstream": diffUpstream,
+		"ahead_behind":  aheadBehind,
+		"log":           logOutput,
+	})
 }
 
 func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -1307,34 +1447,28 @@ func (a *API) wakeAgent(agentName, message string) {
 		return
 	}
 
-	// Try to find work_dir: check agentDirs cache, then fall back to known project paths
-	a.procsMu.Lock()
-	workDir := a.agentDirs[agentName]
-	a.procsMu.Unlock()
-
+	// Try to find work_dir: project.WorkDir first, then agentDirs cache, then conventions
+	var workDir string
+	if agent.ProjectID != "" {
+		if proj, err := a.store.GetProject(agent.ProjectID); err == nil && proj.WorkDir != "" {
+			workDir = proj.WorkDir
+		}
+	}
 	if workDir == "" {
-		// Fall back to well-known project directories
+		a.procsMu.Lock()
+		workDir = a.agentDirs[agentName]
+		a.procsMu.Unlock()
+	}
+	if workDir == "" {
 		home, _ := os.UserHomeDir()
-		// Derive base name from agent name (strip -lead, -dev, -worker suffixes)
 		baseName := agentName
 		for _, suffix := range []string{"-lead", "-dev", "-worker", "-reviewer", "-tester"} {
 			baseName = strings.TrimSuffix(baseName, suffix)
 		}
-		candidates := []string{
+		for _, c := range []string{
 			filepath.Join(home, "projects", baseName),
 			filepath.Join(home, "projects", agentName),
-		}
-		// Try project name if agent has a project
-		if agent.ProjectID != "" {
-			if proj, err := a.store.GetProject(agent.ProjectID); err == nil {
-				projLower := strings.ToLower(proj.Name)
-				candidates = append([]string{
-					filepath.Join(home, "projects", projLower),
-					filepath.Join(home, "projects", strings.ReplaceAll(projLower, " ", "-")),
-				}, candidates...)
-			}
-		}
-		for _, c := range candidates {
+		} {
 			if info, err := os.Stat(c); err == nil && info.IsDir() {
 				workDir = c
 				break
@@ -1598,21 +1732,44 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.procsMu.Lock()
+	seen := map[string]bool{}
 	var sessions []map[string]any
 	for name, cmd := range a.procs {
-		logPath := agentLogPath(name)
-		hasLog := false
-		if _, err := os.Stat(logPath); err == nil {
-			hasLog = true
-		}
+		seen[name] = true
 		sessions = append(sessions, map[string]any{
 			"name":    name,
 			"agent":   name,
 			"pid":     cmd.Process.Pid,
-			"has_log": hasLog,
+			"has_log": true,
+			"alive":   true,
 		})
 	}
 	a.procsMu.Unlock()
+
+	// Include all agents with log files (even if process exited)
+	if r.URL.Query().Get("all") == "true" {
+		home, _ := os.UserHomeDir()
+		logDir := filepath.Join(home, ".waggle", "logs")
+		entries, _ := os.ReadDir(logDir)
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
+				continue
+			}
+			name := strings.TrimSuffix(e.Name(), ".log")
+			if seen[name] {
+				continue
+			}
+			info, _ := e.Info()
+			sessions = append(sessions, map[string]any{
+				"name":      name,
+				"agent":     name,
+				"has_log":   true,
+				"alive":     false,
+				"log_size":  info.Size(),
+				"log_mtime": info.ModTime().Format("2006-01-02T15:04:05Z"),
+			})
+		}
+	}
 
 	if sessions == nil {
 		sessions = []map[string]any{}
