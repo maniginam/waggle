@@ -31,7 +31,7 @@
     "icon": [
       "icons/icon.png"
     ],
-"macOS": {
+    "macOS": {
       "minimumSystemVersion": "10.15"
     }
   },
