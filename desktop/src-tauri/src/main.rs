@@ -8,6 +8,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::image::Image;
 use tauri::{AppHandle, Manager};
+use tauri_plugin_notification::NotificationExt;
 
 struct ServerState {
     child: Option<Child>,
@@ -129,6 +130,87 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn spawn_notification_listener(app: AppHandle) {
+    std::thread::spawn(move || {
+        // Wait for server to be ready
+        std::thread::sleep(Duration::from_secs(2));
+
+        let connect_result = tungstenite::connect("ws://127.0.0.1:4740/ws");
+
+        let (mut socket, _response) = match connect_result {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("[waggle-desktop] WebSocket connect failed: {}", e);
+                return;
+            }
+        };
+
+        eprintln!("[waggle-desktop] WebSocket connected for notifications");
+
+        loop {
+            match socket.read() {
+                Ok(tungstenite::Message::Text(text)) => {
+                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Some(notification) = event_to_notification(&event) {
+                            let _ = app.notification()
+                                .builder()
+                                .title(&notification.0)
+                                .body(&notification.1)
+                                .show();
+                        }
+                    }
+                }
+                Ok(tungstenite::Message::Close(_)) => {
+                    eprintln!("[waggle-desktop] WebSocket closed");
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("[waggle-desktop] WebSocket error: {}", e);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+}
+
+fn event_to_notification(event: &serde_json::Value) -> Option<(String, String)> {
+    let event_type = event.get("type")?.as_str()?;
+
+    match event_type {
+        "task_completed" => {
+            let agent = event.get("agent_id").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            let task = event.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
+            Some(("Task Completed".into(), format!("{} completed task {}", agent, task)))
+        }
+        "message" => {
+            let payload = event.get("payload")?;
+            let from = payload.get("from").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            let to = payload.get("to").and_then(|v| v.as_str()).unwrap_or("");
+            if to == "user" || to.is_empty() {
+                let body = payload.get("body").and_then(|v| v.as_str()).unwrap_or("");
+                let preview = if body.len() > 100 { &body[..100] } else { body };
+                Some((format!("Message from {}", from), preview.to_string()))
+            } else {
+                None
+            }
+        }
+        "agent_joined" => {
+            let agent = event.get("agent_id").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            Some(("Agent Joined".into(), format!("{} connected", agent)))
+        }
+        "agent_left" => {
+            let agent = event.get("agent_id").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            Some(("Agent Disconnected".into(), format!("{} disconnected", agent)))
+        }
+        "agent_stale" => {
+            let agent = event.get("agent_id").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            Some(("Agent Stale".into(), format!("{} is not responding", agent)))
+        }
+        _ => None,
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -139,6 +221,7 @@ fn main() {
             if let Err(e) = setup_tray(&app.handle()) {
                 eprintln!("[waggle-desktop] Failed to setup tray: {}", e);
             }
+            spawn_notification_listener(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
