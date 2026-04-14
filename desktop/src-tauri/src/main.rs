@@ -4,6 +4,9 @@ use std::net::TcpStream;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::image::Image;
 use tauri::{AppHandle, Manager};
 
 struct ServerState {
@@ -66,6 +69,66 @@ fn stop_server(state: &mut ServerState) {
     }
 }
 
+fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+    let hide = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
+
+    let icon = Image::from_path("icons/tray.png")
+        .or_else(|_| {
+            let resource_dir = app.path().resource_dir().unwrap_or_default();
+            Image::from_path(resource_dir.join("icons/tray.png"))
+        })
+        .unwrap_or_else(|_| Image::from_bytes(include_bytes!("../icons/tray.png")).expect("embedded tray icon"));
+
+    let handle = app.clone();
+    let handle2 = app.clone();
+
+    TrayIconBuilder::new()
+        .icon(icon)
+        .icon_as_template(true)
+        .menu(&menu)
+        .on_menu_event(move |_app, event| {
+            match event.id().as_ref() {
+                "show" => {
+                    if let Some(w) = handle.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+                "hide" => {
+                    if let Some(w) = handle.get_webview_window("main") {
+                        let _ = w.hide();
+                    }
+                }
+                "quit" => {
+                    let state = handle.state::<Mutex<ServerState>>();
+                    if let Ok(mut s) = state.lock() {
+                        stop_server(&mut s);
+                    }
+                    handle.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(move |_tray, event| {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                if let Some(w) = handle2.get_webview_window("main") {
+                    if w.is_visible().unwrap_or(false) {
+                        let _ = w.hide();
+                    } else {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -73,6 +136,9 @@ fn main() {
         .setup(|app| {
             let server_state = start_server(&app.handle());
             app.manage(Mutex::new(server_state));
+            if let Err(e) = setup_tray(&app.handle()) {
+                eprintln!("[waggle-desktop] Failed to setup tray: {}", e);
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
