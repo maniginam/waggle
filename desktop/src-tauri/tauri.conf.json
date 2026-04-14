@@ -35,18 +35,5 @@
       "minimumSystemVersion": "10.15"
     }
   },
-  "plugins": {
-    "notification": {
-      "all": true
-    },
-    "shell": {
-      "scope": {
-        "waggle-server": {
-          "name": "waggle",
-          "cmd": "",
-          "args": true
-        }
-      }
-    }
-  }
+  "plugins": {}
 }

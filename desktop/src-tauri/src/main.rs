@@ -135,7 +135,17 @@ fn spawn_notification_listener(app: AppHandle) {
         // Wait for server to be ready
         std::thread::sleep(Duration::from_secs(2));
 
-        let connect_result = tungstenite::connect("ws://127.0.0.1:4740/ws");
+        let request = tungstenite::http::Request::builder()
+            .uri("ws://127.0.0.1:4740/ws")
+            .header("Host", "127.0.0.1:4740")
+            .header("Origin", "http://127.0.0.1:4740")
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", tungstenite::handshake::client::generate_key())
+            .body(())
+            .expect("valid ws request");
+        let connect_result = tungstenite::connect(request);
 
         let (mut socket, _response) = match connect_result {
             Ok(conn) => conn,
