@@ -25,3 +25,14 @@ run: build
 
 install:
 	go install $(LDFLAGS) ./cmd/waggle/
+
+.PHONY: app dmg
+
+app: build
+	cp waggle desktop/src-tauri/resources/waggle
+	chmod +x desktop/src-tauri/resources/waggle
+	cd desktop/src-tauri && cargo tauri build
+
+dmg: app
+	@echo "DMG at desktop/src-tauri/target/release/bundle/dmg/"
+	@ls desktop/src-tauri/target/release/bundle/dmg/*.dmg 2>/dev/null || echo "(no DMG found)"
