@@ -4,13 +4,22 @@
   "description": "AI Agent Orchestration Dashboard",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d0f12",
-  "theme_color": "#d4a056",
+  "orientation": "any",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "categories": ["developer", "productivity"],
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐝</text></svg>",
-      "sizes": "any",
-      "type": "image/svg+xml"
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='80' fill='%230a0a0c'/%3E%3Cpath d='M256 120 L340 168 L340 264 L256 312 L172 264 L172 168 Z' fill='none' stroke='%23f0a500' stroke-width='12'/%3E%3Cpath d='M256 180 L298 204 L298 252 L256 276 L214 252 L214 204 Z' fill='%23f0a500' opacity='0.3'/%3E%3Ccircle cx='256' cy='228' r='20' fill='%23f0a500'/%3E%3Cline x1='256' y1='312' x2='256' y2='380' stroke='%23f0a500' stroke-width='8' stroke-linecap='round'/%3E%3Cline x1='220' y1='350' x2='256' y2='312' stroke='%23f0a500' stroke-width='6' stroke-linecap='round'/%3E%3Cline x1='292' y1='350' x2='256' y2='312' stroke='%23f0a500' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='32' fill='%230a0a0c'/%3E%3Cpath d='M96 40 L136 64 L136 112 L96 136 L56 112 L56 64 Z' fill='none' stroke='%23f0a500' stroke-width='6'/%3E%3Ccircle cx='96' cy='88' r='10' fill='%23f0a500'/%3E%3Cline x1='96' y1='136' x2='96' y2='160' stroke='%23f0a500' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }
