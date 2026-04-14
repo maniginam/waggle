@@ -1,0 +1,52 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicerdicer/tauri-v2-schema/main/tauri.conf.json",
+  "productName": "Waggle",
+  "version": "0.1.0",
+  "identifier": "com.waggle.desktop",
+  "build": {
+    "frontendDist": "../frontend-placeholder"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "Waggle",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "url": "http://localhost:4740",
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "icon": [
+      "icons/icon.png"
+    ],
+"macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  },
+  "plugins": {
+    "notification": {
+      "all": true
+    },
+    "shell": {
+      "scope": {
+        "waggle-server": {
+          "name": "waggle",
+          "cmd": "",
+          "args": true
+        }
+      }
+    }
+  }
+}
