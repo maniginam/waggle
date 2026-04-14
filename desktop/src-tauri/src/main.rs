@@ -230,6 +230,13 @@ fn main() {
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Waggle desktop");
+        .build(tauri::generate_context!())
+        .expect("error while building Waggle desktop")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                if let Ok(mut s) = app.state::<Mutex<ServerState>>().lock() {
+                    stop_server(&mut s);
+                };
+            }
+        });
 }
