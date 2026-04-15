@@ -14,6 +14,31 @@ Named after the [honeybee waggle dance](https://en.wikipedia.org/wiki/Waggle_dan
 - **Desktop app** -- Native macOS app via Tauri (system tray, notifications)
 - **Zero dependencies** -- Single Go binary, embedded SQLite, no external services
 
+## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew tap maniginam/waggle
+brew install waggle
+```
+
+### Quick Install (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/maniginam/waggle/master/install.sh | sh
+```
+
+### From Source
+
+```bash
+go install github.com/maniginam/waggle/cmd/waggle@latest
+```
+
+### Prebuilt Binaries
+
+Download from [GitHub Releases](https://github.com/maniginam/waggle/releases).
+
 ## Quick Start
 
 ```bash
