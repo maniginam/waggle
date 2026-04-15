@@ -1,17 +1,28 @@
 # Waggle
 
-Model-agnostic AI agent orchestration. SMART task coordination for multiple AI coding agents via WebSocket, REST API, and MCP.
+Model-agnostic AI agent orchestration. Coordinate multiple AI coding agents with real-time task management, messaging, and a live dashboard.
 
-Named after the honeybee waggle dance — the communication protocol bees use to tell other bees where to go and what to do.
+Named after the [honeybee waggle dance](https://en.wikipedia.org/wiki/Waggle_dance) -- the communication protocol bees use to coordinate their hive.
+
+## Features
+
+- **Real-time dashboard** -- Kanban board, agent monitoring, messaging, code review
+- **Multi-agent coordination** -- WebSocket-based task claiming, heartbeat, auto-dispatch
+- **SMART task management** -- priorities, dependencies, acceptance criteria, deadlines
+- **MCP integration** -- 27 tools for Claude Code (works with any MCP-compatible client)
+- **CLI** -- Full-featured command line for task, agent, and project management
+- **Desktop app** -- Native macOS app via Tauri (system tray, notifications)
+- **Zero dependencies** -- Single Go binary, embedded SQLite, no external services
 
 ## Quick Start
 
 ```bash
 go install github.com/maniginam/waggle/cmd/waggle@latest
 
-waggle start          # start the server on :4740
-waggle task add "Implement auth module" --priority high --criteria "all tests pass"
-waggle agents         # list connected agents
+waggle start                                    # start server on :4740
+open http://localhost:4740                       # open the dashboard
+waggle task add "Build auth module" --priority high
+waggle connect                                  # generate .mcp.json for Claude Code
 ```
 
 ## Architecture
@@ -19,26 +30,27 @@ waggle agents         # list connected agents
 Single Go binary, embedded SQLite, zero external dependencies.
 
 ```
-Agents ──WebSocket──┐
-                    ├── Waggle Server ── SQLite (~/.waggle/waggle.db)
-CLI ────REST API────┤
-                    │
-Claude Code ──MCP───┘
+Agents --WebSocket---+
+                     +-- Waggle Server -- SQLite (~/.waggle/waggle.db)
+CLI ----REST API-----+
+                     |
+Claude Code --MCP----+
 ```
 
-- **WebSocket** (`ws://localhost:4740/ws`) — real-time event coordination
-- **REST API** (`http://localhost:4740/api`) — CRUD operations
-- **MCP Adapter** (`waggle mcp`) — stdio transport for Claude Code
+- **WebSocket** (`ws://localhost:4740/ws`) -- real-time event coordination, heartbeat, task claiming
+- **REST API** (`http://localhost:4740/api`) -- CRUD operations, stats, usage tracking
+- **MCP Adapter** (`waggle mcp`) -- stdio transport for Claude Code and compatible clients
+- **Dashboard** (`http://localhost:4740`) -- Kanban board, agent monitoring, messaging
 
 ## MCP Integration
 
-Connect Claude Code to a running Waggle server:
+Connect any MCP-compatible AI coding agent to Waggle:
 
 ```bash
 waggle connect    # generates .mcp.json in current directory
 ```
 
-This exposes 27 tools including: `waggle_register_agent`, `waggle_briefing`, `waggle_create_task`, `waggle_list_tasks`, `waggle_show_task`, `waggle_get_next_task`, `waggle_claim_task`, `waggle_complete_task`, `waggle_task_deps`, `waggle_task_history`, `waggle_list_subtasks`, `waggle_add_comment`, `waggle_send_message`, `waggle_read_messages`, `waggle_create_project`, `waggle_list_projects`, `waggle_show_project`, `waggle_update_project`, `waggle_delete_project`, `waggle_report_usage`, `waggle_get_usage`, and more.
+This exposes 27+ tools including task management, messaging, project tracking, and agent coordination. Agents can register, claim tasks, report status, send messages, and coordinate with other agents.
 
 ## SMART Tasks
 
@@ -50,74 +62,108 @@ Every task supports the SMART framework:
 - **Relevant**: tags for categorization
 - **Time-bound**: estimates + deadlines
 
+```bash
+waggle task add "Implement OAuth2" \
+  --priority high \
+  --criteria "all tests pass" \
+  --tag auth \
+  --estimate 2h \
+  --deadline 2026-04-20
+```
+
 ## CLI Reference
 
 ```
-waggle start [--port 4740]       Start the server
-waggle stop                      Stop the server
-waggle status                    Server status + connected agents
-waggle mcp                       Start MCP stdio adapter
-waggle connect                   Generate .mcp.json for Claude Code
+SERVER
+  waggle start [--port 4740]       Start the server
+  waggle stop                      Stop the server
+  waggle status                    Server status + connected agents
+  waggle mcp                       Start MCP stdio adapter
+  waggle connect                   Generate .mcp.json for Claude Code
 
-waggle task add "title" [flags]  Create a task
-waggle task list [--status X]    List tasks (also --priority, --tag, --search/-q)
-waggle task next [--tag X]       Show highest-priority ready task
-waggle task show <id>            Show task detail
-waggle task update <id> [flags]  Update a task
-waggle task claim <id>           Claim a task
-waggle task done <id>            Mark task complete
-waggle task rm <id>              Delete a task
+TASKS
+  waggle task add "title" [flags]  Create a task
+  waggle task list [--status X]    List tasks (also --priority, --tag, --search/-q)
+  waggle task next [--tag X]       Show highest-priority ready task
+  waggle task show <id>            Show task detail
+  waggle task update <id> [flags]  Update a task
+  waggle task claim <id>           Claim a task
+  waggle task done <id>            Mark task complete
+  waggle task rm <id>              Delete a task
 
-waggle agent show <name>         Show agent detail
-waggle agents                    List connected agents
-waggle watch [--agent X]         Tail event stream
-waggle msg send <agent> "msg"    Send a message
-waggle msg list [agent]          List messages
+AGENTS
+  waggle agent show <name>         Show agent detail
+  waggle agents                    List connected agents
+  waggle watch [--agent X]         Tail event stream
 
-waggle config [key] [value]      Get/set configuration
-waggle backup                    Backup database
-waggle reset                     Wipe database
+MESSAGES
+  waggle msg send <agent> "msg"    Send a message
+  waggle msg list [agent]          List messages
+
+PROJECTS
+  waggle project add "name"        Create a project
+  waggle project list              List projects
+
+CONFIG
+  waggle config [key] [value]      Get/set configuration
+  waggle backup                    Backup database
+  waggle reset                     Wipe database
 ```
 
 ## REST API
 
 ```
 POST   /api/tasks                Create task
-GET    /api/tasks                List tasks (?status=&assignee=&priority=&tag=&q=&project_id=&task_type=)
+GET    /api/tasks                List tasks (?status=&assignee=&priority=&tag=&q=&project_id=)
 GET    /api/tasks/:id            Get task
 PATCH  /api/tasks/:id            Update task
-DELETE /api/tasks/:id            Delete task (rejects if in_progress)
+DELETE /api/tasks/:id            Delete task
 POST   /api/tasks/:id/claim      Claim task
-POST   /api/tasks/:id/unclaim    Unclaim task (self-only)
+POST   /api/tasks/:id/unclaim    Unclaim task
 POST   /api/tasks/:id/complete   Complete task (auto-unblocks dependents)
-GET    /api/tasks/:id/comments  List task comments
-POST   /api/tasks/:id/comments  Add comment (author, body)
-GET    /api/tasks/:id/history   Task event history
-GET    /api/tasks/:id/subtasks  Subtasks with progress (done/total)
-GET    /api/tasks/:id/deps      Dependency graph (depends_on + blocking)
-POST   /api/projects             Create project (name, description)
+GET    /api/tasks/:id/comments   List comments
+POST   /api/tasks/:id/comments   Add comment
+GET    /api/tasks/:id/history    Task event history
+GET    /api/tasks/:id/deps       Dependency graph
+
+POST   /api/projects             Create project
 GET    /api/projects             List projects
 GET    /api/projects/:id         Get project
 PATCH  /api/projects/:id         Update project
 DELETE /api/projects/:id         Delete project
-GET    /api/projects/:id/epics  List epics with progress
+
 POST   /api/agents/register      Register agent
 GET    /api/agents               List agents
-GET    /api/agents/:id           Get agent
-POST   /api/agents/:name/status  Update agent status
+POST   /api/agents/:name/status  Update status
+
 POST   /api/messages             Send message
 GET    /api/messages?to=<name>   Read messages
-GET    /api/events               List events (or SSE with Accept: text/event-stream)
-GET    /api/stats                Dashboard stats (tasks/agents/messages/tokens summary)
-POST   /api/usage                Report token usage (agent_name, model, input_tokens, output_tokens)
-GET    /api/usage                Token usage summary (total, by_agent, recent)
+
+GET    /api/stats                Dashboard stats
+POST   /api/usage                Report token usage
+GET    /api/usage                Token usage summary
 GET    /health                   Health check
 WS     /ws                       WebSocket endpoint
 ```
 
+## Desktop App
+
+Waggle includes a native macOS desktop app built with Tauri:
+
+```bash
+make app    # build the .app bundle
+make dmg    # create a .dmg installer
+```
+
+Features: system tray, native notifications, auto-starts the server.
+
+See [desktop app docs](docs/superpowers/specs/2026-04-14-desktop-app-design.md) for details.
+
 ## Development
 
 ```bash
+git clone https://github.com/maniginam/waggle.git
+cd waggle
 make build          # build binary
 make test           # run tests
 make test-cover     # test with coverage report
@@ -125,6 +171,8 @@ make run            # build and start server
 make install        # install to $GOPATH/bin
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
 ## License
 
-MIT
+[MIT](LICENSE)
