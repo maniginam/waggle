@@ -42,9 +42,9 @@ func New(dbPath string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	// Connection pool: single writer, multiple readers
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
+	// SQLite supports one writer at a time; limit connections to avoid SQLITE_BUSY
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
 	s := &Store{db: db}
