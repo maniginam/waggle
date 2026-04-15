@@ -25,7 +25,7 @@ type vapidKeys struct {
 func NewNotifier(s *store.Store) (*Notifier, error) {
 	n := &Notifier{
 		store:      s,
-		vapidEmail: "mailto:waggle@localhost",
+		vapidEmail: "mailto:notifications@waggle.dev",
 	}
 	if err := n.loadOrGenerateKeys(); err != nil {
 		return nil, err

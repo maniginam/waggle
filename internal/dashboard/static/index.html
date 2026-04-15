@@ -3476,7 +3476,7 @@ async function openSpawnPanel() {
       </div>
       <div class="spawn-field">
         <label class="spawn-label">Working Directory</label>
-        <input class="spawn-input" id="spawn-workdir" placeholder="/Users/maniginam/projects/...">
+        <input class="spawn-input" id="spawn-workdir" placeholder="~/projects/...">
         <div class="spawn-hint">Absolute path — auto-fills if project path was saved before</div>
       </div>
       <div class="spawn-field">
@@ -4099,7 +4099,7 @@ function editProjectDetails(projectId) {
       </div>
       <div class="form-group">
         <label class="form-label">Working Directory</label>
-        <input class="form-input" id="edit-proj-path" placeholder="/Users/maniginam/projects/..." value="${esc(project.work_dir || projectPaths[projectId] || '')}">
+        <input class="form-input" id="edit-proj-path" placeholder="~/projects/..." value="${esc(project.work_dir || projectPaths[projectId] || '')}">
         <div style="font-size:0.6rem;color:var(--text-dim);margin-top:3px">Used when spawning agents for this project</div>
       </div>
       <div class="form-group">

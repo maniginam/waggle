@@ -1602,15 +1602,10 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	os.WriteFile(mcpPath, mcpData, 0644)
 
 	// Find claude binary
-	claudeBin := "/Users/maniginam/.local/bin/claude"
-	if _, err := os.Stat(claudeBin); os.IsNotExist(err) {
-		// Try PATH
-		if p, err := exec.LookPath("claude"); err == nil {
-			claudeBin = p
-		} else {
-			writeError(w, http.StatusInternalServerError, "claude_not_found", "claude CLI not found")
-			return
-		}
+	claudeBin, err := exec.LookPath("claude")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "claude_not_found", "claude CLI not found in PATH")
+		return
 	}
 
 	// Build the initial prompt
