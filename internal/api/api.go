@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maniginam/waggle/internal/bridge"
+	"github.com/maniginam/waggle/internal/bridge/providers"
 	"github.com/maniginam/waggle/internal/event"
 	gh "github.com/maniginam/waggle/internal/github"
 	"github.com/maniginam/waggle/internal/model"
@@ -35,18 +38,22 @@ type API struct {
 	procsMu    sync.Mutex
 	procs      map[string]*exec.Cmd    // spawned agent processes by name
 	procsStdin map[string]io.WriteCloser // stdin pipes for spawned agents
-	agentDirs  map[string]string        // last-known work_dir per agent name
+	agentDirs      map[string]string        // last-known work_dir per agent name
+	bridgeRegistry *bridge.Registry
+	bridgeRunners  map[string]context.CancelFunc
 }
 
 func New(s *store.Store, eh *event.Hub) *API {
 	a := &API{
-		store:       s,
-		eventHub:    eh,
-		ghAvail:     gh.Available(),
-		rateLimiter: newRateLimiter(120, time.Minute),
-		procs:       make(map[string]*exec.Cmd),
-		procsStdin:  make(map[string]io.WriteCloser),
-		agentDirs:   make(map[string]string),
+		store:          s,
+		eventHub:       eh,
+		ghAvail:        gh.Available(),
+		rateLimiter:    newRateLimiter(120, time.Minute),
+		procs:          make(map[string]*exec.Cmd),
+		procsStdin:     make(map[string]io.WriteCloser),
+		agentDirs:      make(map[string]string),
+		bridgeRegistry: providers.DefaultRegistry(),
+		bridgeRunners:  make(map[string]context.CancelFunc),
 	}
 	if p, err := push.NewNotifier(s); err == nil {
 		a.push = p
@@ -1528,12 +1535,15 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name      string `json:"name"`
-		ProjectID string `json:"project_id"`
-		WorkDir   string `json:"work_dir"`
-		Prompt    string `json:"prompt"`
-		Model     string `json:"model"`
-		PersonaID string `json:"persona_id"`
+		Name         string `json:"name"`
+		Type         string `json:"type"`
+		ProjectID    string `json:"project_id"`
+		WorkDir      string `json:"work_dir"`
+		Prompt       string `json:"prompt"`
+		Model        string `json:"model"`
+		PersonaID    string `json:"persona_id"`
+		Mode         string `json:"mode"`
+		SystemPrompt string `json:"system_prompt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
@@ -1547,6 +1557,69 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_name", "name must be alphanumeric with .-_ only, max 64 chars")
 		return
 	}
+
+	// Route bridge agent types (anything that's not claude-code)
+	if req.Type != "" && req.Type != "claude-code" {
+		constructor, ok := a.bridgeRegistry.Get(req.Type)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "unknown_type",
+				fmt.Sprintf("unknown agent type %q; supported: %v", req.Type, a.bridgeRegistry.Providers()))
+			return
+		}
+
+		b, err := constructor()
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "provider_error", err.Error())
+			return
+		}
+
+		mode := bridge.ModeMessageOnly
+		if req.Mode == "full_participant" {
+			mode = bridge.ModeFullParticipant
+		}
+
+		cfg := bridge.RunnerConfig{
+			AgentName:    req.Name,
+			BaseURL:      "http://localhost:4740",
+			Mode:         mode,
+			ProjectID:    req.ProjectID,
+			SystemPrompt: req.SystemPrompt,
+		}
+		if req.Prompt != "" && cfg.SystemPrompt == "" {
+			cfg.SystemPrompt = req.Prompt
+		}
+
+		runner := bridge.NewRunner(b, cfg)
+
+		a.procsMu.Lock()
+		if cancel, ok := a.bridgeRunners[req.Name]; ok {
+			cancel()
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		a.bridgeRunners[req.Name] = cancel
+		a.procsMu.Unlock()
+
+		go func() {
+			runner.Run(ctx)
+			a.procsMu.Lock()
+			delete(a.bridgeRunners, req.Name)
+			a.procsMu.Unlock()
+		}()
+
+		a.eventHub.Publish(&model.Event{
+			Type:    model.EventAgentJoined,
+			AgentID: req.Name,
+			Payload: map[string]string{"type": req.Type, "mode": string(mode)},
+		})
+
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status": "spawned",
+			"name":   req.Name,
+			"type":   req.Type,
+		})
+		return
+	}
+
 	if req.WorkDir == "" {
 		writeError(w, http.StatusBadRequest, "missing_work_dir", "work_dir is required")
 		return
@@ -1832,6 +1905,19 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "sent", "agent": name})
 
 	case action == "" && r.Method == http.MethodDelete:
+		// Check for bridge runner first
+		a.procsMu.Lock()
+		if cancel, ok := a.bridgeRunners[name]; ok {
+			cancel()
+			delete(a.bridgeRunners, name)
+			a.procsMu.Unlock()
+			a.store.DisconnectAgent(name)
+			a.eventHub.Publish(&model.Event{Type: model.EventAgentLeft, AgentID: name})
+			writeJSON(w, http.StatusOK, map[string]string{"status": "stopped", "agent": name})
+			return
+		}
+		a.procsMu.Unlock()
+
 		a.procsMu.Lock()
 		cmd, ok := a.procs[name]
 		if ok {

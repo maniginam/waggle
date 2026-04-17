@@ -3611,3 +3611,80 @@ func TestRespawnEndpointValidation(t *testing.T) {
 		t.Errorf("expected agent disconnected after respawn attempt, got %v", agent["status"])
 	}
 }
+
+func TestSpawnBridgeAgent(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/spawn", "application/json",
+		strings.NewReader(`{
+			"name": "gpt-helper",
+			"type": "ollama",
+			"mode": "message_only",
+			"prompt": "You help with code review"
+		}`))
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["status"] != "spawned" {
+		t.Errorf("expected status 'spawned', got %q", result["status"])
+	}
+	if result["type"] != "ollama" {
+		t.Errorf("expected type 'ollama', got %q", result["type"])
+	}
+}
+
+func TestSpawnBridgeAgentNoWorkDirRequired(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/spawn", "application/json",
+		strings.NewReader(`{"name": "gem-bot", "type": "gemini"}`))
+
+	// Gemini requires GOOGLE_API_KEY — if not set, it returns 400 (provider_error)
+	// If set, it returns 200. Either way, it should NOT return 400 for missing work_dir.
+	if resp.StatusCode == http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		bodyStr := string(body)
+		if strings.Contains(bodyStr, "work_dir") {
+			t.Fatal("bridge agents should not require work_dir")
+		}
+	}
+}
+
+func TestSpawnBridgeAgentUnknownType(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustPost(t, ts.URL+"/api/spawn", "application/json",
+		strings.NewReader(`{"name": "bot", "type": "unknown-model"}`))
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for unknown type, got %d", resp.StatusCode)
+	}
+}
+
+func TestStopBridgeAgent(t *testing.T) {
+	_, ts := setup(t)
+
+	// Spawn a bridge agent first (ollama needs no API key)
+	resp := mustPost(t, ts.URL+"/api/spawn", "application/json",
+		strings.NewReader(`{"name": "stop-me", "type": "ollama"}`))
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("spawn failed: %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Give it a moment to start
+	time.Sleep(200 * time.Millisecond)
+
+	// Stop via session action
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/sessions/stop-me", nil)
+	stopResp := mustDo(t, req)
+	if stopResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(stopResp.Body)
+		t.Fatalf("expected 200, got %d: %s", stopResp.StatusCode, string(body))
+	}
+}
