@@ -3468,13 +3468,25 @@ async function openSpawnPanel() {
         <input class="spawn-input" id="spawn-name" placeholder="e.g. backend-dev, reviewer, tester" autofocus>
       </div>
       <div class="spawn-field">
+        <label class="spawn-label">Agent Type</label>
+        <select class="spawn-select" id="spawn-type" onchange="onSpawnTypeChange()">
+          <option value="claude-code">Claude Code</option>
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="grok">xAI Grok</option>
+          <option value="claude-api">Claude API</option>
+          <option value="ollama">Ollama (local)</option>
+          <option value="bedrock">AWS Bedrock</option>
+        </select>
+      </div>
+      <div class="spawn-field">
         <label class="spawn-label">Project</label>
         <select class="spawn-select" id="spawn-project" onchange="onSpawnProjectChange()">
           <option value="">None</option>
           ${projectOpts}
         </select>
       </div>
-      <div class="spawn-field">
+      <div class="spawn-field" id="spawn-workdir-field">
         <label class="spawn-label">Working Directory</label>
         <input class="spawn-input" id="spawn-workdir" placeholder="~/projects/...">
         <div class="spawn-hint">Absolute path — auto-fills if project path was saved before</div>
@@ -3487,6 +3499,18 @@ async function openSpawnPanel() {
           <option value="claude-sonnet-4-6">Sonnet 4.6</option>
           <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
         </select>
+      </div>
+      <div class="spawn-field" id="spawn-mode-field" style="display:none">
+        <label class="spawn-label">Participation Mode</label>
+        <select class="spawn-select" id="spawn-mode">
+          <option value="message_only">Message Only (responds when asked)</option>
+          <option value="full_participant">Full Participant (claims tasks)</option>
+        </select>
+      </div>
+      <div class="spawn-field" id="spawn-sysprompt-field" style="display:none">
+        <label class="spawn-label">System Prompt</label>
+        <textarea class="spawn-textarea" id="spawn-sysprompt" placeholder="Custom instructions for this agent"></textarea>
+        <div class="spawn-hint">Defines the agent's personality and behavior</div>
       </div>
       <div class="spawn-field">
         <label class="spawn-label">Initial Prompt</label>
@@ -3524,6 +3548,29 @@ async function openSpawnPanel() {
   panel.classList.add('open');
 }
 
+function onSpawnTypeChange() {
+  const agentType = document.getElementById('spawn-type').value;
+  const isBridge = agentType !== 'claude-code';
+  document.getElementById('spawn-workdir-field').style.display = isBridge ? 'none' : '';
+  document.getElementById('spawn-mode-field').style.display = isBridge ? '' : 'none';
+  document.getElementById('spawn-sysprompt-field').style.display = isBridge ? '' : 'none';
+
+  const modelSelect = document.getElementById('spawn-model');
+  if (agentType === 'claude-code' || agentType === 'claude-api') {
+    modelSelect.innerHTML = '<option value="">Default (Sonnet)</option><option value="claude-opus-4-6">Opus 4.6</option><option value="claude-sonnet-4-6">Sonnet 4.6</option><option value="claude-haiku-4-5-20251001">Haiku 4.5</option>';
+  } else if (agentType === 'openai') {
+    modelSelect.innerHTML = '<option value="">Default (GPT-4o)</option><option value="gpt-4o">GPT-4o</option><option value="o3">o3</option><option value="o1">o1</option>';
+  } else if (agentType === 'gemini') {
+    modelSelect.innerHTML = '<option value="">Default (Gemini 2.5 Pro)</option><option value="gemini-2.5-pro">Gemini 2.5 Pro</option><option value="gemini-2.5-flash">Gemini 2.5 Flash</option>';
+  } else if (agentType === 'grok') {
+    modelSelect.innerHTML = '<option value="">Default (Grok 3)</option><option value="grok-3">Grok 3</option>';
+  } else if (agentType === 'ollama') {
+    modelSelect.innerHTML = '<option value="">Default (llama3)</option><option value="llama3">Llama 3</option><option value="codellama">Code Llama</option><option value="mistral">Mistral</option>';
+  } else if (agentType === 'bedrock') {
+    modelSelect.innerHTML = '<option value="">Default (Claude Sonnet)</option><option value="claude-sonnet-4-6">Claude Sonnet 4.6</option><option value="claude-opus-4-6">Claude Opus 4.6</option>';
+  }
+}
+
 function onSpawnProjectChange() {
   const pid = document.getElementById('spawn-project').value;
   const wdInput = document.getElementById('spawn-workdir');
@@ -3535,21 +3582,32 @@ function onSpawnProjectChange() {
 
 async function doSpawn() {
   const name = document.getElementById('spawn-name').value.trim();
+  const agentType = document.getElementById('spawn-type').value;
   const projectId = document.getElementById('spawn-project').value;
   const workDir = document.getElementById('spawn-workdir').value.trim();
   const model = document.getElementById('spawn-model').value;
   const prompt = document.getElementById('spawn-prompt').value.trim();
+  const mode = document.getElementById('spawn-mode')?.value;
+  const systemPrompt = document.getElementById('spawn-sysprompt')?.value?.trim();
+
+  const isBridge = agentType !== 'claude-code';
 
   if (!name) { showToast('Agent name required', 'var(--red)'); return; }
-  if (!workDir) { showToast('Working directory required', 'var(--red)'); return; }
+  if (!isBridge && !workDir) { showToast('Working directory required', 'var(--red)'); return; }
+
+  const body = { name, project_id: projectId, model: model || undefined, prompt: prompt || undefined };
+  if (isBridge) {
+    body.type = agentType;
+    if (mode) body.mode = mode;
+    if (systemPrompt) body.system_prompt = systemPrompt;
+  } else {
+    body.work_dir = workDir;
+  }
 
   const resp = await fetch('/api/spawn', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      name, project_id: projectId, work_dir: workDir,
-      model: model || undefined, prompt: prompt || undefined,
-    }),
+    body: JSON.stringify(body),
   });
 
   const result = await resp.json();
@@ -3563,7 +3621,7 @@ async function doSpawn() {
     projectPaths[projectId] = workDir;
     localStorage.setItem('waggle_project_paths', JSON.stringify(projectPaths));
   }
-  showToast(`Spawned ${name} in ${result.session}`, 'var(--cyan)');
+  showToast(`Spawned ${name} (${agentType})`, 'var(--cyan)');
   closePanel();
   await fetchAll();
 }
