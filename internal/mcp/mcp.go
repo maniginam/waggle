@@ -270,8 +270,9 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 		toolDef("waggle_send_message", "Send a message to another agent or broadcast.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"to":   prop("string", "Recipient agent name (empty for broadcast)"),
-				"body": prop("string", "Message body"),
+				"to":         prop("string", "Recipient agent name (empty for broadcast)"),
+				"body":       prop("string", "Message body"),
+				"project_id": prop("string", "Project ID (auto-filled from agent registration if not set)"),
 			},
 			"required": []string{"body"},
 		}),
@@ -702,11 +703,16 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		if body == "" {
 			return nil, fmt.Errorf("body is required")
 		}
-		return a.postJSON("/api/messages", map[string]string{
+		projectID, _ := args["project_id"].(string)
+		payload := map[string]string{
 			"from": a.agentName,
 			"to":   to,
 			"body": body,
-		})
+		}
+		if projectID != "" {
+			payload["project_id"] = projectID
+		}
+		return a.postJSON("/api/messages", payload)
 
 	case "waggle_read_messages":
 		if a.agentName == "" {
