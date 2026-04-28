@@ -206,7 +206,6 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
 		CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 		CREATE INDEX IF NOT EXISTS idx_messages_to ON messages("to");
-		CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id);
 		CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_name);
 		CREATE INDEX IF NOT EXISTS idx_token_usage_time ON token_usage(created_at);
 	`)
@@ -238,6 +237,7 @@ func (s *Store) migrate() error {
 
 	// Create indexes that depend on migrated columns (must run after ALTER TABLE)
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id)")
 	return err
 }
 
