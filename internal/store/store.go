@@ -109,6 +109,7 @@ func (s *Store) migrate() error {
 			"to"       TEXT DEFAULT '',
 			body       TEXT NOT NULL,
 			read       INTEGER DEFAULT 0,
+			project_id TEXT DEFAULT '',
 			created_at TEXT NOT NULL
 		);
 
@@ -205,6 +206,7 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
 		CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 		CREATE INDEX IF NOT EXISTS idx_messages_to ON messages("to");
+		CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id);
 		CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_name);
 		CREATE INDEX IF NOT EXISTS idx_token_usage_time ON token_usage(created_at);
 	`)
@@ -225,6 +227,7 @@ func (s *Store) migrate() error {
 		{"agents", "persona_id", "TEXT DEFAULT ''"},
 		{"projects", "auto_dispatch", "INTEGER DEFAULT 0"},
 		{"projects", "work_dir", "TEXT DEFAULT ''"},
+		{"messages", "project_id", "TEXT DEFAULT ''"},
 	} {
 		var count int
 		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
@@ -761,8 +764,8 @@ func (s *Store) SendMessage(msg *model.Message) error {
 		msg.ID = id.New()
 	}
 	msg.CreatedAt = time.Now().UTC()
-	_, err := s.db.Exec(`INSERT INTO messages (id, "from", "to", body, read, created_at) VALUES (?, ?, ?, ?, 0, ?)`,
-		msg.ID, msg.From, msg.To, msg.Body, msg.CreatedAt.Format(time.RFC3339))
+	_, err := s.db.Exec(`INSERT INTO messages (id, "from", "to", body, read, project_id, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)`,
+		msg.ID, msg.From, msg.To, msg.Body, msg.ProjectID, msg.CreatedAt.Format(time.RFC3339))
 	return err
 }
 
@@ -770,7 +773,7 @@ func (s *Store) ReadMessages(to string, limit int) ([]*model.Message, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.Query(`SELECT id, "from", "to", body, read, created_at FROM messages WHERE "to" = ? OR "to" = '' ORDER BY created_at DESC LIMIT ?`, to, limit)
+	rows, err := s.db.Query(`SELECT id, "from", "to", body, read, project_id, created_at FROM messages WHERE "to" = ? OR "to" = '' ORDER BY created_at DESC LIMIT ?`, to, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -781,7 +784,7 @@ func (s *Store) ReadMessages(to string, limit int) ([]*model.Message, error) {
 		var m model.Message
 		var readInt int
 		var ts string
-		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &ts); err != nil {
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &m.ProjectID, &ts); err != nil {
 			return nil, err
 		}
 		m.Read = readInt != 0
@@ -798,7 +801,7 @@ func (s *Store) ListAllMessages(limit int) ([]*model.Message, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.db.Query(`SELECT id, "from", "to", body, read, created_at FROM messages ORDER BY created_at DESC LIMIT ?`, limit)
+	rows, err := s.db.Query(`SELECT id, "from", "to", body, read, project_id, created_at FROM messages ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -809,7 +812,7 @@ func (s *Store) ListAllMessages(limit int) ([]*model.Message, error) {
 		var m model.Message
 		var readInt int
 		var ts string
-		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &ts); err != nil {
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &m.ProjectID, &ts); err != nil {
 			return nil, err
 		}
 		m.Read = readInt != 0
@@ -824,7 +827,7 @@ func (s *Store) AgentMessages(agent string, limit int) ([]*model.Message, error)
 		limit = 100
 	}
 	rows, err := s.db.Query(
-		`SELECT id, "from", "to", body, read, created_at FROM messages WHERE "from" = ? OR "to" = ? ORDER BY created_at DESC LIMIT ?`,
+		`SELECT id, "from", "to", body, read, project_id, created_at FROM messages WHERE "from" = ? OR "to" = ? ORDER BY created_at DESC LIMIT ?`,
 		agent, agent, limit)
 	if err != nil {
 		return nil, err
@@ -836,7 +839,34 @@ func (s *Store) AgentMessages(agent string, limit int) ([]*model.Message, error)
 		var m model.Message
 		var readInt int
 		var ts string
-		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &ts); err != nil {
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &m.ProjectID, &ts); err != nil {
+			return nil, err
+		}
+		m.Read = readInt != 0
+		m.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+		messages = append(messages, &m)
+	}
+	return messages, rows.Err()
+}
+
+func (s *Store) ProjectMessages(projectID string, limit int) ([]*model.Message, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(
+		`SELECT id, "from", "to", body, read, project_id, created_at FROM messages WHERE project_id = ? ORDER BY created_at ASC LIMIT ?`,
+		projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []*model.Message
+	for rows.Next() {
+		var m model.Message
+		var readInt int
+		var ts string
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &m.ProjectID, &ts); err != nil {
 			return nil, err
 		}
 		m.Read = readInt != 0
@@ -868,7 +898,7 @@ func (s *Store) SearchMessages(query string, limit int) ([]*model.Message, error
 		limit = 50
 	}
 	rows, err := s.db.Query(
-		`SELECT id, "from", "to", body, read, created_at FROM messages WHERE body LIKE ? ORDER BY created_at DESC LIMIT ?`,
+		`SELECT id, "from", "to", body, read, project_id, created_at FROM messages WHERE body LIKE ? ORDER BY created_at DESC LIMIT ?`,
 		"%"+query+"%", limit)
 	if err != nil {
 		return nil, err
@@ -880,7 +910,7 @@ func (s *Store) SearchMessages(query string, limit int) ([]*model.Message, error
 		var m model.Message
 		var readInt int
 		var ts string
-		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &ts); err != nil {
+		if err := rows.Scan(&m.ID, &m.From, &m.To, &m.Body, &readInt, &m.ProjectID, &ts); err != nil {
 			return nil, err
 		}
 		m.Read = readInt != 0

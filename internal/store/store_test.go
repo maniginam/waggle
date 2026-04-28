@@ -1206,6 +1206,38 @@ func TestMarkAllMessagesRead(t *testing.T) {
 	}
 }
 
+func TestProjectMessages(t *testing.T) {
+	s := tempStore(t)
+	s.SendMessage(&model.Message{From: "a1", To: "user", Body: "hello", ProjectID: "proj-1"})
+	s.SendMessage(&model.Message{From: "a2", To: "user", Body: "world", ProjectID: "proj-1"})
+	s.SendMessage(&model.Message{From: "a3", To: "user", Body: "other", ProjectID: "proj-2"})
+
+	msgs, err := s.ProjectMessages("proj-1", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages for proj-1, got %d", len(msgs))
+	}
+	for _, m := range msgs {
+		if m.ProjectID != "proj-1" {
+			t.Errorf("expected project_id 'proj-1', got '%s'", m.ProjectID)
+		}
+	}
+
+	// Verify project_id is preserved on read
+	all, _ := s.ListAllMessages(50)
+	found := false
+	for _, m := range all {
+		if m.Body == "hello" && m.ProjectID == "proj-1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected ListAllMessages to include project_id")
+	}
+}
+
 func TestListTasksFilterByTag(t *testing.T) {
 	s := tempStore(t)
 	t1 := &model.Task{Title: "Tagged task", Status: model.TaskReady}
