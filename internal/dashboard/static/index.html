@@ -505,6 +505,8 @@ body {
 
 /* ── MAIN CONTENT ── */
 .main { display: grid; grid-template-columns: 1fr 280px; overflow: hidden; }
+.main.no-sidebar { grid-template-columns: 1fr; }
+.main.no-sidebar .sidebar { display: none; }
 
 /* ── KANBAN BOARD ── */
 .board { display: flex; gap: 1px; background: var(--border-subtle); overflow-x: auto; overflow-y: hidden; }
@@ -631,6 +633,100 @@ body {
 .agent-name { font-size: 0.8rem; font-family: var(--font-sans); font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-type { font-size: 0.65rem; color: var(--text-dim); }
 .agent-task { font-size: 0.6rem; color: var(--amber-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
+
+/* ── PROJECT CHAT SIDEBAR ── */
+.project-chat {
+  display: flex; flex-direction: column; height: 100%;
+}
+.project-chat-header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--text-dim); font-weight: 600;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.project-chat-messages {
+  flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.project-chat-messages::-webkit-scrollbar { width: 4px; }
+.project-chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.pchat-msg {
+  padding: 6px 10px; border-radius: var(--radius); max-width: 90%;
+  animation: chatMsgIn 0.2s ease-out;
+}
+.pchat-msg.from-me {
+  background: var(--amber-glow-strong); align-self: flex-end; border: 1px solid var(--amber-dim);
+}
+.pchat-msg.from-them {
+  background: var(--bg-elevated); align-self: flex-start; border: 1px solid var(--border);
+}
+.pchat-msg-sender {
+  font-size: 0.6rem; color: var(--text-dim); margin-bottom: 2px; font-weight: 600;
+}
+.pchat-msg-body { font-size: 0.75rem; line-height: 1.4; word-break: break-word; }
+.pchat-msg-time { font-size: 0.55rem; color: var(--text-dim); margin-top: 2px; }
+.project-chat-input {
+  padding: 10px 12px; border-top: 1px solid var(--border);
+  display: flex; gap: 6px; align-items: center;
+}
+.project-chat-input input {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 10px; color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 0.75rem; outline: none;
+}
+.project-chat-input input:focus { border-color: var(--amber-dim); }
+.project-chat-input input::placeholder { color: var(--text-dim); }
+.project-chat-input button {
+  background: var(--amber); color: #000; border: none; border-radius: var(--radius);
+  padding: 6px 12px; font-weight: 700; font-size: 0.7rem; cursor: pointer;
+  font-family: var(--font-mono);
+}
+.project-chat-input button:hover { background: #ffb820; }
+
+/* ── CHATS VIEW ── */
+.chats-view { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.chats-project-section { margin-bottom: 24px; }
+.chats-project-header {
+  font-family: var(--font-sans); font-size: 1rem; font-weight: 600;
+  color: var(--amber); margin-bottom: 8px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.chats-thread {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 4px; cursor: pointer; transition: all 0.15s;
+}
+.chats-thread:hover { background: var(--bg-card-hover); border-color: var(--amber-dim); }
+.chats-thread-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+}
+.chats-thread-participants {
+  font-size: 0.8rem; font-weight: 600; color: var(--text-primary); min-width: 180px;
+}
+.chats-thread-preview {
+  flex: 1; font-size: 0.75rem; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chats-thread-time { font-size: 0.65rem; color: var(--text-dim); white-space: nowrap; }
+.chats-thread-expanded {
+  border-top: 1px solid var(--border); padding: 12px 14px;
+  max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+}
+.chats-thread-expanded::-webkit-scrollbar { width: 4px; }
+.chats-thread-expanded::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.chats-thread-input {
+  display: flex; gap: 6px; padding: 8px 14px; border-top: 1px solid var(--border);
+}
+.chats-thread-input input {
+  flex: 1; background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 5px 8px; color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 0.75rem; outline: none;
+}
+.chats-thread-input input:focus { border-color: var(--amber-dim); }
+.chats-thread-input button {
+  background: var(--amber); color: #000; border: none; border-radius: var(--radius);
+  padding: 5px 10px; font-weight: 700; font-size: 0.7rem; cursor: pointer;
+  font-family: var(--font-mono);
+}
+.chats-empty { color: var(--text-dim); text-align: center; padding: 60px 20px; font-size: 0.85rem; }
 
 /* ── EVENT FEED ── */
 .event-feed { flex: 1; overflow-y: auto; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 2px; }
@@ -1731,6 +1827,83 @@ select.form-input { cursor: pointer; }
     cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
   }
   .mobile-fab:active { transform: scale(0.88); box-shadow: 0 2px 8px rgba(240,165,0,0.3); }
+
+  /* FAB long-press menu */
+  .fab-menu {
+    display: none; position: fixed;
+    bottom: calc(124px + env(safe-area-inset-bottom));
+    right: 16px; z-index: 151;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    min-width: 190px;
+  }
+  .fab-menu.open { display: block; animation: fabMenuIn 0.15s ease-out; }
+  @keyframes fabMenuIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .fab-menu-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px; border: none; background: none;
+    color: var(--text-primary); font-family: var(--font-mono);
+    font-size: 0.85rem; cursor: pointer; width: 100%;
+    min-height: 52px;
+  }
+  .fab-menu-item:active { background: var(--bg-elevated); }
+  .fab-menu-item + .fab-menu-item { border-top: 1px solid var(--border-subtle); }
+  .fab-menu-icon { font-size: 1.2rem; width: 24px; text-align: center; }
+  .fab-menu-backdrop { display: none; position: fixed; inset: 0; z-index: 150; }
+  .fab-menu-backdrop.open { display: block; }
+
+  /* Mobile agent action buttons */
+  .mobile-agent-actions {
+    display: flex; gap: 6px; flex-shrink: 0; align-items: center; margin-left: auto;
+  }
+  .mobile-agent-btn {
+    display: flex; align-items: center; justify-content: center;
+    min-width: 42px; min-height: 42px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg-card);
+    color: var(--text-secondary); font-size: 0.7rem;
+    cursor: pointer; padding: 6px 10px;
+    font-family: var(--font-mono); font-weight: 600;
+  }
+  .mobile-agent-btn:active { background: var(--bg-elevated); }
+  .mobile-agent-btn.kill { color: var(--red); border-color: rgba(248,113,113,0.3); }
+  .mobile-agent-btn.kill:active { background: var(--red-dim); }
+  .mobile-agent-btn.poke { color: var(--amber); border-color: var(--amber-dim); }
+  .mobile-agent-btn.respawn { color: var(--cyan); border-color: rgba(34,211,238,0.3); }
+  .mobile-agent-btn.respawn:active { background: var(--cyan-dim); }
+
+  /* Larger status dots on mobile */
+  .overview-agent-card .agent-status-dot { width: 10px; height: 10px; }
+  /* Status-colored left border on agent cards */
+  .overview-agent-card[data-status="connected"] { border-left: 3px solid var(--green); }
+  .overview-agent-card[data-status="working"] { border-left: 3px solid var(--amber); }
+  .overview-agent-card[data-status="idle"] { border-left: 3px solid var(--blue); }
+  .overview-agent-card[data-status="disconnected"] { border-left: 3px solid var(--text-dim); opacity: 0.7; }
+
+  /* Quick-spawn cards */
+  .quick-spawn-section { margin-bottom: 12px; }
+  .quick-spawn-cards {
+    display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    padding: 4px 0 8px; scrollbar-width: none;
+  }
+  .quick-spawn-cards::-webkit-scrollbar { display: none; }
+  .quick-spawn-card {
+    flex-shrink: 0; background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px; cursor: pointer;
+    min-width: 150px; max-width: 200px;
+  }
+  .quick-spawn-card:active { background: var(--bg-card-hover); border-color: var(--cyan); }
+  .quick-spawn-card-name { font-size: 0.8rem; font-weight: 600; color: var(--cyan); margin-bottom: 2px; }
+  .quick-spawn-card-info { font-size: 0.6rem; color: var(--text-dim); }
+
+  /* Spawn form compact mode on mobile */
+  .spawn-form .mobile-advanced-toggle {
+    display: block; padding: 10px 0; font-size: 0.75rem;
+    color: var(--text-dim); cursor: pointer; text-align: center;
+    border: 1px dashed var(--border); border-radius: var(--radius);
+    margin-bottom: 12px; min-height: 44px; line-height: 24px;
+  }
+  .spawn-form .mobile-advanced-toggle:active { background: var(--bg-elevated); color: var(--text-secondary); }
 
   /* Safe area insets for notched phones */
   .header { padding-top: max(8px, env(safe-area-inset-top)); }
@@ -3738,6 +3911,8 @@ async function doSpawn() {
     projectPaths[projectId] = workDir;
     localStorage.setItem('waggle_project_paths', JSON.stringify(projectPaths));
   }
+  // Save to recent spawns for mobile quick-spawn
+  saveRecentSpawn({ name, project_id: projectId, work_dir: workDir, model, type: agentType, prompt });
   showToast(`Spawned ${name} (${agentType})`, 'var(--cyan)');
   closePanel();
   await fetchAll();
@@ -4698,23 +4873,51 @@ function renderOverview() {
     const rank = t => t.status === 'disconnected' ? 9 : t.role === 'alpha' ? 0 : t.role === 'leader' ? 1 : 2;
     return rank(a) - rank(b);
   });
+  const isMobileView = window.innerWidth <= 480;
   for (const a of sortedAgents) {
     const roleColor = {alpha:'var(--amber)',leader:'var(--purple)',worker:'var(--cyan)'}[a.role] || 'var(--text-dim)';
     const roleLabel = a.role || 'worker';
     const taskCount = tasks.filter(t => t.assignee === a.name && t.status !== 'done').length;
     const ap = a.project_id ? projects.find(p => p.id === a.project_id) : null;
     const indent = a.role === 'worker' && a.parent_agent ? 'margin-left:16px;' : '';
+    const isStale = a.status !== 'disconnected' && agentIsStale(a);
+    const isDisconnected = a.status === 'disconnected';
+    const isActive = !isDisconnected;
+    const hasSession = spawnedAgents.some(s => s.agent === a.name);
+
+    // Mobile action buttons
+    let mobileActions = '';
+    if (isMobileView) {
+      if (isStale) {
+        mobileActions = `<div class="mobile-agent-actions">
+          <button class="mobile-agent-btn poke" onclick="mobilePokeAgent('${esc(a.name)}',event)">Poke</button>
+          <button class="mobile-agent-btn kill" onclick="mobileKillAgent('${esc(a.name)}',event)">Kill</button>
+        </div>`;
+      } else if (isDisconnected) {
+        mobileActions = `<div class="mobile-agent-actions">
+          <button class="mobile-agent-btn respawn" onclick="mobileRespawnAgent('${esc(a.name)}',event)">Respawn</button>
+          <button class="mobile-agent-btn kill" onclick="dismissAgent('${esc(a.name)}');event.stopPropagation()" style="font-size:0.9rem">&#x2715;</button>
+        </div>`;
+      } else if (isActive && hasSession) {
+        mobileActions = `<div class="mobile-agent-actions">
+          <button class="mobile-agent-btn kill" onclick="mobileKillAgent('${esc(a.name)}',event)">Kill</button>
+        </div>`;
+      }
+    }
+
     agentCards += `
-      <div class="overview-agent-card" data-agent-name="${esc(a.name)}" style="${indent}">
+      <div class="overview-agent-card" data-agent-name="${esc(a.name)}" data-status="${a.status}">
         <div class="agent-status-dot ${a.status}"></div>
         <div style="flex:1;min-width:0">
           <div style="font-size:0.8rem;font-family:var(--font-sans);font-weight:500;color:var(--text-primary)">${esc(a.name)}
             <span style="font-size:0.55rem;color:${roleColor};font-weight:700;text-transform:uppercase">${roleLabel}</span>
+            ${isStale ? '<span style="font-size:0.5rem;color:var(--red);font-weight:700;margin-left:4px">STALE</span>' : ''}
           </div>
           <div style="font-size:0.65rem;color:var(--text-dim)">${a.current_task ? esc(a.current_task) : (ap ? esc(ap.name) : '')}${a.parent_agent ? ' · under ' + esc(a.parent_agent) : ''}</div>
           <div style="font-size:0.55rem;color:var(--text-dim);font-family:var(--font-mono)">${a.last_seen ? 'seen ' + timeSince(new Date(a.last_seen)) : ''}${a.connected_at ? ' · joined ' + timeSince(new Date(a.connected_at)) : ''}</div>
         </div>
-        ${taskCount > 0 ? `<span class="agent-workload has-tasks">${taskCount}</span>` : ''}
+        ${!isMobileView && taskCount > 0 ? `<span class="agent-workload has-tasks">${taskCount}</span>` : ''}
+        ${mobileActions}
       </div>`;
   }
 
@@ -6614,6 +6817,308 @@ function toggleMobileCommandBar() {
   }
 }
 
+// ── FAB LONG-PRESS MENU ──
+(function initFabMenu() {
+  const fab = document.getElementById('mobile-fab');
+  if (!fab) return;
+  let longPressTimer = null;
+  let didLongPress = false;
+
+  fab.addEventListener('touchstart', (e) => {
+    didLongPress = false;
+    longPressTimer = setTimeout(() => {
+      didLongPress = true;
+      openFabMenu();
+    }, 400);
+  }, { passive: true });
+
+  fab.addEventListener('touchend', (e) => {
+    clearTimeout(longPressTimer);
+    if (!didLongPress) {
+      // Short tap — default to new task
+      openCreatePanel('task');
+    }
+  });
+
+  fab.addEventListener('touchmove', () => {
+    clearTimeout(longPressTimer);
+  }, { passive: true });
+})();
+
+function openFabMenu() {
+  document.getElementById('fab-menu').classList.add('open');
+  document.getElementById('fab-menu-backdrop').classList.add('open');
+}
+function closeFabMenu() {
+  document.getElementById('fab-menu').classList.remove('open');
+  document.getElementById('fab-menu-backdrop').classList.remove('open');
+}
+
+// ── MOBILE SPAWN ──
+let recentSpawns = JSON.parse(localStorage.getItem('waggle_recent_spawns') || '[]');
+
+function saveRecentSpawn(config) {
+  // Remove duplicate by name
+  recentSpawns = recentSpawns.filter(s => s.name !== config.name);
+  recentSpawns.unshift(config);
+  if (recentSpawns.length > 5) recentSpawns = recentSpawns.slice(0, 5);
+  localStorage.setItem('waggle_recent_spawns', JSON.stringify(recentSpawns));
+}
+
+async function openMobileSpawn() {
+  const isMobile = window.innerWidth <= 480;
+  if (!isMobile) { openSpawnPanel(); return; }
+
+  const panel = document.getElementById('panel');
+  const overlay = document.getElementById('overlay');
+
+  document.getElementById('panel-title').textContent = 'Spawn Agent';
+  document.getElementById('panel-subtitle').textContent = 'Quick-launch an agent';
+
+  const projectOpts = projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+
+  // Quick-spawn cards from recent spawns
+  const quickCards = recentSpawns.length > 0 ? `
+    <div class="quick-spawn-section">
+      <div style="font-size:0.65rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-weight:600">Quick Re-Spawn</div>
+      <div class="quick-spawn-cards">
+        ${recentSpawns.map((s, i) => {
+          const projName = projects.find(p => p.id === s.project_id)?.name || '';
+          return `<div class="quick-spawn-card" onclick="doQuickSpawn(${i})">
+            <div class="quick-spawn-card-name">${esc(s.name)}</div>
+            <div class="quick-spawn-card-info">${projName ? esc(projName) : 'no project'}${s.model ? ' · ' + esc(s.model) : ''}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
+  document.getElementById('panel-content').innerHTML = `
+    <div class="spawn-form">
+      ${quickCards}
+      <div class="spawn-field">
+        <label class="spawn-label">Agent Name</label>
+        <input class="spawn-input" id="spawn-name" placeholder="e.g. backend-dev, reviewer" autofocus>
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Project</label>
+        <select class="spawn-select" id="spawn-project" onchange="onSpawnProjectChange()">
+          <option value="">None</option>
+          ${projectOpts}
+        </select>
+      </div>
+      <div class="spawn-field">
+        <label class="spawn-label">Prompt</label>
+        <textarea class="spawn-textarea" id="spawn-prompt" placeholder="What should this agent work on?" rows="3"></textarea>
+      </div>
+      <div class="mobile-advanced-toggle" id="mobile-adv-toggle" onclick="toggleMobileAdvanced()">More options &#x25BC;</div>
+      <div id="mobile-advanced-fields" style="display:none">
+        <div class="spawn-field">
+          <label class="spawn-label">Agent Type</label>
+          <select class="spawn-select" id="spawn-type" onchange="onSpawnTypeChange()">
+            <option value="claude-code">Claude Code</option>
+            <option value="openai">OpenAI (GPT)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="grok">xAI Grok</option>
+            <option value="claude-api">Claude API</option>
+            <option value="ollama">Ollama (local)</option>
+            <option value="bedrock">AWS Bedrock</option>
+          </select>
+        </div>
+        <div class="spawn-field" id="spawn-workdir-field">
+          <label class="spawn-label">Working Directory</label>
+          <input class="spawn-input" id="spawn-workdir" placeholder="~/projects/...">
+        </div>
+        <div class="spawn-field">
+          <label class="spawn-label">Model</label>
+          <select class="spawn-select" id="spawn-model">
+            <option value="">Default (Sonnet)</option>
+            <option value="claude-opus-4-6">Opus 4.6</option>
+            <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+            <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+          </select>
+        </div>
+        <div class="spawn-field" id="spawn-mode-field" style="display:none">
+          <label class="spawn-label">Participation Mode</label>
+          <select class="spawn-select" id="spawn-mode">
+            <option value="message_only">Message Only</option>
+            <option value="full_participant">Full Participant</option>
+          </select>
+        </div>
+        <div class="spawn-field" id="spawn-sysprompt-field" style="display:none">
+          <label class="spawn-label">System Prompt</label>
+          <textarea class="spawn-textarea" id="spawn-sysprompt" placeholder="Custom instructions for this agent"></textarea>
+        </div>
+      </div>
+      <div class="spawn-actions" style="gap:8px">
+        <button class="btn-ghost btn-sm" onclick="closePanel()" style="min-height:44px;padding:10px 16px">Cancel</button>
+        <button class="btn" onclick="doMobileSpawn()" style="background:var(--cyan);border-color:var(--cyan);min-height:44px;padding:10px 20px;flex:1">Spawn Agent</button>
+      </div>
+    </div>
+  `;
+
+  overlay.classList.add('open');
+  panel.classList.add('open');
+}
+
+function toggleMobileAdvanced() {
+  const fields = document.getElementById('mobile-advanced-fields');
+  const toggle = document.getElementById('mobile-adv-toggle');
+  if (!fields) return;
+  const hidden = fields.style.display === 'none';
+  fields.style.display = hidden ? '' : 'none';
+  toggle.innerHTML = hidden ? 'Less options &#x25B2;' : 'More options &#x25BC;';
+}
+
+async function doMobileSpawn() {
+  const name = document.getElementById('spawn-name').value.trim();
+  const projectId = document.getElementById('spawn-project').value;
+  const prompt = document.getElementById('spawn-prompt').value.trim();
+
+  // Advanced fields (may or may not exist in DOM)
+  const agentType = document.getElementById('spawn-type')?.value || 'claude-code';
+  const workDir = document.getElementById('spawn-workdir')?.value?.trim() || '';
+  const model = document.getElementById('spawn-model')?.value || '';
+  const mode = document.getElementById('spawn-mode')?.value;
+  const systemPrompt = document.getElementById('spawn-sysprompt')?.value?.trim();
+
+  if (!name) { showToast('Agent name required', 'var(--red)'); return; }
+
+  const isBridge = agentType !== 'claude-code';
+
+  // Auto-fill workdir from project if not set
+  let finalWorkDir = workDir;
+  if (!isBridge && !finalWorkDir && projectId) {
+    const proj = projects.find(p => p.id === projectId);
+    finalWorkDir = (proj && proj.work_dir) || projectPaths[projectId] || '';
+  }
+  if (!isBridge && !finalWorkDir) {
+    showToast('Working directory required — expand "More options"', 'var(--red)');
+    return;
+  }
+
+  const body = { name, project_id: projectId || undefined, model: model || undefined, prompt: prompt || undefined };
+  if (isBridge) {
+    body.type = agentType;
+    if (mode) body.mode = mode;
+    if (systemPrompt) body.system_prompt = systemPrompt;
+  } else {
+    body.work_dir = finalWorkDir;
+  }
+
+  const resp = await fetch('/api/spawn', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+
+  const result = await resp.json();
+  if (!resp.ok) {
+    showToast(result.error?.message || 'Spawn failed', 'var(--red)');
+    return;
+  }
+
+  // Save to recent spawns
+  saveRecentSpawn({ name, project_id: projectId, work_dir: finalWorkDir, model, type: agentType, prompt });
+
+  // Remember project path
+  if (projectId && finalWorkDir) {
+    projectPaths[projectId] = finalWorkDir;
+    localStorage.setItem('waggle_project_paths', JSON.stringify(projectPaths));
+  }
+
+  showToast(`Spawned ${name}`, 'var(--cyan)');
+  closePanel();
+  await fetchAll();
+}
+
+async function doQuickSpawn(idx) {
+  const config = recentSpawns[idx];
+  if (!config) return;
+
+  const body = { name: config.name, project_id: config.project_id || undefined, model: config.model || undefined, prompt: config.prompt || undefined };
+  const isBridge = config.type && config.type !== 'claude-code';
+  if (isBridge) {
+    body.type = config.type;
+  } else {
+    body.work_dir = config.work_dir || projectPaths[config.project_id] || '';
+    if (!body.work_dir) { showToast('No saved working directory for ' + config.name, 'var(--red)'); return; }
+  }
+
+  showToast(`Spawning ${config.name}...`, 'var(--cyan)');
+  closePanel();
+
+  const resp = await fetch('/api/spawn', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+
+  if (resp.ok) {
+    showToast(`Spawned ${config.name}`, 'var(--cyan)');
+    await fetchAll();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast(err.error?.message || 'Spawn failed', 'var(--red)');
+  }
+}
+
+// ── MOBILE AGENT ACTIONS (kill/poke/respawn) ──
+async function mobileKillAgent(agentName, e) {
+  if (e) e.stopPropagation();
+  if (!await showConfirm('Kill session for ' + agentName + '?', {title: 'Kill Agent', danger: true})) return;
+  // Try to kill tmux session first
+  const resp = await fetch('/api/sessions/' + encodeURIComponent(agentName), {method: 'DELETE'});
+  if (resp.ok) {
+    showToast('Killed ' + agentName, 'var(--red)');
+  } else {
+    // If no session, try disconnecting the agent registration
+    const resp2 = await fetch('/api/agents/' + encodeURIComponent(agentName), {method: 'DELETE'});
+    if (resp2.ok) {
+      showToast('Disconnected ' + agentName, 'var(--red)');
+    } else {
+      showToast('Failed to kill ' + agentName, 'var(--red)');
+    }
+  }
+  await fetchAll();
+}
+
+async function mobilePokeAgent(agentName, e) {
+  if (e) e.stopPropagation();
+  await fetch('/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from: 'user', to: agentName, body: '[POKE] You appear to be stalled or inactive. Please check in immediately: report your current status, what you are working on, and whether you are blocked. If blocked, describe what is blocking you.'}),
+  });
+  showToast('Poked ' + agentName, 'var(--amber)');
+}
+
+async function mobileRespawnAgent(agentName, e) {
+  if (e) e.stopPropagation();
+  // Find in recent spawns first
+  const recent = recentSpawns.find(s => s.name === agentName);
+  if (recent) {
+    doQuickSpawn(recentSpawns.indexOf(recent));
+    return;
+  }
+  // Fall back: find agent info and try to respawn with known data
+  const agent = agents.find(a => a.name === agentName);
+  const workDir = (agent && agent.project_id ? projectPaths[agent.project_id] : '') || '';
+  if (!workDir) {
+    showToast('No known work directory for ' + agentName + ' — use Spawn tab', 'var(--red)');
+    return;
+  }
+  const body = { name: agentName, work_dir: workDir, project_id: agent?.project_id || undefined };
+  showToast(`Respawning ${agentName}...`, 'var(--cyan)');
+  const resp = await fetch('/api/spawn', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  if (resp.ok) {
+    showToast(`Respawned ${agentName}`, 'var(--cyan)');
+    await fetchAll();
+  } else {
+    const err = await resp.json().catch(() => ({}));
+    showToast(err.error?.message || 'Respawn failed', 'var(--red)');
+  }
+}
+
 // ── SWIPE GESTURES ──
 (function initSwipeGestures() {
   let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
@@ -7220,8 +7725,20 @@ document.addEventListener('visibilitychange', () => {
 });
 </script>
 
-<!-- Mobile Floating Action Button -->
-<button class="mobile-fab" id="mobile-fab" onclick="openCreatePanel('task')" style="display:none">+</button>
+<!-- Mobile Floating Action Button with long-press menu -->
+<button class="mobile-fab" id="mobile-fab" style="display:none">+</button>
+<div class="fab-menu-backdrop" id="fab-menu-backdrop" onclick="closeFabMenu()"></div>
+<div class="fab-menu" id="fab-menu">
+  <button class="fab-menu-item" onclick="closeFabMenu();openCreatePanel('task')">
+    <span class="fab-menu-icon">&#x2795;</span>New Task
+  </button>
+  <button class="fab-menu-item" onclick="closeFabMenu();openMobileSpawn()">
+    <span class="fab-menu-icon">&#x1F680;</span>Spawn Agent
+  </button>
+  <button class="fab-menu-item" onclick="closeFabMenu();openCreatePanel('project')">
+    <span class="fab-menu-icon">&#x2B21;</span>New Project
+  </button>
+</div>
 
 <!-- Pull-to-refresh indicator -->
 <div class="pull-to-refresh" id="pull-to-refresh">&#x21BB; Pull to refresh</div>
@@ -7242,8 +7759,8 @@ document.addEventListener('visibilitychange', () => {
     <button class="mobile-tab" id="mtab-projects" onclick="toggleMobileNav();updateMobileTabs('projects')">
       <span class="mobile-tab-icon">&#x2B21;</span>Projects
     </button>
-    <button class="mobile-tab" id="mtab-cmd" onclick="toggleMobileCommandBar()">
-      <span class="mobile-tab-icon">&#x2328;</span>Cmd
+    <button class="mobile-tab" id="mtab-spawn" onclick="openMobileSpawn();updateMobileTabs('spawn')">
+      <span class="mobile-tab-icon">&#x1F680;</span>Spawn
     </button>
   </div>
 </div>
