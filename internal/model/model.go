@@ -158,6 +158,7 @@ type Message struct {
 	To        string    `json:"to,omitempty"`
 	Body      string    `json:"body"`
 	Read      bool      `json:"read"`
+	ProjectID string    `json:"project_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
