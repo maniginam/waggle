@@ -755,6 +755,7 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 		to := r.URL.Query().Get("to")
 		agent := r.URL.Query().Get("agent")
 		q := r.URL.Query().Get("q")
+		projectID := r.URL.Query().Get("project_id")
 		limit := 50
 		if l := r.URL.Query().Get("limit"); l != "" {
 			fmt.Sscanf(l, "%d", &limit)
@@ -763,6 +764,8 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 		var err error
 		if q != "" {
 			msgs, err = a.store.SearchMessages(q, limit)
+		} else if projectID != "" {
+			msgs, err = a.store.ProjectMessages(projectID, limit)
 		} else if agent != "" {
 			msgs, err = a.store.AgentMessages(agent, limit)
 		} else if to == "" {

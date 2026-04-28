@@ -1669,6 +1669,31 @@ func TestMessagesWithLimit(t *testing.T) {
 	}
 }
 
+func TestMessagesFilterByProject(t *testing.T) {
+	_, ts := setup(t)
+
+	mustPost(t, ts.URL+"/api/messages", "application/json",
+		bytes.NewBufferString(`{"from":"a1","to":"user","body":"proj1 msg","project_id":"proj-1"}`))
+	mustPost(t, ts.URL+"/api/messages", "application/json",
+		bytes.NewBufferString(`{"from":"a2","to":"user","body":"proj2 msg","project_id":"proj-2"}`))
+	mustPost(t, ts.URL+"/api/messages", "application/json",
+		bytes.NewBufferString(`{"from":"a3","to":"user","body":"no proj msg"}`))
+
+	resp := mustGet(t, ts.URL+"/api/messages?project_id=proj-1")
+	defer resp.Body.Close()
+	var msgs []map[string]any
+	json.NewDecoder(resp.Body).Decode(&msgs)
+	if len(msgs) != 1 {
+		t.Errorf("expected 1 message for proj-1, got %d", len(msgs))
+	}
+	if msgs[0]["body"] != "proj1 msg" {
+		t.Errorf("expected 'proj1 msg', got %v", msgs[0]["body"])
+	}
+	if msgs[0]["project_id"] != "proj-1" {
+		t.Errorf("expected project_id 'proj-1', got %v", msgs[0]["project_id"])
+	}
+}
+
 func TestClaimMissingAgent(t *testing.T) {
 	_, ts := setup(t)
 
