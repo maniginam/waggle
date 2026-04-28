@@ -2342,6 +2342,7 @@ select.form-input { cursor: pointer; }
     <div id="inbox-view" class="inbox" style="display:none"></div>
     <div id="sessions-view" style="display:none"></div>
     <div id="swimlane-view" style="display:none"></div>
+    <div id="chats-view" class="chats-view" style="display:none"></div>
     <div id="board-view" style="display:none">
       <div class="board-header" id="board-header"></div>
       <div class="main-panel">
@@ -2351,10 +2352,24 @@ select.form-input { cursor: pointer; }
         <div class="board-progress" id="board-progress"></div>
         <div class="main">
           <div class="board" id="board"></div>
-          <div class="sidebar">
-            <div class="sidebar-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-              <div class="sidebar-title">Live Feed</div>
-              <div class="event-feed" id="event-feed"></div>
+          <div class="sidebar" id="board-sidebar">
+            <div id="sidebar-livefeed" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+              <div class="sidebar-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+                <div class="sidebar-title">Live Feed</div>
+                <div class="event-feed" id="event-feed"></div>
+              </div>
+            </div>
+            <div id="sidebar-projectchat" style="display:none;flex:1;overflow:hidden;">
+              <div class="project-chat">
+                <div class="project-chat-header">
+                  <span>Project Chat</span>
+                </div>
+                <div class="project-chat-messages" id="project-chat-messages"></div>
+                <div class="project-chat-input">
+                  <input id="project-chat-input" placeholder="Message... (@agent to target)" onkeydown="if(event.key==='Enter')sendProjectChat()">
+                  <button onclick="sendProjectChat()">Send</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2376,6 +2391,7 @@ select.form-input { cursor: pointer; }
     <div class="shortcut-row"><span class="shortcut-desc">Toggle sidebar</span><span class="shortcut-key">[</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Bulk select mode</span><span class="shortcut-key">b</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Messages inbox</span><span class="shortcut-key">m</span></div>
+    <div class="shortcut-row"><span class="shortcut-desc">Chats view</span><span class="shortcut-key">c</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Spawn agent</span><span class="shortcut-key">a</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Focus mode</span><span class="shortcut-key">f</span></div>
     <div class="shortcut-row"><span class="shortcut-desc">Sessions view</span><span class="shortcut-key">s</span></div>
@@ -2416,6 +2432,8 @@ let agents = [];
 let stats = {};
 let projects = [];
 let selectedProject = '';
+let projectChatMessages = [];
+let projectChatTimer = null;
 let currentView = localStorage.getItem('waggle_view') || 'overview';
 let currentPanel = null; // {type:'task',id:'...'} or {type:'chat',agent:'...'}
 let searchQuery = '';
@@ -4035,6 +4053,221 @@ async function sendBroadcast() {
   fetchAll();
 }
 
+// ── PROJECT CHAT ──
+async function loadProjectChat() {
+  if (!selectedProject || selectedProject === 'none') return;
+  try {
+    const msgs = await fetch(`/api/messages?project_id=${encodeURIComponent(selectedProject)}&limit=100`).then(r => r.json());
+    projectChatMessages = msgs || [];
+    renderProjectChatMessages();
+  } catch(e) { console.error('Failed to load project chat:', e); }
+}
+
+function renderProjectChatMessages() {
+  const container = document.getElementById('project-chat-messages');
+  if (!container) return;
+  const wasScrolledToBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+  if (projectChatMessages.length === 0) {
+    container.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:0.75rem">No messages yet</div>';
+    return;
+  }
+  container.innerHTML = projectChatMessages.map(m => {
+    const isMe = m.from === 'user' || m.from === 'dashboard';
+    const time = new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    return `<div class="pchat-msg ${isMe ? 'from-me' : 'from-them'}">
+      <div class="pchat-msg-sender">${esc(m.from)}${m.to && m.to !== 'user' && m.to !== '' ? ' \u2192 ' + esc(m.to) : ''}</div>
+      <div class="pchat-msg-body">${esc(m.body)}</div>
+      <div class="pchat-msg-time">${time}</div>
+    </div>`;
+  }).join('');
+  if (wasScrolledToBottom) container.scrollTop = container.scrollHeight;
+}
+
+async function sendProjectChat() {
+  const input = document.getElementById('project-chat-input');
+  if (!input || !input.value.trim() || !selectedProject || selectedProject === 'none') return;
+  const text = input.value.trim();
+  input.value = '';
+
+  let to = '';
+  let body = text;
+  const atMatch = text.match(/^@(\S+)\s+([\s\S]+)/);
+  if (atMatch) {
+    to = atMatch[1];
+    body = atMatch[2];
+  }
+
+  const msg = { from: 'user', to: to, body: body, project_id: selectedProject };
+  try {
+    await fetch('/api/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(msg)
+    });
+    await loadProjectChat();
+  } catch(e) { console.error('Failed to send project chat:', e); }
+}
+
+function startProjectChatPolling() {
+  stopProjectChatPolling();
+  loadProjectChat();
+  projectChatTimer = setInterval(loadProjectChat, 5000);
+}
+
+function stopProjectChatPolling() {
+  if (projectChatTimer) { clearInterval(projectChatTimer); projectChatTimer = null; }
+}
+
+// ── CHATS VIEW ──
+async function renderChats() {
+  const el = document.getElementById('chats-view');
+  if (!el) return;
+  el.innerHTML = '<div class="chats-empty">Loading chats...</div>';
+
+  let allMsgs;
+  try {
+    allMsgs = await fetch('/api/messages?limit=500').then(r => r.json());
+  } catch(e) {
+    el.innerHTML = '<div class="chats-empty">Failed to load messages</div>';
+    return;
+  }
+  if (!allMsgs || allMsgs.length === 0) {
+    el.innerHTML = '<div class="chats-empty">No conversations yet</div>';
+    return;
+  }
+
+  const byProject = {};
+  for (const m of allMsgs) {
+    const pid = m.project_id || '_unassigned';
+    if (!byProject[pid]) byProject[pid] = [];
+    byProject[pid].push(m);
+  }
+
+  function threadKey(m) {
+    const pair = [m.from || '', m.to || ''].sort();
+    return pair.join(' <> ');
+  }
+
+  let html = '';
+  const sortedPids = Object.keys(byProject).sort((a, b) => {
+    if (a === '_unassigned') return 1;
+    if (b === '_unassigned') return -1;
+    const pa = projects.find(p => p.id === a);
+    const pb = projects.find(p => p.id === b);
+    return (pa ? pa.name : a).localeCompare(pb ? pb.name : b);
+  });
+
+  for (const pid of sortedPids) {
+    const proj = projects.find(p => p.id === pid);
+    const projName = proj ? proj.name : (pid === '_unassigned' ? 'Unassigned' : pid);
+    const msgs = byProject[pid];
+
+    const threads = {};
+    for (const m of msgs) {
+      const tk = threadKey(m);
+      if (!threads[tk]) threads[tk] = [];
+      threads[tk].push(m);
+    }
+
+    const sortedThreads = Object.entries(threads).sort((a, b) => {
+      const latestA = new Date(a[1][a[1].length - 1].created_at);
+      const latestB = new Date(b[1][b[1].length - 1].created_at);
+      return latestB - latestA;
+    });
+
+    html += `<div class="chats-project-section">`;
+    html += `<div class="chats-project-header">${esc(projName)}</div>`;
+
+    for (const [tk, tmsgs] of sortedThreads) {
+      const latest = tmsgs[tmsgs.length - 1];
+      const timeAgo = formatTimeAgo(new Date(latest.created_at));
+      const tid = btoa(pid + ':' + tk).replace(/[^a-zA-Z0-9]/g, '');
+
+      html += `<div class="chats-thread" id="thread-${tid}">
+        <div class="chats-thread-row" onclick="toggleChatThread('${tid}', '${esc(pid)}', '${esc(tk)}')">
+          <span class="chats-thread-participants">${esc(tk)}</span>
+          <span class="chats-thread-preview">${esc(latest.body)}</span>
+          <span class="chats-thread-time">${timeAgo}</span>
+        </div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function formatTimeAgo(date) {
+  const now = new Date();
+  const diff = Math.floor((now - date) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+function toggleChatThread(tid, projectId, threadKey) {
+  const threadEl = document.getElementById('thread-' + tid);
+  if (!threadEl) return;
+  const existing = threadEl.querySelector('.chats-thread-expanded');
+  if (existing) {
+    existing.remove();
+    const inputEl = threadEl.querySelector('.chats-thread-input');
+    if (inputEl) inputEl.remove();
+    return;
+  }
+
+  const participants = threadKey.split(' <> ');
+  fetch(`/api/messages?${projectId && projectId !== '_unassigned' ? 'project_id=' + encodeURIComponent(projectId) + '&' : ''}limit=200`)
+    .then(r => r.json())
+    .then(allMsgs => {
+      const tmsgs = (allMsgs || []).filter(m => {
+        const pair = [m.from || '', m.to || ''].sort();
+        return pair[0] === participants[0] && pair[1] === participants[1];
+      }).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+      let expandHtml = '<div class="chats-thread-expanded">';
+      for (const m of tmsgs) {
+        const isMe = m.from === 'user' || m.from === 'dashboard';
+        const time = new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+        expandHtml += `<div class="pchat-msg ${isMe ? 'from-me' : 'from-them'}">
+          <div class="pchat-msg-sender">${esc(m.from)}${m.to ? ' \u2192 ' + esc(m.to) : ''}</div>
+          <div class="pchat-msg-body">${esc(m.body)}</div>
+          <div class="pchat-msg-time">${time}</div>
+        </div>`;
+      }
+      expandHtml += '</div>';
+
+      const otherParticipant = participants.find(p => p !== 'user' && p !== 'dashboard') || participants[0];
+      expandHtml += `<div class="chats-thread-input">
+        <input placeholder="Reply to ${esc(otherParticipant)}..." onkeydown="if(event.key==='Enter')sendThreadReply(this,'${esc(otherParticipant)}','${esc(projectId)}')">
+        <button onclick="sendThreadReply(this.previousElementSibling,'${esc(otherParticipant)}','${esc(projectId)}')">Send</button>
+      </div>`;
+
+      threadEl.insertAdjacentHTML('beforeend', expandHtml);
+      const expanded = threadEl.querySelector('.chats-thread-expanded');
+      if (expanded) expanded.scrollTop = expanded.scrollHeight;
+    });
+}
+
+async function sendThreadReply(inputEl, to, projectId) {
+  const text = inputEl.value.trim();
+  if (!text) return;
+  inputEl.value = '';
+
+  const msg = { from: 'user', to: to, body: text };
+  if (projectId && projectId !== '_unassigned') msg.project_id = projectId;
+
+  try {
+    await fetch('/api/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(msg)
+    });
+    renderChats();
+  } catch(e) { console.error('Failed to send thread reply:', e); }
+}
+
 // Keep old sendChat/loadChatMessages for messages tab
 async function openChatPanel(agentName) { openAgentPanel(null, agentName); }
 
@@ -4625,6 +4858,8 @@ async function fetchAll() {
       renderSessions();
     } else if (currentView === 'swimlane') {
       renderSwimlane();
+    } else if (currentView === 'chats') {
+      renderChats();
     } else if (!projectGitMode) {
       renderBoardHeader();
       renderFilterBar();
@@ -4673,6 +4908,11 @@ function renderProjectNav() {
     <div class="nav-icon" style="background:var(--purple-dim);border-color:var(--purple)"></div>
     <span class="project-nav-name">Swimlane</span>
     <span class="project-nav-count">${tasks.filter(t=>t.status!=='done').length}</span>
+  </button>
+  <button class="project-nav-item${currentView==='chats'?' active':''}" data-view="chats">
+    <div class="nav-icon" style="background:var(--blue-dim);border-color:var(--blue)"></div>
+    <span class="project-nav-name">Chats</span>
+    <span class="project-nav-count"></span>
   </button>`;
 
   for (const p of projects) {
@@ -4724,25 +4964,37 @@ function navigateTo(view) {
   const inboxEl = document.getElementById('inbox-view');
   const sessEl = document.getElementById('sessions-view');
   const swimEl = document.getElementById('swimlane-view');
+  const chatsEl = document.getElementById('chats-view');
 
-  const hideAll = () => { overviewEl.style.display='none'; boardEl.style.display='none'; inboxEl.style.display='none'; sessEl.style.display='none'; swimEl.style.display='none'; };
+  const hideAll = () => { overviewEl.style.display='none'; boardEl.style.display='none'; inboxEl.style.display='none'; sessEl.style.display='none'; swimEl.style.display='none'; chatsEl.style.display='none'; };
 
   if (view === 'overview') {
     selectedProject = '';
     hideAll(); overviewEl.style.display = '';
     renderOverview();
+    stopProjectChatPolling();
+    const mainEl = document.querySelector('.main');
+    if (mainEl) mainEl.classList.add('no-sidebar');
   } else if (view === 'inbox') {
     selectedProject = '';
     hideAll(); inboxEl.style.display = '';
     renderInbox();
+    stopProjectChatPolling();
   } else if (view === 'sessions') {
     selectedProject = '';
     hideAll(); sessEl.style.display = '';
     renderSessions();
+    stopProjectChatPolling();
   } else if (view === 'swimlane') {
     selectedProject = '';
     hideAll(); swimEl.style.display = '';
     renderSwimlane();
+    stopProjectChatPolling();
+  } else if (view === 'chats') {
+    selectedProject = '';
+    hideAll(); chatsEl.style.display = '';
+    stopProjectChatPolling();
+    renderChats();
   } else {
     selectedProject = view === 'none' ? 'none' : view;
     hideAll(); boardEl.style.display = '';
@@ -4751,6 +5003,14 @@ function navigateTo(view) {
     renderFilterBar();
     renderStats();
     renderUsage();
+    // Show project chat sidebar, hide live feed
+    const mainEl = document.querySelector('.main');
+    const livefeed = document.getElementById('sidebar-livefeed');
+    const pchat = document.getElementById('sidebar-projectchat');
+    if (mainEl) mainEl.classList.remove('no-sidebar');
+    if (livefeed) livefeed.style.display = 'none';
+    if (pchat) pchat.style.display = 'flex';
+    startProjectChatPolling();
   }
 
   renderProjectNav();
@@ -5940,6 +6200,11 @@ function connectSSE() {
         const commsTab = document.getElementById('agent-tab-comms');
         if (commsTab && commsTab.style.display !== 'none') loadCommsStream(currentPanel.agent);
       }
+      // Refresh project chat sidebar on message events
+      if (evt.type === 'message_sent' || evt.type === 'message') {
+        if (selectedProject && selectedProject !== 'none') loadProjectChat();
+        if (currentView === 'chats') renderChats();
+      }
     } catch(err) {}
   };
   evtSource.onerror = () => {
@@ -6608,6 +6873,7 @@ document.addEventListener('keydown', e => {
     toggleNav();
     return;
   }
+  if (e.key === 'c' && !e.ctrlKey && !e.metaKey) { navigateTo('chats'); return; }
   if (e.key === 'b' && !e.ctrlKey && !e.metaKey && currentView !== 'overview') {
     e.preventDefault();
     toggleBulkMode();
@@ -7595,22 +7861,33 @@ if (currentView === 'inbox') {
   document.getElementById('board-view').style.display = 'none';
   document.getElementById('sessions-view').style.display = 'none';
   document.getElementById('swimlane-view').style.display = 'none';
+  document.getElementById('chats-view').style.display = 'none';
 } else if (currentView === 'sessions') {
   document.getElementById('overview-view').style.display = 'none';
   document.getElementById('inbox-view').style.display = 'none';
   document.getElementById('board-view').style.display = 'none';
   document.getElementById('sessions-view').style.display = '';
   document.getElementById('swimlane-view').style.display = 'none';
+  document.getElementById('chats-view').style.display = 'none';
 } else if (currentView === 'swimlane') {
   document.getElementById('overview-view').style.display = 'none';
   document.getElementById('inbox-view').style.display = 'none';
   document.getElementById('board-view').style.display = 'none';
   document.getElementById('sessions-view').style.display = 'none';
   document.getElementById('swimlane-view').style.display = '';
+  document.getElementById('chats-view').style.display = 'none';
+} else if (currentView === 'chats') {
+  document.getElementById('overview-view').style.display = 'none';
+  document.getElementById('inbox-view').style.display = 'none';
+  document.getElementById('board-view').style.display = 'none';
+  document.getElementById('sessions-view').style.display = 'none';
+  document.getElementById('swimlane-view').style.display = 'none';
+  document.getElementById('chats-view').style.display = '';
 } else if (currentView !== 'overview') {
   selectedProject = currentView === 'none' ? 'none' : currentView;
   document.getElementById('overview-view').style.display = 'none';
   document.getElementById('board-view').style.display = '';
+  document.getElementById('chats-view').style.display = 'none';
 }
 // Request notification permission
 if ('Notification' in window && Notification.permission === 'default') {
