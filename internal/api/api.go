@@ -886,6 +886,9 @@ func (a *API) handleSSE(w http.ResponseWriter, r *http.Request) {
 	sub := a.eventHub.Subscribe(agentFilter, taskFilter)
 	defer a.eventHub.Unsubscribe(sub)
 
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
+
 	for {
 		select {
 		case evt, ok := <-sub.Ch:
@@ -893,9 +896,16 @@ func (a *API) handleSSE(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			data, _ := json.Marshal(evt)
-			w.Write([]byte("data: "))
+			if _, err := w.Write([]byte("data: ")); err != nil {
+				return
+			}
 			w.Write(data)
 			w.Write([]byte("\n\n"))
+			flusher.Flush()
+		case <-keepalive.C:
+			if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
+				return
+			}
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
