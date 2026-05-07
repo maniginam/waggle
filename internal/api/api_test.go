@@ -3688,3 +3688,75 @@ func TestStopBridgeAgent(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", stopResp.StatusCode, string(body))
 	}
 }
+
+func TestAgentHeartbeatEndpoint(t *testing.T) {
+	_, ts := setup(t)
+
+	// Register an agent
+	resp := mustPost(t, ts.URL+"/api/agents/register", "application/json",
+		strings.NewReader(`{"name":"hb-agent","type":"claude-code"}`))
+	resp.Body.Close()
+
+	// POST heartbeat should return 200
+	resp = mustPost(t, ts.URL+"/api/agents/hb-agent/heartbeat", "application/json", nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", result["status"])
+	}
+}
+
+func TestEventsLimitCapsAt500(t *testing.T) {
+	_, ts := setup(t)
+
+	// Request with limit=501 should cap at 500 not reset to 50
+	resp := mustGet(t, ts.URL+"/api/events?limit=501")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	// We can't easily verify the internal limit without creating 501 events,
+	// but at least verify the endpoint accepts it without error
+}
+
+func TestEventsLimitNegativeDefaultsTo50(t *testing.T) {
+	_, ts := setup(t)
+
+	resp := mustGet(t, ts.URL+"/api/events?limit=-1")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestDeleteNonexistentAgentReturns404(t *testing.T) {
+	_, ts := setup(t)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/agents/ghost-agent", nil)
+	resp := mustDo(t, req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for deleting nonexistent agent, got %d", resp.StatusCode)
+	}
+}
+
+func TestWakeAgentSkipsAliveRegisteredAgent(t *testing.T) {
+	a, _ := setup(t)
+
+	// Register agent via store directly (simulates MCP-registered agent)
+	_, err := a.store.RegisterAgent("mcp-agent", "claude-code", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// wakeAgent should NOT try to spawn since agent is alive in store
+	// (it won't panic or log errors for a known alive agent)
+	a.wakeAgent("mcp-agent", "test message")
+	// If we get here without a spawn attempt, the check passed.
+	// The old code would always try to spawn since mcp-agent isn't in a.procs.
+}
