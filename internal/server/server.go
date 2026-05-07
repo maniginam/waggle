@@ -235,20 +235,7 @@ func (s *Server) pushNotificationLoop() {
 			if !shouldPush {
 				continue
 			}
-			body := ""
-			// Extract richer details from payload
-			if payload, ok := evt.Payload.(map[string]any); ok {
-				if msgBody, ok := payload["body"].(string); ok && evt.Type == model.EventMessage {
-					from, _ := payload["from"].(string)
-					if from != "" {
-						body = from + ": " + msgBody
-					} else {
-						body = msgBody
-					}
-				} else if taskTitle, ok := payload["title"].(string); ok {
-					body = taskTitle
-				}
-			}
+			body := extractPushBody(evt)
 			if body == "" {
 				if evt.AgentID != "" {
 					body = evt.AgentID
@@ -270,6 +257,30 @@ func (s *Server) pushNotificationLoop() {
 			return
 		}
 	}
+}
+
+func extractPushBody(evt *model.Event) string {
+	switch p := evt.Payload.(type) {
+	case *model.Message:
+		if evt.Type == model.EventMessage {
+			if p.From != "" {
+				return p.From + ": " + p.Body
+			}
+			return p.Body
+		}
+	case map[string]any:
+		if msgBody, ok := p["body"].(string); ok && evt.Type == model.EventMessage {
+			from, _ := p["from"].(string)
+			if from != "" {
+				return from + ": " + msgBody
+			}
+			return msgBody
+		}
+		if taskTitle, ok := p["title"].(string); ok {
+			return taskTitle
+		}
+	}
+	return ""
 }
 
 func cors(next http.Handler) http.Handler {

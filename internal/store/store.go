@@ -670,8 +670,15 @@ func (s *Store) DisconnectAgent(name string) error {
 }
 
 func (s *Store) DeleteAgent(name string) error {
-	_, err := s.db.Exec("DELETE FROM agents WHERE name = ?", name)
-	return err
+	result, err := s.db.Exec("DELETE FROM agents WHERE name = ?", name)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) PurgeStaleAgents(maxAge time.Duration) (int, error) {
@@ -792,8 +799,6 @@ func (s *Store) ReadMessages(to string, limit int) ([]*model.Message, error) {
 		messages = append(messages, &m)
 	}
 
-	// Mark as read
-	s.db.Exec(`UPDATE messages SET read = 1 WHERE ("to" = ? OR "to" = '') AND read = 0`, to)
 	return messages, rows.Err()
 }
 

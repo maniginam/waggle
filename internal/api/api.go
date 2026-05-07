@@ -619,6 +619,16 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// POST /api/agents/:name/heartbeat
+	if subAction == "heartbeat" && r.Method == http.MethodPost {
+		if err := a.store.TouchAgent(name); err != nil {
+			writeError(w, http.StatusInternalServerError, "heartbeat_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
 	// POST /api/agents/:name/status
 	if subAction == "status" && r.Method == http.MethodPost {
 		var req struct {
@@ -717,6 +727,10 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 	// DELETE /api/agents/:name
 	if r.Method == http.MethodDelete && subAction == "" {
 		if err := a.store.DeleteAgent(name); err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "agent_not_found", "agent not found: "+name)
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
 			return
 		}
@@ -855,8 +869,11 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
 		fmt.Sscanf(l, "%d", &limit)
-		if limit <= 0 || limit > 500 {
+		if limit <= 0 {
 			limit = 50
+		}
+		if limit > 500 {
+			limit = 500
 		}
 	}
 	events, err := a.store.ListEvents(limit)
@@ -1451,12 +1468,20 @@ func (a *API) tryAutoDispatch(agentName, projectID string) {
 // If the agent has a live session, the message is already stored and they'll pick it up via MCP.
 // If not, auto-spawn the agent with a prompt to check their messages.
 func (a *API) wakeAgent(agentName, message string) {
+	// First check if agent is registered and alive in the store (covers MCP agents)
+	if agent, err := a.store.GetAgentByName(agentName); err == nil {
+		if agent.Status != model.AgentDisconnected && time.Since(agent.LastSeen) < 90*time.Second {
+			// Agent is alive (registered via MCP or REST) — message is stored, they'll poll it
+			return
+		}
+	}
+
 	a.procsMu.Lock()
 	_, alive := a.procs[agentName]
 	a.procsMu.Unlock()
 
 	if alive {
-		// Agent is running — message is stored in waggle, they'll read it via MCP polling
+		// Agent is running as a spawned process
 		return
 	}
 
