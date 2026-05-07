@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sync"
 
@@ -166,7 +167,7 @@ func (w *sseWriter) Write(p []byte) (int, error) {
 		select {
 		case w.send <- data:
 		default:
-			// Drop if slow
+			log.Printf("SSE: dropping message for slow client (channel full)")
 		}
 	}
 	return len(p), nil

@@ -22,12 +22,13 @@ const (
 )
 
 type Adapter struct {
-	baseURL       string
-	agentName     string
-	in            io.Reader
-	out           io.Writer
-	stopHeartbeat chan struct{}
-	heartbeatOnce sync.Once
+	baseURL        string
+	agentName      string
+	in             io.Reader
+	out            io.Writer
+	stopHeartbeat  chan struct{}
+	heartbeatOnce  sync.Once
+	stopOnce       sync.Once
 }
 
 func NewAdapter(baseURL string) *Adapter {
@@ -487,14 +488,14 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		params := []string{}
 		for _, key := range []string{"status", "assignee", "tag", "priority", "q", "sort", "order", "task_type", "project_id"} {
 			if v, ok := args[key].(string); ok && v != "" {
-				params = append(params, key+"="+v)
+				params = append(params, key+"="+url.QueryEscape(v))
 			}
 		}
-		url := "/api/tasks"
+		taskURL := "/api/tasks"
 		if len(params) > 0 {
-			url += "?" + strings.Join(params, "&")
+			taskURL += "?" + strings.Join(params, "&")
 		}
-		return a.get(url)
+		return a.get(taskURL)
 
 	case "waggle_show_task":
 		id, _ := args["id"].(string)
@@ -689,7 +690,7 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		}
 		status, _ := args["status"].(string)
 		currentTask, _ := args["current_task"].(string)
-		return a.postJSON("/api/agents/"+a.agentName+"/status", map[string]string{
+		return a.postJSON("/api/agents/"+url.PathEscape(a.agentName)+"/status", map[string]string{
 			"status":       status,
 			"current_task": currentTask,
 		})
@@ -718,11 +719,14 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		if a.agentName == "" {
 			return nil, fmt.Errorf("must call waggle_register_agent first")
 		}
-		url := "/api/messages?to=" + a.agentName
-		if limit, ok := args["limit"].(float64); ok {
-			url += fmt.Sprintf("&limit=%d", int(limit))
+		msgURL := "/api/messages?to=" + url.QueryEscape(a.agentName)
+		if from, ok := args["from"].(string); ok && from != "" {
+			msgURL += "&agent=" + url.QueryEscape(from)
 		}
-		return a.get(url)
+		if limit, ok := args["limit"].(float64); ok {
+			msgURL += fmt.Sprintf("&limit=%d", int(limit))
+		}
+		return a.get(msgURL)
 
 	case "waggle_search_messages":
 		q, _ := args["query"].(string)
@@ -845,9 +849,7 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		if a.agentName == "" {
 			return nil, fmt.Errorf("must call waggle_register_agent first")
 		}
-		return a.postJSON("/api/agents/"+url.PathEscape(a.agentName)+"/status", map[string]string{
-			"status": "connected",
-		})
+		return a.postJSON("/api/agents/"+url.PathEscape(a.agentName)+"/heartbeat", map[string]string{})
 
 	case "waggle_disconnect":
 		if a.agentName == "" {
@@ -1015,9 +1017,9 @@ func (a *Adapter) startHeartbeat() {
 					if a.agentName == "" {
 						return
 					}
-					body, _ := json.Marshal(map[string]string{"status": "connected"})
+					body, _ := json.Marshal(map[string]string{})
 					resp, err := http.Post(
-						a.baseURL+"/api/agents/"+url.PathEscape(a.agentName)+"/status",
+						a.baseURL+"/api/agents/"+url.PathEscape(a.agentName)+"/heartbeat",
 						"application/json",
 						bytes.NewReader(body),
 					)
@@ -1033,7 +1035,9 @@ func (a *Adapter) startHeartbeat() {
 }
 
 func (a *Adapter) StopHeartbeat() {
-	if a.stopHeartbeat != nil {
-		close(a.stopHeartbeat)
-	}
+	a.stopOnce.Do(func() {
+		if a.stopHeartbeat != nil {
+			close(a.stopHeartbeat)
+		}
+	})
 }

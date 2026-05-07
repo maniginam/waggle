@@ -348,3 +348,41 @@ func waitForResponse(t *testing.T, scanner *bufio.Scanner, timeout time.Duration
 	}
 	return response
 }
+
+// Fix #6: sseWriter drops messages when channel is full (logs instead of silent)
+func TestSSEWriterDropsWhenFull(t *testing.T) {
+	// Create a writer with a tiny buffer (1)
+	send := make(chan []byte, 1)
+	w := &sseWriter{send: send}
+
+	// Fill the channel
+	send <- []byte("first")
+
+	// This write should be dropped (channel full), not block
+	done := make(chan bool, 1)
+	go func() {
+		w.Write([]byte("second message\n"))
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Good - Write returned without blocking
+	case <-time.After(1 * time.Second):
+		t.Fatal("sseWriter.Write blocked when channel was full")
+	}
+
+	// Drain and verify first message is still there
+	msg := <-send
+	if string(msg) != "first" {
+		t.Errorf("expected 'first', got %q", string(msg))
+	}
+
+	// Channel should be empty (second was dropped)
+	select {
+	case extra := <-send:
+		t.Errorf("expected channel to be empty, got %q", string(extra))
+	default:
+		// Good - dropped
+	}
+}

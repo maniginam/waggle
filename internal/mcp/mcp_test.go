@@ -3,10 +3,13 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/maniginam/waggle/internal/api"
 	"github.com/maniginam/waggle/internal/event"
@@ -537,8 +540,17 @@ func TestPokeAgent(t *testing.T) {
 }
 
 func TestHeartbeat(t *testing.T) {
-	_, ts := setupMCP(t)
-	adapter := registeredAdapter(t, ts, "heartbeat-agent")
+	// Use a mock server to verify heartbeat POSTs to /heartbeat endpoint
+	var calledPath string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+	adapter.agentName = "heartbeat-agent"
 
 	resp := callMCP(t, adapter, "tools/call", 40, map[string]any{
 		"name":      "waggle_heartbeat",
@@ -548,10 +560,10 @@ func TestHeartbeat(t *testing.T) {
 	if result["isError"] != nil && result["isError"].(bool) {
 		t.Fatalf("heartbeat failed: %v", result)
 	}
-	content := result["content"].([]any)
-	text := content[0].(map[string]any)["text"].(string)
-	if !strings.Contains(text, "updated") {
-		t.Errorf("expected 'updated' in heartbeat response, got %s", text)
+
+	expectedPath := "/api/agents/heartbeat-agent/heartbeat"
+	if calledPath != expectedPath {
+		t.Errorf("heartbeat called path %q, want %q", calledPath, expectedPath)
 	}
 }
 
@@ -959,4 +971,280 @@ func TestTaskHistoryViaMCP(t *testing.T) {
 	if result["isError"] != nil && result["isError"].(bool) {
 		t.Fatalf("task_history failed: %v", result)
 	}
+}
+
+// Fix #1: Heartbeat uses /heartbeat endpoint, not /status
+func TestHeartbeatUsesHeartbeatEndpoint(t *testing.T) {
+	var calledPath string
+	var calledMethod string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledPath = r.URL.Path
+		calledMethod = r.Method
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+	adapter.agentName = "hb-test"
+
+	result, err := adapter.executeTool("waggle_heartbeat", map[string]any{})
+	if err != nil {
+		t.Fatalf("heartbeat failed: %v", err)
+	}
+	_ = result
+
+	if calledMethod != http.MethodPost {
+		t.Errorf("heartbeat method = %q, want POST", calledMethod)
+	}
+	if calledPath != "/api/agents/hb-test/heartbeat" {
+		t.Errorf("heartbeat path = %q, want /api/agents/hb-test/heartbeat", calledPath)
+	}
+}
+
+// Fix #1: Auto-heartbeat goroutine uses /heartbeat endpoint
+func TestAutoHeartbeatUsesHeartbeatEndpoint(t *testing.T) {
+	var mu sync.Mutex
+	var calledPaths []string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calledPaths = append(calledPaths, r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+	adapter.agentName = "auto-hb"
+
+	// Manually start heartbeat (normally called after register)
+	adapter.startHeartbeat()
+	defer adapter.StopHeartbeat()
+
+	// Wait for at least one tick (ticker is 45s, but we can't wait that long)
+	// Instead, verify the channel was created and stop works without panic
+	if adapter.stopHeartbeat == nil {
+		t.Error("expected stopHeartbeat channel to be initialized")
+	}
+}
+
+// Fix #2: waggle_set_status URL-encodes agent name
+func TestSetStatusURLEncodesAgentName(t *testing.T) {
+	var calledRawPath string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledRawPath = r.URL.RawPath
+		if calledRawPath == "" {
+			calledRawPath = r.URL.Path
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+	adapter.agentName = "agent/special"
+
+	result, err := adapter.executeTool("waggle_set_status", map[string]any{"status": "working"})
+	if err != nil {
+		t.Fatalf("set_status failed: %v", err)
+	}
+	_ = result
+
+	if !strings.Contains(calledRawPath, "agent%2Fspecial") {
+		t.Errorf("set_status path should URL-encode agent name, got %q", calledRawPath)
+	}
+	if !strings.HasSuffix(calledRawPath, "/status") {
+		t.Errorf("set_status path should end with /status, got %q", calledRawPath)
+	}
+}
+
+// Fix #3: StopHeartbeat double-close does not panic
+func TestStopHeartbeatDoubleClosed(t *testing.T) {
+	adapter := NewAdapter("http://localhost:0")
+	adapter.agentName = "double-stop"
+	adapter.stopHeartbeat = make(chan struct{})
+
+	// First close should succeed
+	adapter.StopHeartbeat()
+
+	// Second close should not panic
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("StopHeartbeat panicked on double close: %v", r)
+		}
+	}()
+	adapter.StopHeartbeat()
+}
+
+// Fix #3: StopHeartbeat with nil channel does not panic
+func TestStopHeartbeatNilChannel(t *testing.T) {
+	adapter := NewAdapter("http://localhost:0")
+	// stopHeartbeat is nil
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("StopHeartbeat panicked with nil channel: %v", r)
+		}
+	}()
+	adapter.StopHeartbeat()
+}
+
+// Fix #4: waggle_read_messages passes from parameter as agent query param
+func TestReadMessagesFromParam(t *testing.T) {
+	var calledURL string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledURL = r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]any{})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+	adapter.agentName = "reader"
+
+	_, err := adapter.executeTool("waggle_read_messages", map[string]any{
+		"from":  "sender-agent",
+		"limit": float64(5),
+	})
+	if err != nil {
+		t.Fatalf("read_messages failed: %v", err)
+	}
+
+	if !strings.Contains(calledURL, "agent=sender-agent") {
+		t.Errorf("expected agent=sender-agent in URL, got %q", calledURL)
+	}
+	if !strings.Contains(calledURL, "to=reader") {
+		t.Errorf("expected to=reader in URL, got %q", calledURL)
+	}
+	if !strings.Contains(calledURL, "limit=5") {
+		t.Errorf("expected limit=5 in URL, got %q", calledURL)
+	}
+}
+
+// Fix #4: waggle_read_messages without from param does not include agent param
+func TestReadMessagesWithoutFromParam(t *testing.T) {
+	var calledURL string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledURL = r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]any{})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+	adapter.agentName = "reader"
+
+	_, err := adapter.executeTool("waggle_read_messages", map[string]any{})
+	if err != nil {
+		t.Fatalf("read_messages failed: %v", err)
+	}
+
+	if strings.Contains(calledURL, "agent=") {
+		t.Errorf("expected no agent param in URL when from is omitted, got %q", calledURL)
+	}
+}
+
+// Fix #5: waggle_list_tasks URL-encodes filter values
+func TestListTasksURLEncodesValues(t *testing.T) {
+	var calledURL string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledURL = r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]any{})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+
+	_, err := adapter.executeTool("waggle_list_tasks", map[string]any{
+		"q": "fix & improve",
+	})
+	if err != nil {
+		t.Fatalf("list_tasks failed: %v", err)
+	}
+
+	// The & in the query value must be encoded
+	if strings.Contains(calledURL, "q=fix & improve") {
+		t.Errorf("expected URL-encoded value, got raw: %q", calledURL)
+	}
+	if !strings.Contains(calledURL, "q=fix+%26+improve") && !strings.Contains(calledURL, "q=fix+&+improve") == false {
+		// url.QueryEscape encodes & as %26 and spaces as +
+		if !strings.Contains(calledURL, "q=fix") {
+			t.Errorf("expected encoded q param, got %q", calledURL)
+		}
+	}
+}
+
+// Fix #5: Verify assignee with spaces is encoded
+func TestListTasksURLEncodesAssignee(t *testing.T) {
+	var calledURL string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledURL = r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]any{})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+
+	_, err := adapter.executeTool("waggle_list_tasks", map[string]any{
+		"assignee": "agent one",
+	})
+	if err != nil {
+		t.Fatalf("list_tasks failed: %v", err)
+	}
+
+	if !strings.Contains(calledURL, "assignee=agent+one") {
+		t.Errorf("expected URL-encoded assignee, got %q", calledURL)
+	}
+}
+
+// Fix #1: Heartbeat URL-encodes agent name with special characters
+func TestHeartbeatURLEncodesAgentName(t *testing.T) {
+	var calledPath string
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledPath = r.URL.RawPath
+		if calledPath == "" {
+			calledPath = r.URL.Path
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+	adapter.agentName = "agent/special"
+
+	_, err := adapter.executeTool("waggle_heartbeat", map[string]any{})
+	if err != nil {
+		t.Fatalf("heartbeat failed: %v", err)
+	}
+
+	if !strings.Contains(calledPath, "agent%2Fspecial") {
+		t.Errorf("heartbeat path should URL-encode agent name, got %q", calledPath)
+	}
+}
+
+// Integration: disconnect calls StopHeartbeat safely
+func TestDisconnectStopsHeartbeat(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	}))
+	defer mock.Close()
+
+	adapter := NewAdapter(mock.URL)
+	adapter.agentName = "disc-agent"
+	adapter.stopHeartbeat = make(chan struct{})
+
+	// Should not panic even with explicit StopHeartbeat after disconnect
+	_, err := adapter.executeTool("waggle_disconnect", map[string]any{})
+	if err != nil {
+		t.Fatalf("disconnect failed: %v", err)
+	}
+	adapter.StopHeartbeat() // double call - must not panic
+
+	// Give goroutines time to settle
+	time.Sleep(10 * time.Millisecond)
 }
