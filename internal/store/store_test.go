@@ -296,10 +296,17 @@ func TestSendAndReadMessages(t *testing.T) {
 		t.Errorf("expected 'hello', got %s", msgs[0].Body)
 	}
 
-	// Messages should be marked as read now
+	// ReadMessages should NOT auto-mark as read; use MarkMessagesRead explicitly
+	ids := make([]string, len(msgs))
+	for i, m := range msgs {
+		ids[i] = m.ID
+	}
+	if err := s.MarkMessagesRead(ids); err != nil {
+		t.Fatal(err)
+	}
 	msgs2, _ := s.ReadMessages("agent-2", 10)
 	if len(msgs2) > 0 && !msgs2[0].Read {
-		t.Error("expected message to be marked as read")
+		t.Error("expected message to be marked as read after MarkMessagesRead")
 	}
 }
 
@@ -1732,5 +1739,53 @@ func TestAgentWithPersona(t *testing.T) {
 	}
 	if got.PersonaID != p.ID {
 		t.Errorf("expected persona ID %s, got %s", p.ID, got.PersonaID)
+	}
+}
+
+func TestReadMessagesDoesNotAutoMarkRead(t *testing.T) {
+	s := tempStore(t)
+
+	// Send a message to agent-a
+	err := s.SendMessage(&model.Message{From: "user", To: "agent-a", Body: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Send a broadcast message (to="")
+	err = s.SendMessage(&model.Message{From: "user", To: "", Body: "broadcast"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// ReadMessages should return the messages but NOT mark them as read
+	msgs, err := s.ReadMessages("agent-a", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+
+	// Read again — messages should still be unread (returned again with read=false)
+	msgs2, err := s.ReadMessages("agent-a", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs2) != 2 {
+		t.Fatalf("expected 2 messages on second read, got %d", len(msgs2))
+	}
+	for _, m := range msgs2 {
+		if m.Read {
+			t.Errorf("expected message %s to still be unread after ReadMessages, but it was marked read", m.ID)
+		}
+	}
+}
+
+func TestDeleteAgentReturnsErrNotFoundForNonexistent(t *testing.T) {
+	s := tempStore(t)
+
+	err := s.DeleteAgent("nonexistent-agent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
