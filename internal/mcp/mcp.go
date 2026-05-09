@@ -26,9 +26,11 @@ type Adapter struct {
 	agentName      string
 	in             io.Reader
 	out            io.Writer
+	outMu          sync.Mutex
 	stopHeartbeat  chan struct{}
 	heartbeatOnce  sync.Once
 	stopOnce       sync.Once
+	lastMsgCheck   time.Time
 }
 
 func NewAdapter(baseURL string) *Adapter {
@@ -964,7 +966,9 @@ func (a *Adapter) deleteJSON(path string) (any, error) {
 func (a *Adapter) sendResult(id any, result any) {
 	resp := jsonrpcResponse{JSONRPC: "2.0", ID: id, Result: result}
 	data, _ := json.Marshal(resp)
+	a.outMu.Lock()
 	fmt.Fprintf(a.out, "%s\n", data)
+	a.outMu.Unlock()
 }
 
 func (a *Adapter) sendError(id any, code int, message, data string) {
@@ -974,7 +978,23 @@ func (a *Adapter) sendError(id any, code int, message, data string) {
 		Error:   &jsonrpcError{Code: code, Message: message, Data: data},
 	}
 	d, _ := json.Marshal(resp)
+	a.outMu.Lock()
 	fmt.Fprintf(a.out, "%s\n", d)
+	a.outMu.Unlock()
+}
+
+func (a *Adapter) sendNotification(method string, params any) {
+	msg := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  method,
+	}
+	if params != nil {
+		msg["params"] = params
+	}
+	data, _ := json.Marshal(msg)
+	a.outMu.Lock()
+	fmt.Fprintf(a.out, "%s\n", data)
+	a.outMu.Unlock()
 }
 
 // Schema helpers
@@ -1006,6 +1026,7 @@ func propArray(itemType, description string) map[string]any {
 func (a *Adapter) startHeartbeat() {
 	a.heartbeatOnce.Do(func() {
 		a.stopHeartbeat = make(chan struct{})
+		a.lastMsgCheck = time.Now().UTC()
 		go func() {
 			ticker := time.NewTicker(45 * time.Second)
 			defer ticker.Stop()
@@ -1031,7 +1052,73 @@ func (a *Adapter) startHeartbeat() {
 				}
 			}
 		}()
+		go a.watchMessages()
 	})
+}
+
+func (a *Adapter) watchMessages() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.stopHeartbeat:
+			return
+		case <-ticker.C:
+			if a.agentName == "" {
+				continue
+			}
+			a.checkForNewMessages()
+		}
+	}
+}
+
+func (a *Adapter) checkForNewMessages() {
+	msgURL := a.baseURL + "/api/messages?to=" + url.QueryEscape(a.agentName) + "&limit=10"
+	resp, err := http.Get(msgURL)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	var messages []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+		return
+	}
+
+	var unread []map[string]any
+	for _, msg := range messages {
+		if read, ok := msg["read"].(bool); ok && read {
+			continue
+		}
+		createdStr, _ := msg["created_at"].(string)
+		created, err := time.Parse(time.RFC3339Nano, createdStr)
+		if err != nil {
+			created, err = time.Parse(time.RFC3339, createdStr)
+			if err != nil {
+				continue
+			}
+		}
+		if created.After(a.lastMsgCheck) {
+			unread = append(unread, msg)
+		}
+	}
+
+	if len(unread) == 0 {
+		return
+	}
+
+	a.lastMsgCheck = time.Now().UTC()
+
+	for _, msg := range unread {
+		from, _ := msg["from"].(string)
+		body, _ := msg["body"].(string)
+		log.Printf("[waggle] message from %s: %s", from, body)
+		a.sendNotification("notifications/message", map[string]any{
+			"from": from,
+			"body": body,
+			"id":   msg["id"],
+		})
+	}
 }
 
 func (a *Adapter) StopHeartbeat() {
