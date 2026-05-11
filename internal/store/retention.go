@@ -13,7 +13,7 @@ func (s *Store) CleanupEvents(retentionDays int) (int64, error) {
 
 func (s *Store) CleanupMessages(readRetentionDays int) (int64, error) {
 	cutoff := time.Now().UTC().Add(-time.Duration(readRetentionDays) * 24 * time.Hour).Format(time.RFC3339)
-	result, err := s.db.Exec("DELETE FROM messages WHERE read = 1 AND created_at < ?", cutoff)
+	result, err := s.db.Exec(`DELETE FROM messages WHERE read = 1 AND created_at < ? AND "from" != 'user'`, cutoff)
 	if err != nil {
 		return 0, err
 	}

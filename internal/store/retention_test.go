@@ -94,17 +94,21 @@ func TestCleanupStaleTasks(t *testing.T) {
 func TestCleanupMessages(t *testing.T) {
 	s := tempStore(t)
 
-	// Insert old read message
+	// Insert old read message from agent (should be cleaned)
 	s.db.Exec(`INSERT INTO messages (id, "from", "to", body, read, created_at) VALUES (?, ?, ?, ?, 1, ?)`,
 		"old-msg", "agent-1", "agent-2", "old", time.Now().UTC().Add(-14*24*time.Hour).Format(time.RFC3339))
 
-	// Insert recent read message
+	// Insert recent read message (should NOT be cleaned — too new)
 	s.db.Exec(`INSERT INTO messages (id, "from", "to", body, read, created_at) VALUES (?, ?, ?, ?, 1, ?)`,
 		"new-msg", "agent-1", "agent-2", "new", time.Now().UTC().Format(time.RFC3339))
 
-	// Insert old unread message (should NOT be cleaned)
+	// Insert old unread message (should NOT be cleaned — unread)
 	s.db.Exec(`INSERT INTO messages (id, "from", "to", body, read, created_at) VALUES (?, ?, ?, ?, 0, ?)`,
 		"unread-msg", "agent-1", "agent-2", "unread", time.Now().UTC().Add(-14*24*time.Hour).Format(time.RFC3339))
+
+	// Insert old read message from user (should NOT be cleaned — user messages are protected)
+	s.db.Exec(`INSERT INTO messages (id, "from", "to", body, read, created_at) VALUES (?, ?, ?, ?, 1, ?)`,
+		"user-msg", "user", "agent-1", "user directive", time.Now().UTC().Add(-14*24*time.Hour).Format(time.RFC3339))
 
 	n, err := s.CleanupMessages(7)
 	if err != nil {
@@ -112,5 +116,12 @@ func TestCleanupMessages(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("expected 1 message cleaned, got %d", n)
+	}
+
+	// Verify user message survived
+	var count int
+	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = 'user-msg'`).Scan(&count)
+	if count != 1 {
+		t.Error("user message was deleted — user messages must never be auto-cleaned")
 	}
 }
