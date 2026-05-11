@@ -901,8 +901,12 @@ func (a *API) handleSSE(w http.ResponseWriter, r *http.Request) {
 	agentFilter := r.URL.Query().Get("agent")
 	taskFilter := r.URL.Query().Get("task")
 
-	// Replay missed events if client reconnects with Last-Event-ID
-	if lastID := r.Header.Get("Last-Event-ID"); lastID != "" {
+	// Replay missed events if client reconnects with Last-Event-ID (header or query param)
+	lastID := r.Header.Get("Last-Event-ID")
+	if lastID == "" {
+		lastID = r.URL.Query().Get("lastEventId")
+	}
+	if lastID != "" {
 		if missed, err := a.store.ListEventsSince(lastID, 200); err == nil {
 			for _, evt := range missed {
 				data, _ := json.Marshal(evt)

@@ -6154,10 +6154,12 @@ function stopPolling() { if (pollInterval) { clearInterval(pollInterval); pollIn
 function connectSSE() {
   const dot = document.getElementById('sse-dot');
   const label = document.getElementById('sse-label');
-  const evtSource = new EventSource('/api/events');
+  const sseUrl = window.__lastSSEId ? `/api/events?lastEventId=${encodeURIComponent(window.__lastSSEId)}` : '/api/events';
+  const evtSource = new EventSource(sseUrl);
   evtSource.onopen = () => { dot.className = 'sse-dot connected'; label.textContent = 'live'; sseBackoff = 3; stopPolling(); };
   evtSource.onmessage = (e) => {
     try {
+      if (e.lastEventId) window.__lastSSEId = e.lastEventId;
       const evt = JSON.parse(e.data);
       addEvent(evt);
       debouncedFetchAll();
