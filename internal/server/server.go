@@ -166,21 +166,25 @@ func (s *Server) reapAgentsStaleBefore(cutoff time.Time) {
 		}
 		if agent.LastSeen.Before(cutoff) {
 			log.Printf("reaping stale agent: %s (last seen %s)", agent.Name, agent.LastSeen)
-			s.eventHub.Publish(&model.Event{
+			staleEvt := &model.Event{
 				Type:    model.EventAgentStale,
 				AgentID: agent.Name,
 				Payload: map[string]any{
 					"agent_name": agent.Name,
 					"last_seen":  agent.LastSeen.Format("2006-01-02T15:04:05Z"),
 				},
-			})
+			}
+			s.store.RecordEvent(staleEvt)
+			s.eventHub.Publish(staleEvt)
 			if err := s.store.DisconnectAgent(agent.Name); err != nil {
 				log.Printf("failed to disconnect agent %s: %v", agent.Name, err)
 			}
-			s.eventHub.Publish(&model.Event{
+			leftEvt := &model.Event{
 				Type:    model.EventAgentLeft,
 				AgentID: agent.Name,
-			})
+			}
+			s.store.RecordEvent(leftEvt)
+			s.eventHub.Publish(leftEvt)
 		}
 	}
 	// Purge agents disconnected for 24+ hours

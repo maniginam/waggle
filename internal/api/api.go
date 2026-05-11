@@ -64,6 +64,13 @@ func New(s *store.Store, eh *event.Hub) *API {
 	return a
 }
 
+// emit records an event to the store (which assigns its ID) then publishes it
+// to the event hub so SSE clients receive events with proper IDs for replay.
+func (a *API) emit(evt *model.Event) {
+	a.store.RecordEvent(evt)
+	a.eventHub.Publish(evt)
+}
+
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/tasks", a.handleTasks)
@@ -235,8 +242,7 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 		if a.ghAvail {
 			go a.createGitHubIssue(&task)
 		}
-		a.store.RecordEvent(&model.Event{Type: model.EventTaskCreated, TaskID: task.ID, Payload: task})
-		a.eventHub.Publish(&model.Event{Type: model.EventTaskCreated, TaskID: task.ID, Payload: task})
+		a.emit(&model.Event{Type: model.EventTaskCreated, TaskID: task.ID, Payload: task})
 		writeJSON(w, http.StatusCreated, task)
 
 	default:
@@ -327,8 +333,7 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 		if newStatus, ok := updates["status"].(string); ok && oldTask != nil {
 			go a.syncGitHubIssueState(oldTask, newStatus)
 		}
-		a.store.RecordEvent(&model.Event{Type: model.EventTaskUpdated, TaskID: id, Payload: updates})
-		a.eventHub.Publish(&model.Event{Type: model.EventTaskUpdated, TaskID: id, Payload: updates})
+		a.emit(&model.Event{Type: model.EventTaskUpdated, TaskID: id, Payload: updates})
 		writeJSON(w, http.StatusOK, task)
 
 	case http.MethodDelete:
@@ -344,8 +349,7 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
 			return
 		}
-		a.store.RecordEvent(&model.Event{Type: model.EventTaskDeleted, TaskID: id})
-		a.eventHub.Publish(&model.Event{Type: model.EventTaskDeleted, TaskID: id})
+		a.emit(&model.Event{Type: model.EventTaskDeleted, TaskID: id})
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
@@ -378,8 +382,7 @@ func (a *API) handleTaskClaim(w http.ResponseWriter, r *http.Request, taskID str
 		writeError(w, http.StatusInternalServerError, "claim_failed", err.Error())
 		return
 	}
-	a.store.RecordEvent(&model.Event{Type: model.EventTaskClaimed, AgentID: req.Agent, TaskID: taskID})
-	a.eventHub.Publish(&model.Event{Type: model.EventTaskClaimed, AgentID: req.Agent, TaskID: taskID})
+	a.emit(&model.Event{Type: model.EventTaskClaimed, AgentID: req.Agent, TaskID: taskID})
 	task, _ := a.store.GetTask(taskID)
 	writeJSON(w, http.StatusOK, task)
 }
@@ -409,8 +412,7 @@ func (a *API) handleTaskUnclaim(w http.ResponseWriter, r *http.Request, taskID s
 		writeError(w, http.StatusInternalServerError, "unclaim_failed", err.Error())
 		return
 	}
-	a.store.RecordEvent(&model.Event{Type: model.EventTaskUnclaimed, AgentID: req.Agent, TaskID: taskID})
-	a.eventHub.Publish(&model.Event{Type: model.EventTaskUnclaimed, AgentID: req.Agent, TaskID: taskID})
+	a.emit(&model.Event{Type: model.EventTaskUnclaimed, AgentID: req.Agent, TaskID: taskID})
 	task, _ := a.store.GetTask(taskID)
 	writeJSON(w, http.StatusOK, task)
 }
@@ -433,8 +435,7 @@ func (a *API) handleTaskComplete(w http.ResponseWriter, r *http.Request, taskID 
 	if oldTask != nil {
 		go a.syncGitHubIssueState(oldTask, string(model.TaskDone))
 	}
-	a.store.RecordEvent(&model.Event{Type: model.EventTaskCompleted, TaskID: taskID})
-	a.eventHub.Publish(&model.Event{Type: model.EventTaskCompleted, TaskID: taskID})
+	a.emit(&model.Event{Type: model.EventTaskCompleted, TaskID: taskID})
 	task, _ := a.store.GetTask(taskID)
 	writeJSON(w, http.StatusOK, task)
 }
@@ -613,8 +614,7 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 			a.store.UpdateAgentPersona(agent.Name, req.PersonaID)
 			agent.PersonaID = req.PersonaID
 		}
-		a.store.RecordEvent(&model.Event{Type: model.EventAgentJoined, AgentID: agent.Name, Payload: agent})
-		a.eventHub.Publish(&model.Event{Type: model.EventAgentJoined, AgentID: agent.Name, Payload: agent})
+		a.emit(&model.Event{Type: model.EventAgentJoined, AgentID: agent.Name, Payload: agent})
 		writeJSON(w, http.StatusOK, agent)
 		return
 	}
@@ -644,15 +644,13 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
 				return
 			}
-			a.store.RecordEvent(&model.Event{Type: model.EventAgentLeft, AgentID: name})
-			a.eventHub.Publish(&model.Event{Type: model.EventAgentLeft, AgentID: name})
+			a.emit(&model.Event{Type: model.EventAgentLeft, AgentID: name})
 		} else {
 			if err := a.store.UpdateAgentStatus(name, model.AgentStatus(req.Status), req.CurrentTask); err != nil {
 				writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
 				return
 			}
-			a.store.RecordEvent(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
-			a.eventHub.Publish(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
+			a.emit(&model.Event{Type: model.EventAgentStatusChanged, AgentID: name, Payload: req})
 
 			// Auto-dispatch when agent goes idle or connected (no current task)
 			if req.Status == "idle" || req.Status == "connected" {
@@ -734,8 +732,7 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
 			return
 		}
-		a.store.RecordEvent(&model.Event{Type: model.EventAgentLeft, AgentID: name})
-		a.eventHub.Publish(&model.Event{Type: model.EventAgentLeft, AgentID: name})
+		a.emit(&model.Event{Type: model.EventAgentLeft, AgentID: name})
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 		return
 	}
@@ -818,8 +815,7 @@ func (a *API) handleMessages(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "send_failed", err.Error())
 			return
 		}
-		a.store.RecordEvent(&model.Event{Type: model.EventMessage, AgentID: msg.From, Payload: msg})
-		a.eventHub.Publish(&model.Event{Type: model.EventMessage, AgentID: msg.From, Payload: msg})
+		a.emit(&model.Event{Type: model.EventMessage, AgentID: msg.From, Payload: msg})
 
 		// If message targets a specific agent, wake them up
 		if msg.To != "" && msg.To != "user" && msg.From == "user" {
@@ -1360,7 +1356,7 @@ func (a *API) handleReviews(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
 			return
 		}
-		a.eventHub.Publish(&model.Event{Type: "review_submitted", AgentID: rev.AgentID, TaskID: rev.TaskID, Payload: rev})
+		a.emit(&model.Event{Type: "review_submitted", AgentID: rev.AgentID, TaskID: rev.TaskID, Payload: rev})
 		writeJSON(w, http.StatusCreated, rev)
 
 	default:
@@ -1407,7 +1403,7 @@ func (a *API) handleReview(w http.ResponseWriter, r *http.Request) {
 		if status == model.ReviewRejected {
 			eventType = "review_rejected"
 		}
-		a.eventHub.Publish(&model.Event{Type: model.EventType(eventType), TaskID: rev.TaskID, Payload: rev})
+		a.emit(&model.Event{Type: model.EventType(eventType), TaskID: rev.TaskID, Payload: rev})
 		writeJSON(w, http.StatusOK, rev)
 
 	default:
@@ -1467,7 +1463,7 @@ func (a *API) tryAutoDispatch(agentName, projectID string) {
 			Body: fmt.Sprintf("Auto-assigned task: %s (%s). Priority: %s.", task.Title, task.ID, task.Priority),
 		}
 		a.store.SendMessage(msg)
-		a.eventHub.Publish(&model.Event{
+		a.emit(&model.Event{
 			Type:    model.EventTaskClaimed,
 			AgentID: agentName,
 			TaskID:  task.ID,
@@ -1658,7 +1654,7 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 			a.procsMu.Unlock()
 		}()
 
-		a.eventHub.Publish(&model.Event{
+		a.emit(&model.Event{
 			Type:    model.EventAgentJoined,
 			AgentID: req.Name,
 			Payload: map[string]string{"type": req.Type, "mode": string(mode)},
@@ -1828,7 +1824,7 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Record event
-	a.eventHub.Publish(&model.Event{
+	a.emit(&model.Event{
 		Type:    model.EventAgentJoined,
 		AgentID: req.Name,
 		Payload: map[string]string{
@@ -1964,7 +1960,7 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 			delete(a.bridgeRunners, name)
 			a.procsMu.Unlock()
 			a.store.DisconnectAgent(name)
-			a.eventHub.Publish(&model.Event{Type: model.EventAgentLeft, AgentID: name})
+			a.emit(&model.Event{Type: model.EventAgentLeft, AgentID: name})
 			writeJSON(w, http.StatusOK, map[string]string{"status": "stopped", "agent": name})
 			return
 		}
@@ -1988,7 +1984,7 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 		}
 		// Also disconnect the agent
 		a.store.DisconnectAgent(name)
-		a.eventHub.Publish(&model.Event{
+		a.emit(&model.Event{
 			Type:    model.EventAgentLeft,
 			AgentID: name,
 		})
@@ -2356,7 +2352,7 @@ func (a *API) handleProposals(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
 			return
 		}
-		a.eventHub.Publish(&model.Event{Type: "proposal_created", AgentID: p.AgentID, Payload: p})
+		a.emit(&model.Event{Type: "proposal_created", AgentID: p.AgentID, Payload: p})
 		writeJSON(w, http.StatusCreated, p)
 
 	default:
@@ -2399,7 +2395,7 @@ func (a *API) handleProposal(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
 			return
 		}
-		a.eventHub.Publish(&model.Event{Type: "proposal_updated", AgentID: p.AgentID, Payload: p})
+		a.emit(&model.Event{Type: "proposal_updated", AgentID: p.AgentID, Payload: p})
 		writeJSON(w, http.StatusOK, p)
 
 	case http.MethodDelete:
