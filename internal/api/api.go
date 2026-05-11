@@ -900,6 +900,18 @@ func (a *API) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	agentFilter := r.URL.Query().Get("agent")
 	taskFilter := r.URL.Query().Get("task")
+
+	// Replay missed events if client reconnects with Last-Event-ID
+	if lastID := r.Header.Get("Last-Event-ID"); lastID != "" {
+		if missed, err := a.store.ListEventsSince(lastID, 200); err == nil {
+			for _, evt := range missed {
+				data, _ := json.Marshal(evt)
+				fmt.Fprintf(w, "id: %s\ndata: %s\n\n", evt.ID, data)
+			}
+			flusher.Flush()
+		}
+	}
+
 	sub := a.eventHub.Subscribe(agentFilter, taskFilter)
 	defer a.eventHub.Unsubscribe(sub)
 
@@ -913,11 +925,9 @@ func (a *API) handleSSE(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			data, _ := json.Marshal(evt)
-			if _, err := w.Write([]byte("data: ")); err != nil {
+			if _, err := fmt.Fprintf(w, "id: %s\ndata: %s\n\n", evt.ID, data); err != nil {
 				return
 			}
-			w.Write(data)
-			w.Write([]byte("\n\n"))
 			flusher.Flush()
 		case <-keepalive.C:
 			if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {

@@ -752,6 +752,33 @@ func (s *Store) ListTaskEvents(taskID string, limit int) ([]*model.Event, error)
 	return events, rows.Err()
 }
 
+func (s *Store) ListEventsSince(afterID string, limit int) ([]*model.Event, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	// Use rowid to get events inserted after the given event ID
+	rows, err := s.db.Query(
+		`SELECT id, type, agent_id, task_id, payload, timestamp FROM events WHERE rowid > (SELECT rowid FROM events WHERE id = ?) ORDER BY rowid ASC LIMIT ?`,
+		afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []*model.Event
+	for rows.Next() {
+		var e model.Event
+		var payloadStr, ets string
+		if err := rows.Scan(&e.ID, &e.Type, &e.AgentID, &e.TaskID, &payloadStr, &ets); err != nil {
+			return nil, err
+		}
+		json.Unmarshal([]byte(payloadStr), &e.Payload)
+		e.Timestamp, _ = time.Parse(time.RFC3339, ets)
+		events = append(events, &e)
+	}
+	return events, rows.Err()
+}
+
 // ListSubtasks returns all tasks with the given parent_id
 func (s *Store) ListSubtasks(parentID string) ([]*model.Task, error) {
 	return s.ListTasks(map[string]string{"parent_id": parentID})

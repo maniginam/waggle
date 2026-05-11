@@ -1902,6 +1902,58 @@ func TestSSEEndpoint(t *testing.T) {
 	}
 }
 
+func TestSSEReplayLastEventID(t *testing.T) {
+	a, ts := setup(t)
+
+	// Record two events so we have IDs to replay from
+	evt1 := &model.Event{Type: "replay_test", Payload: map[string]any{"seq": 1}}
+	a.store.RecordEvent(evt1)
+	evt2 := &model.Event{Type: "replay_test", Payload: map[string]any{"seq": 2}}
+	a.store.RecordEvent(evt2)
+
+	// Connect with Last-Event-ID set to evt1 — should replay evt2
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Last-Event-ID", evt1.ID)
+
+	done := make(chan struct{})
+	var body string
+
+	go func() {
+		defer close(done)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		// Read in a loop until context cancels — replay data arrives immediately
+		var buf []byte
+		tmp := make([]byte, 4096)
+		for {
+			n, err := resp.Body.Read(tmp)
+			if n > 0 {
+				buf = append(buf, tmp[:n]...)
+			}
+			if err != nil {
+				break
+			}
+		}
+		body = string(buf)
+	}()
+
+	<-done
+
+	if !strings.Contains(body, evt2.ID) {
+		t.Errorf("expected replayed event with ID %s in body, got: %s", evt2.ID, body)
+	}
+	if strings.Contains(body, evt1.ID) {
+		t.Errorf("should NOT contain the Last-Event-ID event itself, got: %s", body)
+	}
+}
+
 func TestStatsEndpoint(t *testing.T) {
 	_, ts := setup(t)
 
