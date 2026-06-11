@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/maniginam/waggle/internal/model"
 )
 
 func startTestServer(t *testing.T) (string, *Server) {
@@ -286,58 +284,6 @@ func TestServerStoreAccessor(t *testing.T) {
 	_, srv := startTestServer(t)
 	if srv.Store() == nil {
 		t.Error("expected non-nil store")
-	}
-}
-
-func TestExtractPushBodyFromMessageStruct(t *testing.T) {
-	evt := &model.Event{
-		Type: model.EventMessage,
-		Payload: &model.Message{
-			From: "alpha",
-			Body: "hello world",
-		},
-	}
-	body := extractPushBody(evt)
-	if body != "alpha: hello world" {
-		t.Errorf("expected 'alpha: hello world', got %q", body)
-	}
-}
-
-func TestExtractPushBodyFromMapPayload(t *testing.T) {
-	evt := &model.Event{
-		Type: model.EventMessage,
-		Payload: map[string]any{
-			"from": "user",
-			"body": "map message",
-		},
-	}
-	body := extractPushBody(evt)
-	if body != "user: map message" {
-		t.Errorf("expected 'user: map message', got %q", body)
-	}
-}
-
-func TestExtractPushBodyFromTaskPayload(t *testing.T) {
-	evt := &model.Event{
-		Type: model.EventTaskCompleted,
-		Payload: map[string]any{
-			"title": "Fix bug #42",
-		},
-	}
-	body := extractPushBody(evt)
-	if body != "Fix bug #42" {
-		t.Errorf("expected 'Fix bug #42', got %q", body)
-	}
-}
-
-func TestExtractPushBodyUnknownPayloadReturnsEmpty(t *testing.T) {
-	evt := &model.Event{
-		Type:    model.EventMessage,
-		Payload: "just a string",
-	}
-	body := extractPushBody(evt)
-	if body != "" {
-		t.Errorf("expected empty body for unknown payload type, got %q", body)
 	}
 }
 

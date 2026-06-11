@@ -13,20 +13,16 @@ import (
 	"github.com/maniginam/waggle/internal/event"
 	"github.com/maniginam/waggle/internal/mcp"
 	"github.com/maniginam/waggle/internal/model"
-	"github.com/maniginam/waggle/internal/push"
 	"github.com/maniginam/waggle/internal/store"
-	"github.com/maniginam/waggle/internal/ws"
 )
 
 type Server struct {
-	httpServer   *http.Server
-	store        *store.Store
-	eventHub     *event.Hub
-	wsHub        *ws.Hub
-	api          *api.API
-	push         *push.Notifier
-	stopReaper   chan struct{}
-	startedAt    time.Time
+	httpServer *http.Server
+	store      *store.Store
+	eventHub   *event.Hub
+	api        *api.API
+	stopReaper chan struct{}
+	startedAt  time.Time
 }
 
 type Config struct {
@@ -49,15 +45,7 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	eh := event.NewHub()
-	wsHub := ws.NewHub(s, eh)
 	restAPI := api.New(s, eh)
-
-	var pushNotifier *push.Notifier
-	if p, err := push.NewNotifier(s); err == nil {
-		pushNotifier = p
-	} else {
-		log.Printf("push notifications disabled: %v", err)
-	}
 
 	startedAt := time.Now().UTC()
 	mux := http.NewServeMux()
@@ -65,9 +53,6 @@ func New(cfg Config) (*Server, error) {
 	// Mount REST API
 	apiHandler := restAPI.Handler()
 	mux.Handle("/api/", apiHandler)
-
-	// Mount WebSocket
-	mux.Handle("/ws", wsHub.Handler())
 
 	// Mount MCP SSE transport
 	baseURL := fmt.Sprintf("http://localhost:%d", cfg.Port)
@@ -87,7 +72,6 @@ func New(cfg Config) (*Server, error) {
 			"version":    cfg.Version,
 			"uptime":     uptime,
 			"started_at": startedAt.Format(time.RFC3339),
-			"ws_clients": wsHub.ClientCount(),
 			"sse_subs":   eh.SubscriberCount(),
 		})
 		w.Write(data)
@@ -110,13 +94,11 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	return &Server{
-		httpServer:  srv,
-		store:       s,
-		eventHub:    eh,
-		wsHub:       wsHub,
-		api:         restAPI,
-		push:        pushNotifier,
-		startedAt:   startedAt,
+		httpServer: srv,
+		store:      s,
+		eventHub:   eh,
+		api:        restAPI,
+		startedAt:  startedAt,
 	}, nil
 }
 
@@ -124,9 +106,6 @@ func (s *Server) Start() error {
 	s.stopReaper = make(chan struct{})
 	go s.reapStaleAgents()
 	go s.retentionCleanup()
-	if s.push != nil {
-		go s.pushNotificationLoop()
-	}
 	log.Printf("waggle server listening on %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
@@ -213,78 +192,6 @@ func (s *Server) retentionCleanup() {
 			}
 		}
 	}
-}
-
-func (s *Server) pushNotificationLoop() {
-	sub := s.eventHub.Subscribe("", "")
-	defer s.eventHub.Unsubscribe(sub)
-
-	pushEvents := map[model.EventType]string{
-		model.EventTaskCompleted:       "Task completed",
-		model.EventTaskClaimed:         "Task claimed",
-		model.EventMessage:             "New message",
-		model.EventAgentJoined:         "Agent connected",
-		model.EventAgentLeft:           "Agent disconnected",
-		model.EventAgentStale:          "Agent heartbeat lost",
-		"review_submitted":             "Review needs attention",
-	}
-
-	for {
-		select {
-		case evt, ok := <-sub.Ch:
-			if !ok {
-				return
-			}
-			title, shouldPush := pushEvents[evt.Type]
-			if !shouldPush {
-				continue
-			}
-			body := extractPushBody(evt)
-			if body == "" {
-				if evt.AgentID != "" {
-					body = evt.AgentID
-				}
-				if evt.TaskID != "" {
-					if body != "" {
-						body += " — "
-					}
-					body += evt.TaskID
-				}
-			}
-			s.push.Send(push.PushPayload{
-				Title: title,
-				Body:  body,
-				Tag:   string(evt.Type),
-				URL:   "/",
-			})
-		case <-s.stopReaper:
-			return
-		}
-	}
-}
-
-func extractPushBody(evt *model.Event) string {
-	switch p := evt.Payload.(type) {
-	case *model.Message:
-		if evt.Type == model.EventMessage {
-			if p.From != "" {
-				return p.From + ": " + p.Body
-			}
-			return p.Body
-		}
-	case map[string]any:
-		if msgBody, ok := p["body"].(string); ok && evt.Type == model.EventMessage {
-			from, _ := p["from"].(string)
-			if from != "" {
-				return from + ": " + msgBody
-			}
-			return msgBody
-		}
-		if taskTitle, ok := p["title"].(string); ok {
-			return taskTitle
-		}
-	}
-	return ""
 }
 
 func cors(next http.Handler) http.Handler {

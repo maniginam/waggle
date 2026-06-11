@@ -76,7 +76,6 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		delete(h.sessions, sessionID)
 		h.mu.Unlock()
 		close(sess.done)
-		adapter.StopHeartbeat()
 	}()
 
 	w.Header().Set("Content-Type", "text/event-stream")

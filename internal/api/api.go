@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,12 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maniginam/waggle/internal/bridge"
-	"github.com/maniginam/waggle/internal/bridge/providers"
 	"github.com/maniginam/waggle/internal/event"
-	gh "github.com/maniginam/waggle/internal/github"
 	"github.com/maniginam/waggle/internal/model"
-	"github.com/maniginam/waggle/internal/push"
 	"github.com/maniginam/waggle/internal/store"
 )
 
@@ -32,36 +27,22 @@ var safeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 type API struct {
 	store       *store.Store
 	eventHub    *event.Hub
-	push        *push.Notifier
-	ghAvail     bool
 	rateLimiter *rateLimiter
 	procsMu    sync.Mutex
 	procs      map[string]*exec.Cmd    // spawned agent processes by name
 	procsStdin map[string]io.WriteCloser // stdin pipes for spawned agents
 	agentDirs      map[string]string        // last-known work_dir per agent name
-	bridgeRegistry *bridge.Registry
-	bridgeRunners  map[string]context.CancelFunc
 }
 
 func New(s *store.Store, eh *event.Hub) *API {
-	a := &API{
-		store:          s,
-		eventHub:       eh,
-		ghAvail:        gh.Available(),
-		rateLimiter:    newRateLimiter(120, time.Minute),
-		procs:          make(map[string]*exec.Cmd),
-		procsStdin:     make(map[string]io.WriteCloser),
-		agentDirs:      make(map[string]string),
-		bridgeRegistry: providers.DefaultRegistry(),
-		bridgeRunners:  make(map[string]context.CancelFunc),
+	return &API{
+		store:       s,
+		eventHub:    eh,
+		rateLimiter: newRateLimiter(120, time.Minute),
+		procs:       make(map[string]*exec.Cmd),
+		procsStdin:  make(map[string]io.WriteCloser),
+		agentDirs:   make(map[string]string),
 	}
-	if p, err := push.NewNotifier(s); err == nil {
-		a.push = p
-	}
-	if a.ghAvail {
-		log.Println("GitHub issue integration enabled (gh CLI available)")
-	}
-	return a
 }
 
 // emit records an event to the store (which assigns its ID) then publishes it
@@ -81,21 +62,20 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/agents/", a.handleAgent)
 	mux.HandleFunc("/api/events", a.handleEvents)
 	mux.HandleFunc("/api/messages", a.handleMessages)
-	mux.HandleFunc("/api/reviews", a.handleReviews)
-	mux.HandleFunc("/api/reviews/", a.handleReview)
 	mux.HandleFunc("/api/git", a.handleGitOverview)
-	mux.HandleFunc("/api/stats", a.handleStats)
-	mux.HandleFunc("/api/usage", a.handleUsage)
 	mux.HandleFunc("/api/spawn", a.handleSpawn)
 	mux.HandleFunc("/api/sessions", a.handleSessions)
 	mux.HandleFunc("/api/sessions/", a.handleSessionAction)
 	mux.HandleFunc("/api/push/subscribe", a.handlePushSubscribe)
 	mux.HandleFunc("/api/settings", a.handleSettings)
-	mux.HandleFunc("/api/proposals", a.handleProposals)
-	mux.HandleFunc("/api/proposals/", a.handleProposal)
-	mux.HandleFunc("/api/personas", a.handlePersonas)
-	mux.HandleFunc("/api/personas/", a.handlePersona)
 	mux.HandleFunc("/api/alerts", a.handleAlerts)
+	// Context manager endpoints
+	mux.HandleFunc("/api/progress", a.handleProgress)
+	mux.HandleFunc("/api/ctx-sessions", a.handleCtxSessions)
+	mux.HandleFunc("/api/ctx-sessions/", a.handleCtxSessionAction)
+	mux.HandleFunc("/api/briefing", a.handleBriefing)
+	mux.HandleFunc("/api/whats-next", a.handleWhatsNext)
+	mux.HandleFunc("/api/health-check", a.handleHealthCheck)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -238,10 +218,6 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
 			return
 		}
-		// Create GitHub issue in background
-		if a.ghAvail {
-			go a.createGitHubIssue(&task)
-		}
 		a.emit(&model.Event{Type: model.EventTaskCreated, TaskID: task.ID, Payload: task})
 		writeJSON(w, http.StatusCreated, task)
 
@@ -314,8 +290,6 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 			return
 		}
-		// Capture old task state for issue sync
-		oldTask, _ := a.store.GetTask(id)
 		task, err := a.store.UpdateTask(id, updates)
 		if err != nil {
 			if err == store.ErrNotFound {
@@ -328,10 +302,6 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 			}
 			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
 			return
-		}
-		// Sync GitHub issue state if status changed
-		if newStatus, ok := updates["status"].(string); ok && oldTask != nil {
-			go a.syncGitHubIssueState(oldTask, newStatus)
 		}
 		a.emit(&model.Event{Type: model.EventTaskUpdated, TaskID: id, Payload: updates})
 		writeJSON(w, http.StatusOK, task)
@@ -422,7 +392,6 @@ func (a *API) handleTaskComplete(w http.ResponseWriter, r *http.Request, taskID 
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	oldTask, _ := a.store.GetTask(taskID)
 	if err := a.store.CompleteTask(taskID); err != nil {
 		if err == store.ErrNotFound {
 			writeError(w, http.StatusNotFound, "task_not_found", "Task "+taskID+" not found")
@@ -430,10 +399,6 @@ func (a *API) handleTaskComplete(w http.ResponseWriter, r *http.Request, taskID 
 		}
 		writeError(w, http.StatusInternalServerError, "complete_failed", err.Error())
 		return
-	}
-	// Close linked GitHub issue
-	if oldTask != nil {
-		go a.syncGitHubIssueState(oldTask, string(model.TaskDone))
 	}
 	a.emit(&model.Event{Type: model.EventTaskCompleted, TaskID: taskID})
 	task, _ := a.store.GetTask(taskID)
@@ -608,11 +573,6 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "register_failed", err.Error())
 			return
-		}
-		// Link persona if provided
-		if req.PersonaID != "" {
-			a.store.UpdateAgentPersona(agent.Name, req.PersonaID)
-			agent.PersonaID = req.PersonaID
 		}
 		a.emit(&model.Event{Type: model.EventAgentJoined, AgentID: agent.Name, Payload: agent})
 		writeJSON(w, http.StatusOK, agent)
@@ -1242,173 +1202,10 @@ func (a *API) handleProjectGit(w http.ResponseWriter, r *http.Request, projectID
 	})
 }
 
-func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
-		return
-	}
-	stats, err := a.store.Stats()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "stats_failed", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, stats)
-}
-
-func (a *API) handleUsage(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		total, err := a.store.TokenUsageTotal()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "usage_failed", err.Error())
-			return
-		}
-		byAgent, err := a.store.TokenUsageByAgent()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "usage_failed", err.Error())
-			return
-		}
-		if byAgent == nil {
-			byAgent = []*model.TokenSummary{}
-		}
-		recent, err := a.store.TokenUsageRecent(20)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "usage_failed", err.Error())
-			return
-		}
-		if recent == nil {
-			recent = []*model.TokenUsage{}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"total":    total,
-			"by_agent": byAgent,
-			"recent":   recent,
-		})
-
-	case http.MethodPost:
-		var u model.TokenUsage
-		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-			return
-		}
-		if u.AgentName == "" {
-			writeError(w, http.StatusBadRequest, "missing_agent", "agent_name is required")
-			return
-		}
-		if err := a.store.RecordTokenUsage(&u); err != nil {
-			writeError(w, http.StatusInternalServerError, "record_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, u)
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
-}
-
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
-}
-
-func (a *API) handleReviews(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		statusFilter := r.URL.Query().Get("status")
-		taskID := r.URL.Query().Get("task_id")
-		agentID := r.URL.Query().Get("agent_id")
-		projectID := r.URL.Query().Get("project_id")
-		var reviews []*model.Review
-		var err error
-		if taskID != "" {
-			reviews, err = a.store.ListReviewsByTask(taskID)
-		} else {
-			reviews, err = a.store.ListReviews(statusFilter, agentID, projectID)
-		}
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
-			return
-		}
-		if reviews == nil {
-			reviews = []*model.Review{}
-		}
-		writeJSON(w, http.StatusOK, reviews)
-
-	case http.MethodPost:
-		var rev model.Review
-		if err := json.NewDecoder(r.Body).Decode(&rev); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-			return
-		}
-		if rev.TaskID == "" || rev.Diff == "" {
-			writeError(w, http.StatusBadRequest, "missing_fields", "task_id and diff are required")
-			return
-		}
-		if len(rev.Diff) > 500000 {
-			writeError(w, http.StatusBadRequest, "diff_too_large", "diff max 500KB")
-			return
-		}
-		if rev.AgentID == "" {
-			rev.AgentID = "unknown"
-		}
-		if err := a.store.CreateReview(&rev); err != nil {
-			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
-			return
-		}
-		a.emit(&model.Event{Type: "review_submitted", AgentID: rev.AgentID, TaskID: rev.TaskID, Payload: rev})
-		writeJSON(w, http.StatusCreated, rev)
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
-}
-
-func (a *API) handleReview(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/reviews/")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing_id", "review id required")
-		return
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		rev, err := a.store.GetReview(id)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "not_found", "review not found")
-			return
-		}
-		writeJSON(w, http.StatusOK, rev)
-
-	case http.MethodPatch:
-		var req struct {
-			Status   string `json:"status"`
-			Feedback string `json:"feedback"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-			return
-		}
-		status := model.ReviewStatus(req.Status)
-		if status != model.ReviewApproved && status != model.ReviewRejected {
-			writeError(w, http.StatusBadRequest, "invalid_status", "status must be 'approved' or 'rejected'")
-			return
-		}
-		if err := a.store.UpdateReviewStatus(id, status, req.Feedback); err != nil {
-			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
-			return
-		}
-		rev, _ := a.store.GetReview(id)
-		eventType := "review_approved"
-		if status == model.ReviewRejected {
-			eventType = "review_rejected"
-		}
-		a.emit(&model.Event{Type: model.EventType(eventType), TaskID: rev.TaskID, Payload: rev})
-		writeJSON(w, http.StatusOK, rev)
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
 }
 
 // tryAutoDispatch checks if the agent's project has auto_dispatch enabled,
@@ -1606,68 +1403,6 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Route bridge agent types (anything that's not claude-code)
-	if req.Type != "" && req.Type != "claude-code" {
-		constructor, ok := a.bridgeRegistry.Get(req.Type)
-		if !ok {
-			writeError(w, http.StatusBadRequest, "unknown_type",
-				fmt.Sprintf("unknown agent type %q; supported: %v", req.Type, a.bridgeRegistry.Providers()))
-			return
-		}
-
-		b, err := constructor()
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "provider_error", err.Error())
-			return
-		}
-
-		mode := bridge.ModeMessageOnly
-		if req.Mode == "full_participant" {
-			mode = bridge.ModeFullParticipant
-		}
-
-		cfg := bridge.RunnerConfig{
-			AgentName:    req.Name,
-			BaseURL:      "http://localhost:4740",
-			Mode:         mode,
-			ProjectID:    req.ProjectID,
-			SystemPrompt: req.SystemPrompt,
-		}
-		if req.Prompt != "" && cfg.SystemPrompt == "" {
-			cfg.SystemPrompt = req.Prompt
-		}
-
-		runner := bridge.NewRunner(b, cfg)
-
-		a.procsMu.Lock()
-		if cancel, ok := a.bridgeRunners[req.Name]; ok {
-			cancel()
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		a.bridgeRunners[req.Name] = cancel
-		a.procsMu.Unlock()
-
-		go func() {
-			runner.Run(ctx)
-			a.procsMu.Lock()
-			delete(a.bridgeRunners, req.Name)
-			a.procsMu.Unlock()
-		}()
-
-		a.emit(&model.Event{
-			Type:    model.EventAgentJoined,
-			AgentID: req.Name,
-			Payload: map[string]string{"type": req.Type, "mode": string(mode)},
-		})
-
-		writeJSON(w, http.StatusOK, map[string]string{
-			"status": "spawned",
-			"name":   req.Name,
-			"type":   req.Type,
-		})
-		return
-	}
-
 	if req.WorkDir == "" {
 		writeError(w, http.StatusBadRequest, "missing_work_dir", "work_dir is required")
 		return
@@ -1682,17 +1417,6 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(workDir); os.IsNotExist(err) {
 		writeError(w, http.StatusBadRequest, "invalid_work_dir", "directory does not exist: "+workDir)
 		return
-	}
-
-	// If persona_id provided, inherit defaults
-	var persona *model.Persona
-	if req.PersonaID != "" {
-		if p, err := a.store.GetPersona(req.PersonaID); err == nil {
-			persona = p
-			if req.Model == "" && p.DefaultModelTier != "" {
-				req.Model = p.DefaultModelTier
-			}
-		}
 	}
 
 	// Ensure .mcp.json has waggle config in the work dir
@@ -1745,9 +1469,6 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.PersonaID != "" {
 		regPreamble += fmt.Sprintf(" and persona_id '%s'", req.PersonaID)
-	}
-	if persona != nil && persona.SystemPrompt != "" {
-		regPreamble += ". Your persona system prompt: " + persona.SystemPrompt
 	}
 	regPreamble += ". Then: " + prompt
 
@@ -1953,19 +1674,6 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "sent", "agent": name})
 
 	case action == "" && r.Method == http.MethodDelete:
-		// Check for bridge runner first
-		a.procsMu.Lock()
-		if cancel, ok := a.bridgeRunners[name]; ok {
-			cancel()
-			delete(a.bridgeRunners, name)
-			a.procsMu.Unlock()
-			a.store.DisconnectAgent(name)
-			a.emit(&model.Event{Type: model.EventAgentLeft, AgentID: name})
-			writeJSON(w, http.StatusOK, map[string]string{"status": "stopped", "agent": name})
-			return
-		}
-		a.procsMu.Unlock()
-
 		a.procsMu.Lock()
 		cmd, ok := a.procs[name]
 		if ok {
@@ -1996,54 +1704,7 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		// Return VAPID public key
-		key := ""
-		if a.push != nil {
-			key = a.push.PublicKey()
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"public_key": key})
-
-	case http.MethodPost:
-		var req struct {
-			Endpoint string `json:"endpoint"`
-			Auth     string `json:"auth"`
-			P256dh   string `json:"p256dh"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-			return
-		}
-		if req.Endpoint == "" || req.Auth == "" || req.P256dh == "" {
-			writeError(w, http.StatusBadRequest, "missing_fields", "endpoint, auth, and p256dh required")
-			return
-		}
-		sub := &store.PushSubscription{
-			Endpoint: req.Endpoint,
-			Auth:     req.Auth,
-			P256dh:   req.P256dh,
-		}
-		if err := a.store.SavePushSubscription(sub); err != nil {
-			writeError(w, http.StatusInternalServerError, "save_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, map[string]string{"status": "subscribed"})
-
-	case http.MethodDelete:
-		var req struct {
-			Endpoint string `json:"endpoint"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Endpoint == "" {
-			writeError(w, http.StatusBadRequest, "missing_endpoint", "endpoint required")
-			return
-		}
-		a.store.DeletePushSubscription(req.Endpoint)
-		writeJSON(w, http.StatusOK, map[string]string{"status": "unsubscribed"})
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
+	writeError(w, http.StatusNotImplemented, "not_implemented", "push notifications are not available")
 }
 
 func (a *API) handleTaskExport(w http.ResponseWriter, r *http.Request) {
@@ -2245,267 +1906,401 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-func (a *API) createGitHubIssue(task *model.Task) {
-	repo := a.resolveRepo(task.ProjectID)
-	if repo == "" {
-		return
-	}
+// --- Context Manager Handlers ---
 
-	client := gh.NewClient(repo)
-	labels := gh.LabelsFromTask(string(task.Priority), string(task.TaskType))
-	if len(labels) > 0 {
-		client.EnsureLabels(labels)
-	}
-
-	body := gh.IssueBody(task.Description, task.Criteria, string(task.Priority), string(task.TaskType), task.ID)
-	issue, err := client.CreateIssue(task.Title, body, labels)
-	if err != nil {
-		log.Printf("failed to create GitHub issue for task %s: %v", task.ID, err)
-		return
-	}
-
-	a.store.UpdateTask(task.ID, map[string]any{
-		"issue_number": issue.Number,
-		"issue_url":    issue.URL,
-	})
-	log.Printf("created GitHub issue #%d for task %s: %s", issue.Number, task.ID, issue.URL)
-}
-
-func (a *API) syncGitHubIssueState(task *model.Task, newStatus string) {
-	if !a.ghAvail || task.IssueNumber == 0 {
-		return
-	}
-	repo := a.resolveRepo(task.ProjectID)
-	if repo == "" {
-		return
-	}
-
-	client := gh.NewClient(repo)
-	switch model.TaskStatus(newStatus) {
-	case model.TaskDone:
-		if err := client.CloseIssue(task.IssueNumber); err != nil {
-			log.Printf("failed to close GitHub issue #%d: %v", task.IssueNumber, err)
+func (a *API) handleProgress(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		projectID := r.URL.Query().Get("project_id")
+		limitStr := r.URL.Query().Get("limit")
+		limit := 20
+		if limitStr != "" {
+			fmt.Sscanf(limitStr, "%d", &limit)
+		}
+		if projectID != "" {
+			entries, err := a.store.ListProgress(projectID, limit)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, entries)
 		} else {
-			log.Printf("closed GitHub issue #%d for completed task %s", task.IssueNumber, task.ID)
-		}
-	case model.TaskBacklog, model.TaskReady, model.TaskInProgress, model.TaskReview:
-		// If task is reopened from done, reopen the issue
-		if task.Status == model.TaskDone {
-			if err := client.ReopenIssue(task.IssueNumber); err != nil {
-				log.Printf("failed to reopen GitHub issue #%d: %v", task.IssueNumber, err)
-			} else {
-				log.Printf("reopened GitHub issue #%d for task %s", task.IssueNumber, task.ID)
+			entries, err := a.store.ListAllProgress(limit)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+				return
 			}
+			writeJSON(w, http.StatusOK, entries)
 		}
+
+	case http.MethodPost:
+		var p model.Progress
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if p.ProjectID == "" || p.Source == "" || p.Summary == "" {
+			writeError(w, http.StatusBadRequest, "missing_fields", "project_id, source, and summary are required")
+			return
+		}
+		if err := a.store.CreateProgress(&p); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		a.emit(&model.Event{Type: "progress_logged", TaskID: p.ProjectID, Payload: p})
+		writeJSON(w, http.StatusCreated, p)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 
-func (a *API) resolveRepo(projectID string) string {
+func (a *API) handleCtxSessions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		projectID := r.URL.Query().Get("project_id")
+		if projectID == "" {
+			writeError(w, http.StatusBadRequest, "missing_project", "project_id is required")
+			return
+		}
+		sessions, err := a.store.ListSessions(projectID, 20)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, sessions)
+
+	case http.MethodPost:
+		var sess model.Session
+		if err := json.NewDecoder(r.Body).Decode(&sess); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if sess.ProjectID == "" {
+			writeError(w, http.StatusBadRequest, "missing_project", "project_id is required")
+			return
+		}
+		if err := a.store.CreateSession(&sess); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, sess)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleCtxSessionAction(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/ctx-sessions/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		writeError(w, http.StatusBadRequest, "missing_id", "session id required")
+		return
+	}
+	sessID := parts[0]
+
+	if r.Method == http.MethodPost && len(parts) >= 2 && parts[1] == "end" {
+		var body struct {
+			Summary string `json:"summary"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if err := a.store.EndSession(sessID, body.Summary); err != nil {
+			writeError(w, http.StatusInternalServerError, "end_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ended"})
+		return
+	}
+	w.WriteHeader(http.StatusMethodNotAllowed)
+}
+
+func (a *API) handleBriefing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
-		return ""
+		writeError(w, http.StatusBadRequest, "missing_project", "project_id is required")
+		return
 	}
-	proj, err := a.store.GetProject(projectID)
+
+	project, err := a.store.GetProject(projectID)
 	if err != nil {
-		return ""
+		writeError(w, http.StatusNotFound, "not_found", "project not found")
+		return
 	}
-	return gh.RepoFromProject(proj.Name)
+
+	timeSince := "never"
+	if project.LastTouchedAt != nil {
+		dur := time.Since(*project.LastTouchedAt)
+		switch {
+		case dur < time.Hour:
+			timeSince = fmt.Sprintf("%d minutes ago", int(dur.Minutes()))
+		case dur < 24*time.Hour:
+			timeSince = fmt.Sprintf("%d hours ago", int(dur.Hours()))
+		default:
+			timeSince = fmt.Sprintf("%d days ago", int(dur.Hours()/24))
+		}
+	}
+
+	taskCount, _ := a.store.TaskCountByProject(projectID)
+	progress, _ := a.store.ListProgress(projectID, 5)
+	sessions, _ := a.store.ListSessions(projectID, 3)
+
+	openTasks := []map[string]string{}
+	if tasks, err := a.store.ListTasks(map[string]string{"project_id": projectID, "sort": "priority"}); err == nil {
+		for _, t := range tasks {
+			if t.Status == model.TaskDone {
+				continue
+			}
+			if len(openTasks) >= 3 {
+				break
+			}
+			openTasks = append(openTasks, map[string]string{
+				"id":       t.ID,
+				"title":    t.Title,
+				"priority": string(t.Priority),
+				"status":   string(t.Status),
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"project":         project,
+		"last_touched":    timeSince,
+		"open_task_count": taskCount,
+		"top_tasks":       openTasks,
+		"recent_progress": progress,
+		"recent_sessions": sessions,
+	})
 }
 
-func (a *API) handleProposals(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		filters := map[string]string{}
-		if v := r.URL.Query().Get("agent_id"); v != "" {
-			filters["agent_id"] = v
+func (a *API) handleWhatsNext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	accountFilter := r.URL.Query().Get("account")
+	projects, err := a.store.ListProjects()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+		return
+	}
+
+	type projectSummary struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		Status        string `json:"status"`
+		Health        string `json:"health"`
+		Account       string `json:"account"`
+		Category      string `json:"category"`
+		ParkingNote   string `json:"parking_note,omitempty"`
+		RevenueStatus string `json:"revenue_status,omitempty"`
+		LastTouched   string `json:"last_touched"`
+		DaysSince     int    `json:"days_since_touched"`
+		OpenTasks     int    `json:"open_tasks"`
+		Urgency       string `json:"urgency"`
+		Reason        string `json:"reason,omitempty"`
+	}
+
+	var items []projectSummary
+	urgencyOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+	for _, p := range projects {
+		if accountFilter != "" && p.Account != accountFilter {
+			continue
 		}
-		if v := r.URL.Query().Get("project_id"); v != "" {
-			filters["project_id"] = v
+		if p.Status == model.ProjectKilled {
+			continue
 		}
-		if v := r.URL.Query().Get("status"); v != "" {
-			filters["status"] = v
+
+		taskCount, _ := a.store.TaskCountByProject(p.ID)
+
+		daysSince := 0
+		lastTouched := "never"
+		if p.LastTouchedAt != nil {
+			daysSince = int(time.Since(*p.LastTouchedAt).Hours() / 24)
+			switch {
+			case daysSince == 0:
+				lastTouched = "today"
+			case daysSince == 1:
+				lastTouched = "yesterday"
+			default:
+				lastTouched = fmt.Sprintf("%d days ago", daysSince)
+			}
 		}
-		proposals, err := a.store.ListProposals(filters)
+
+		urgency := "low"
+		reason := ""
+		switch {
+		case p.Health == model.HealthRed:
+			urgency = "critical"
+			reason = "project health is red"
+		case p.RevenueStatus == "stalled":
+			urgency = "high"
+			reason = "revenue stalled"
+		case taskCount > 0 && daysSince > 14:
+			urgency = "medium"
+			reason = fmt.Sprintf("%d open tasks, untouched %d days", taskCount, daysSince)
+		case p.Health == model.HealthYellow:
+			urgency = "medium"
+			reason = "project health is yellow"
+		}
+
+		if p.Status == model.ProjectDormant && urgency == "low" {
+			continue
+		}
+
+		items = append(items, projectSummary{
+			ID:            p.ID,
+			Name:          p.Name,
+			Status:        string(p.Status),
+			Health:        string(p.Health),
+			Account:       p.Account,
+			Category:      p.Category,
+			ParkingNote:   p.ParkingNote,
+			RevenueStatus: p.RevenueStatus,
+			LastTouched:   lastTouched,
+			DaysSince:     daysSince,
+			OpenTasks:     taskCount,
+			Urgency:       urgency,
+			Reason:        reason,
+		})
+	}
+
+	for i := 0; i < len(items); i++ {
+		for j := i + 1; j < len(items); j++ {
+			if urgencyOrder[items[j].Urgency] < urgencyOrder[items[i].Urgency] {
+				items[i], items[j] = items[j], items[i]
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *API) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Can target a single project or check all with work_dir
+	projectID := r.URL.Query().Get("project_id")
+
+	var projects []*model.Project
+	if projectID != "" {
+		p, err := a.store.GetProject(projectID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			return
+		}
+		projects = []*model.Project{p}
+	} else {
+		var err error
+		projects, err = a.store.ListProjects()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
 			return
 		}
-		if proposals == nil {
-			proposals = []*model.Proposal{}
-		}
-		writeJSON(w, http.StatusOK, proposals)
-
-	case http.MethodPost:
-		var p model.Proposal
-		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-			return
-		}
-		if p.AgentID == "" {
-			writeError(w, http.StatusBadRequest, "missing_agent_id", "agent_id is required")
-			return
-		}
-		if p.Title == "" {
-			writeError(w, http.StatusBadRequest, "missing_title", "title is required")
-			return
-		}
-		if err := a.store.CreateProposal(&p); err != nil {
-			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
-			return
-		}
-		a.emit(&model.Event{Type: "proposal_created", AgentID: p.AgentID, Payload: p})
-		writeJSON(w, http.StatusCreated, p)
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
-}
-
-func (a *API) handleProposal(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/proposals/")
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing_id", "proposal ID required")
-		return
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		p, err := a.store.GetProposal(id)
-		if err != nil {
-			if err == store.ErrNotFound {
-				writeError(w, http.StatusNotFound, "not_found", "proposal not found")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "get_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, p)
-
-	case http.MethodPatch:
-		var updates map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-			return
-		}
-		p, err := a.store.UpdateProposal(id, updates)
-		if err != nil {
-			if err == store.ErrNotFound {
-				writeError(w, http.StatusNotFound, "not_found", "proposal not found")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
-			return
-		}
-		a.emit(&model.Event{Type: "proposal_updated", AgentID: p.AgentID, Payload: p})
-		writeJSON(w, http.StatusOK, p)
-
-	case http.MethodDelete:
-		if err := a.store.DeleteProposal(id); err != nil {
-			if err == store.ErrNotFound {
-				writeError(w, http.StatusNotFound, "not_found", "proposal not found")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
-}
-
-// --- Personas ---
-
-func (a *API) handlePersonas(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		filters := map[string]string{}
-		if v := r.URL.Query().Get("role"); v != "" {
-			filters["role"] = v
-		}
-		if v := r.URL.Query().Get("name"); v != "" {
-			filters["name"] = v
-		}
-		personas, err := a.store.ListPersonas(filters)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
-			return
-		}
-		if personas == nil {
-			personas = []*model.Persona{}
-		}
-		writeJSON(w, http.StatusOK, personas)
-
-	case http.MethodPost:
-		var p model.Persona
-		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-			return
-		}
-		if p.Name == "" {
-			writeError(w, http.StatusBadRequest, "missing_name", "name is required")
-			return
-		}
-		if err := a.store.CreatePersona(&p); err != nil {
-			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, p)
-
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
-}
-
-func (a *API) handlePersona(w http.ResponseWriter, r *http.Request) {
-	personaID := strings.TrimPrefix(r.URL.Path, "/api/personas/")
-	if personaID == "" {
-		writeError(w, http.StatusBadRequest, "missing_id", "persona ID required")
-		return
+	type checkResult struct {
+		ProjectID string `json:"project_id"`
+		Name      string `json:"name"`
+		Health    string `json:"health"`
+		Reason    string `json:"reason"`
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		p, err := a.store.GetPersona(personaID)
-		if err != nil {
-			if err == store.ErrNotFound {
-				writeError(w, http.StatusNotFound, "not_found", "persona not found")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "get_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, p)
+	var results []checkResult
 
-	case http.MethodPatch:
-		var updates map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-			return
+	for _, p := range projects {
+		if p.WorkDir == "" || p.Status == model.ProjectKilled || p.Status == model.ProjectDormant {
+			continue
 		}
-		p, err := a.store.UpdatePersona(personaID, updates)
-		if err != nil {
-			if err == store.ErrNotFound {
-				writeError(w, http.StatusNotFound, "not_found", "persona not found")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, p)
 
-	case http.MethodDelete:
-		if err := a.store.DeletePersona(personaID); err != nil {
-			if err == store.ErrNotFound {
-				writeError(w, http.StatusNotFound, "not_found", "persona not found")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
-			return
+		// Expand ~ in work_dir
+		workDir := p.WorkDir
+		if strings.HasPrefix(workDir, "~/") {
+			home, _ := os.UserHomeDir()
+			workDir = filepath.Join(home, workDir[2:])
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		// Check if directory exists
+		if _, err := os.Stat(workDir); err != nil {
+			continue
+		}
+
+		health := "green"
+		reason := ""
+
+		// Check git status — are there uncommitted changes?
+		gitCmd := exec.CommandContext(r.Context(), "git", "-C", workDir, "status", "--porcelain")
+		gitOut, err := gitCmd.Output()
+		if err == nil && len(gitOut) > 0 {
+			lines := strings.Count(string(gitOut), "\n")
+			if lines > 10 {
+				health = "yellow"
+				reason = fmt.Sprintf("%d uncommitted changes", lines)
+			}
+		}
+
+		// Check for test failures — look for common test runners
+		var testCmd *exec.Cmd
+		switch p.TechStack {
+		case "clojure":
+			testCmd = exec.CommandContext(r.Context(), "clj", "-M:test", "--reporter", "silent")
+		case "go":
+			testCmd = exec.CommandContext(r.Context(), "go", "test", "./...")
+		case "typescript", "javascript":
+			testCmd = exec.CommandContext(r.Context(), "npm", "test", "--", "--silent")
+		case "python":
+			testCmd = exec.CommandContext(r.Context(), "python", "-m", "pytest", "--tb=no", "-q")
+		}
+
+		if testCmd != nil {
+			testCmd.Dir = workDir
+			if err := testCmd.Run(); err != nil {
+				health = "red"
+				reason = "tests failing"
+			}
+		}
+
+		// Check last commit age
+		lastCommitCmd := exec.CommandContext(r.Context(), "git", "-C", workDir, "log", "-1", "--format=%ct")
+		if lastOut, err := lastCommitCmd.Output(); err == nil {
+			var ts int64
+			if _, err := fmt.Sscanf(strings.TrimSpace(string(lastOut)), "%d", &ts); err == nil {
+				age := time.Since(time.Unix(ts, 0))
+				if age > 30*24*time.Hour && health == "green" {
+					if p.Status != model.ProjectDormant {
+						health = "yellow"
+						reason = fmt.Sprintf("no commits in %d days", int(age.Hours()/24))
+					}
+				}
+				// Update last_touched_at
+				lastCommit := time.Unix(ts, 0)
+				if p.LastTouchedAt == nil || lastCommit.After(*p.LastTouchedAt) {
+					a.store.UpdateProject(p.ID, map[string]any{
+						"last_touched_at": lastCommit.Format(time.RFC3339),
+					})
+				}
+			}
+		}
+
+		// Update project health
+		a.store.UpdateProject(p.ID, map[string]any{"health": health})
+
+		results = append(results, checkResult{
+			ProjectID: p.ID,
+			Name:      p.Name,
+			Health:    health,
+			Reason:    reason,
+		})
 	}
+
+	writeJSON(w, http.StatusOK, results)
 }

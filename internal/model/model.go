@@ -134,14 +134,22 @@ func (t TaskType) Valid() bool {
 }
 
 type Project struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description,omitempty"`
-	LeaderAgent  string    `json:"leader_agent,omitempty"`
-	AutoDispatch bool      `json:"auto_dispatch"`
-	WorkDir      string    `json:"work_dir,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description,omitempty"`
+	LeaderAgent   string        `json:"leader_agent,omitempty"`
+	AutoDispatch  bool          `json:"auto_dispatch"`
+	WorkDir       string        `json:"work_dir,omitempty"`
+	Status        ProjectStatus `json:"status,omitempty"`
+	Account       string        `json:"account,omitempty"`
+	Category      string        `json:"category,omitempty"`
+	LastTouchedAt *time.Time    `json:"last_touched_at,omitempty"`
+	ParkingNote   string        `json:"parking_note,omitempty"`
+	Health        ProjectHealth `json:"health,omitempty"`
+	RevenueStatus string        `json:"revenue_status,omitempty"`
+	TechStack     string        `json:"tech_stack,omitempty"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
 type Comment struct {
@@ -162,102 +170,51 @@ type Message struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type ReviewStatus string
+// --- Context Manager types ---
+
+type ProjectStatus string
 
 const (
-	ReviewPending  ReviewStatus = "pending"
-	ReviewApproved ReviewStatus = "approved"
-	ReviewRejected ReviewStatus = "rejected"
+	ProjectActive       ProjectStatus = "active"
+	ProjectDormant      ProjectStatus = "dormant"
+	ProjectPaused       ProjectStatus = "paused"
+	ProjectEarning      ProjectStatus = "earning"
+	ProjectBroken       ProjectStatus = "broken"
+	ProjectKilled       ProjectStatus = "killed"
 )
 
-type Review struct {
-	ID        string       `json:"id"`
-	TaskID    string       `json:"task_id"`
-	AgentID   string       `json:"agent_id"`
-	Branch    string       `json:"branch,omitempty"`
-	Diff      string       `json:"diff"`
-	Summary   string       `json:"summary,omitempty"`
-	Status    ReviewStatus `json:"status"`
-	Feedback  string       `json:"feedback,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
-}
-
-type TokenUsage struct {
-	ID           string    `json:"id"`
-	AgentName    string    `json:"agent_name"`
-	Model        string    `json:"model"`
-	InputTokens  int64     `json:"input_tokens"`
-	OutputTokens int64     `json:"output_tokens"`
-	TotalTokens  int64     `json:"total_tokens"`
-	CostUSD      float64   `json:"cost_usd"`
-	TaskID       string    `json:"task_id,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-type TokenSummary struct {
-	AgentName    string  `json:"agent_name"`
-	Model        string  `json:"model,omitempty"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	TotalTokens  int64   `json:"total_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
-	Reports      int     `json:"reports"`
-}
-
-type ProposalStatus string
-
-const (
-	ProposalPending  ProposalStatus = "pending"
-	ProposalApproved ProposalStatus = "approved"
-	ProposalRejected ProposalStatus = "rejected"
-	ProposalRevised  ProposalStatus = "revised"
-)
-
-type Proposal struct {
-	ID          string         `json:"id"`
-	AgentID     string         `json:"agent_id"`
-	ProjectID   string         `json:"project_id,omitempty"`
-	Title       string         `json:"title"`
-	Summary     string         `json:"summary"`
-	Sections    []string       `json:"sections,omitempty"`
-	Status      ProposalStatus `json:"status"`
-	Feedback    string         `json:"feedback,omitempty"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-}
-
-type Persona struct {
-	ID                string   `json:"id"`
-	Name              string   `json:"name"`
-	Description       string   `json:"description,omitempty"`
-	Role              string   `json:"role,omitempty"`
-	Capabilities      []string `json:"capabilities,omitempty"`
-	PersonalityTraits []string `json:"personality_traits,omitempty"`
-	SystemPrompt      string   `json:"system_prompt,omitempty"`
-	DefaultModelTier  string   `json:"default_model_tier,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-}
-
-// CostPerMillion defines token pricing per model (USD per million tokens)
-var ModelPricing = map[string][2]float64{
-	"claude-opus-4-6":          {15.0, 75.0},
-	"claude-sonnet-4-6":        {3.0, 15.0},
-	"claude-haiku-4-5-20251001": {0.25, 1.25},
-	// Aliases
-	"opus":   {15.0, 75.0},
-	"sonnet": {3.0, 15.0},
-	"haiku":  {0.25, 1.25},
-}
-
-func CalculateCost(model string, inputTokens, outputTokens int64) float64 {
-	pricing, ok := ModelPricing[model]
-	if !ok {
-		// Default to sonnet pricing
-		pricing = ModelPricing["sonnet"]
+func (s ProjectStatus) Valid() bool {
+	switch s {
+	case ProjectActive, ProjectDormant, ProjectPaused, ProjectEarning, ProjectBroken, ProjectKilled:
+		return true
 	}
-	inputCost := float64(inputTokens) / 1_000_000.0 * pricing[0]
-	outputCost := float64(outputTokens) / 1_000_000.0 * pricing[1]
-	return inputCost + outputCost
+	return false
 }
+
+type ProjectHealth string
+
+const (
+	HealthGreen   ProjectHealth = "green"
+	HealthYellow  ProjectHealth = "yellow"
+	HealthRed     ProjectHealth = "red"
+	HealthUnknown ProjectHealth = "unknown"
+)
+
+type Session struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
+	Summary   string    `json:"summary,omitempty"`
+	Account   string    `json:"account,omitempty"`
+}
+
+type Progress struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Source    string    `json:"source"`
+	Summary   string    `json:"summary"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+

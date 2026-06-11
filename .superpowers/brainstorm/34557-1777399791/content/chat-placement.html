@@ -1,0 +1,80 @@
+<h2>Where should the project chat live?</h2>
+<p class="subtitle">When you select a project, where does the conversation thread appear?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Bottom Panel</h3>
+      <p>Chat slides up from the bottom of the board view, splitting the screen horizontally. Board stays on top, chat below. Similar to a browser dev tools panel.</p>
+      <div class="mockup" style="margin-top:12px;height:180px;display:flex;flex-direction:column;gap:2px">
+        <div style="display:flex;gap:2px;flex:1">
+          <div class="mock-sidebar" style="width:60px;font-size:10px">Nav</div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <div class="mock-content" style="flex:1;font-size:10px">Kanban Board</div>
+            <div style="background:#1a1a2e;border:1px solid #f0a500;border-radius:4px;padding:8px;height:70px;font-size:10px;color:#f0a500;display:flex;flex-direction:column;justify-content:space-between">
+              <div style="font-size:9px;opacity:0.7">agent-1: Working on auth module...</div>
+              <div style="font-size:9px;opacity:0.7">agent-2: Tests passing, moving to next task</div>
+              <div style="display:flex;gap:4px;margin-top:4px">
+                <div style="flex:1;background:#111;border:1px solid #333;border-radius:3px;padding:2px 4px;font-size:8px;color:#666">Type a message...</div>
+                <div style="background:#f0a500;border-radius:3px;padding:2px 6px;font-size:8px;color:#000">Send</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Replace Right Sidebar (Live Feed)</h3>
+      <p>The existing "Live Feed" sidebar becomes the project chat when a project is selected. Chat messages replace events. Keeps the current layout shape.</p>
+      <div class="mockup" style="margin-top:12px;height:180px;display:flex;gap:2px">
+        <div class="mock-sidebar" style="width:60px;font-size:10px">Nav</div>
+        <div class="mock-content" style="flex:1;font-size:10px">Kanban Board</div>
+        <div style="width:100px;background:#1a1a2e;border:1px solid #f0a500;border-radius:4px;padding:6px;font-size:9px;color:#f0a500;display:flex;flex-direction:column;justify-content:space-between">
+          <div>
+            <div style="font-size:8px;font-weight:bold;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;opacity:0.6">Project Chat</div>
+            <div style="font-size:8px;opacity:0.7;margin-bottom:4px">agent-1: Done with auth</div>
+            <div style="font-size:8px;opacity:0.7;margin-bottom:4px">you: Nice, move to API</div>
+            <div style="font-size:8px;opacity:0.7">agent-2: Tests green</div>
+          </div>
+          <div style="display:flex;gap:2px">
+            <div style="flex:1;background:#111;border:1px solid #333;border-radius:2px;padding:2px;font-size:7px;color:#666">msg...</div>
+            <div style="background:#f0a500;border-radius:2px;padding:2px 4px;font-size:7px;color:#000">Go</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Expand Left Sidebar</h3>
+      <p>The project nav panel expands when a project is selected, showing a chat thread below the project list and agent list. Everything project-related in one column.</p>
+      <div class="mockup" style="margin-top:12px;height:180px;display:flex;gap:2px">
+        <div style="width:130px;background:#1a1a2e;border-right:1px solid #333;display:flex;flex-direction:column;gap:2px;padding:4px;font-size:9px">
+          <div style="color:#888;font-size:8px;text-transform:uppercase;letter-spacing:1px">Projects</div>
+          <div style="color:#f0a500;font-size:8px;padding:2px 4px;background:rgba(240,165,0,0.1);border-radius:2px">Waggle</div>
+          <div style="color:#888;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-top:4px">Agents</div>
+          <div style="font-size:7px;color:#666">agent-1 (working)</div>
+          <div style="border-top:1px solid #333;margin-top:auto;padding-top:4px;flex:1;display:flex;flex-direction:column;justify-content:space-between">
+            <div>
+              <div style="color:#f0a500;font-size:8px;font-weight:bold;margin-bottom:4px">Chat</div>
+              <div style="font-size:7px;color:#888">agent-1: auth done</div>
+              <div style="font-size:7px;color:#888">you: great work</div>
+            </div>
+            <div style="display:flex;gap:2px;margin-top:4px">
+              <div style="flex:1;background:#111;border:1px solid #333;border-radius:2px;padding:2px;font-size:7px;color:#666">msg</div>
+              <div style="background:#f0a500;border-radius:2px;padding:2px 4px;font-size:7px;color:#000">Go</div>
+            </div>
+          </div>
+        </div>
+        <div class="mock-content" style="flex:1;font-size:10px">Kanban Board (full width)</div>
+      </div>
+    </div>
+  </div>
+</div>

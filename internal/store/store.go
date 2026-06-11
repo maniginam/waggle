@@ -130,31 +130,6 @@ func (s *Store) migrate() error {
 			updated_at  TEXT NOT NULL
 		);
 
-		CREATE TABLE IF NOT EXISTS token_usage (
-			id            TEXT PRIMARY KEY,
-			agent_name    TEXT NOT NULL,
-			model         TEXT DEFAULT '',
-			input_tokens  INTEGER DEFAULT 0,
-			output_tokens INTEGER DEFAULT 0,
-			total_tokens  INTEGER DEFAULT 0,
-			cost_usd      REAL DEFAULT 0,
-			task_id       TEXT DEFAULT '',
-			created_at    TEXT NOT NULL
-		);
-
-		CREATE TABLE IF NOT EXISTS reviews (
-			id         TEXT PRIMARY KEY,
-			task_id    TEXT NOT NULL,
-			agent_id   TEXT NOT NULL,
-			branch     TEXT DEFAULT '',
-			diff       TEXT NOT NULL,
-			summary    TEXT DEFAULT '',
-			status     TEXT DEFAULT 'pending',
-			feedback   TEXT DEFAULT '',
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
-
 		CREATE TABLE IF NOT EXISTS push_subscriptions (
 			id         TEXT PRIMARY KEY,
 			endpoint   TEXT UNIQUE NOT NULL,
@@ -168,46 +143,12 @@ func (s *Store) migrate() error {
 			value TEXT NOT NULL
 		);
 
-		CREATE TABLE IF NOT EXISTS proposals (
-			id          TEXT PRIMARY KEY,
-			agent_id    TEXT NOT NULL,
-			project_id  TEXT DEFAULT '',
-			title       TEXT NOT NULL,
-			summary     TEXT DEFAULT '',
-			sections    TEXT DEFAULT '[]',
-			status      TEXT DEFAULT 'pending',
-			feedback    TEXT DEFAULT '',
-			created_at  TEXT NOT NULL,
-			updated_at  TEXT NOT NULL
-		);
-
-		CREATE TABLE IF NOT EXISTS personas (
-			id                  TEXT PRIMARY KEY,
-			name                TEXT NOT NULL,
-			description         TEXT DEFAULT '',
-			role                TEXT DEFAULT '',
-			capabilities        TEXT DEFAULT '[]',
-			personality_traits  TEXT DEFAULT '[]',
-			system_prompt       TEXT DEFAULT '',
-			default_model_tier  TEXT DEFAULT 'sonnet',
-			created_at          TEXT NOT NULL,
-			updated_at          TEXT NOT NULL
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_personas_role ON personas(role);
-		CREATE INDEX IF NOT EXISTS idx_proposals_agent ON proposals(agent_id);
-		CREATE INDEX IF NOT EXISTS idx_proposals_project ON proposals(project_id);
-		CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
-		CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id);
-		CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
 		CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
 		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 		CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
 		CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
 		CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 		CREATE INDEX IF NOT EXISTS idx_messages_to ON messages("to");
-		CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_name);
-		CREATE INDEX IF NOT EXISTS idx_token_usage_time ON token_usage(created_at);
 	`)
 	if err != nil {
 		return err
@@ -227,6 +168,14 @@ func (s *Store) migrate() error {
 		{"projects", "auto_dispatch", "INTEGER DEFAULT 0"},
 		{"projects", "work_dir", "TEXT DEFAULT ''"},
 		{"messages", "project_id", "TEXT DEFAULT ''"},
+		{"projects", "status", "TEXT DEFAULT 'active'"},
+		{"projects", "account", "TEXT DEFAULT ''"},
+		{"projects", "category", "TEXT DEFAULT ''"},
+		{"projects", "last_touched_at", "TEXT DEFAULT ''"},
+		{"projects", "parking_note", "TEXT DEFAULT ''"},
+		{"projects", "health", "TEXT DEFAULT 'unknown'"},
+		{"projects", "revenue_status", "TEXT DEFAULT ''"},
+		{"projects", "tech_stack", "TEXT DEFAULT ''"},
 	} {
 		var count int
 		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
@@ -235,9 +184,34 @@ func (s *Store) migrate() error {
 		}
 	}
 
+	// Context manager tables
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS sessions (
+		id         TEXT PRIMARY KEY,
+		project_id TEXT NOT NULL,
+		started_at TEXT NOT NULL,
+		ended_at   TEXT DEFAULT '',
+		summary    TEXT DEFAULT '',
+		account    TEXT DEFAULT '',
+		FOREIGN KEY (project_id) REFERENCES projects(id)
+	)`)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS progress (
+		id         TEXT PRIMARY KEY,
+		project_id TEXT NOT NULL,
+		source     TEXT NOT NULL,
+		summary    TEXT NOT NULL,
+		detail     TEXT DEFAULT '',
+		created_at TEXT NOT NULL,
+		FOREIGN KEY (project_id) REFERENCES projects(id)
+	)`)
+
 	// Create indexes that depend on migrated columns (must run after ALTER TABLE)
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_progress_project ON progress(project_id)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_progress_created ON progress(created_at)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_projects_health ON projects(health)")
 	return err
 }
 
@@ -1124,21 +1098,32 @@ func (s *Store) CreateProject(p *model.Project) error {
 	now := time.Now().UTC()
 	p.CreatedAt = now
 	p.UpdatedAt = now
+	if p.Status == "" {
+		p.Status = model.ProjectActive
+	}
+	if p.Health == "" {
+		p.Health = model.HealthUnknown
+	}
 	autoDispatch := 0
 	if p.AutoDispatch {
 		autoDispatch = 1
 	}
-	_, err := s.db.Exec(`INSERT INTO projects (id, name, description, leader_agent, auto_dispatch, work_dir, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.LeaderAgent, autoDispatch, p.WorkDir, p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339))
+	lastTouched := ""
+	if p.LastTouchedAt != nil {
+		lastTouched = p.LastTouchedAt.Format(time.RFC3339)
+	}
+	_, err := s.db.Exec(`INSERT INTO projects (id, name, description, leader_agent, auto_dispatch, work_dir, status, account, category, last_touched_at, parking_note, health, revenue_status, tech_stack, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.LeaderAgent, autoDispatch, p.WorkDir, string(p.Status), p.Account, p.Category, lastTouched, p.ParkingNote, string(p.Health), p.RevenueStatus, p.TechStack, p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339))
 	return err
 }
 
-func (s *Store) GetProject(id string) (*model.Project, error) {
+func (s *Store) GetProject(projID string) (*model.Project, error) {
 	var p model.Project
-	var createdStr, updatedStr string
+	var createdStr, updatedStr, lastTouchedStr string
 	var autoDispatch int
-	err := s.db.QueryRow(`SELECT id, name, description, leader_agent, auto_dispatch, work_dir, created_at, updated_at FROM projects WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &autoDispatch, &p.WorkDir, &createdStr, &updatedStr)
+	var status, health string
+	err := s.db.QueryRow(`SELECT id, name, description, leader_agent, auto_dispatch, work_dir, COALESCE(status,'active'), COALESCE(account,''), COALESCE(category,''), COALESCE(last_touched_at,''), COALESCE(parking_note,''), COALESCE(health,'unknown'), COALESCE(revenue_status,''), COALESCE(tech_stack,''), created_at, updated_at FROM projects WHERE id = ?`, projID).
+		Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &autoDispatch, &p.WorkDir, &status, &p.Account, &p.Category, &lastTouchedStr, &p.ParkingNote, &health, &p.RevenueStatus, &p.TechStack, &createdStr, &updatedStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -1146,13 +1131,19 @@ func (s *Store) GetProject(id string) (*model.Project, error) {
 		return nil, err
 	}
 	p.AutoDispatch = autoDispatch != 0
+	p.Status = model.ProjectStatus(status)
+	p.Health = model.ProjectHealth(health)
 	p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+	if lastTouchedStr != "" {
+		t, _ := time.Parse(time.RFC3339, lastTouchedStr)
+		p.LastTouchedAt = &t
+	}
 	return &p, nil
 }
 
 func (s *Store) ListProjects() ([]*model.Project, error) {
-	rows, err := s.db.Query(`SELECT id, name, description, leader_agent, auto_dispatch, work_dir, created_at, updated_at FROM projects ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, name, description, leader_agent, auto_dispatch, work_dir, COALESCE(status,'active'), COALESCE(account,''), COALESCE(category,''), COALESCE(last_touched_at,''), COALESCE(parking_note,''), COALESCE(health,'unknown'), COALESCE(revenue_status,''), COALESCE(tech_stack,''), created_at, updated_at FROM projects ORDER BY last_touched_at DESC, created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1160,21 +1151,28 @@ func (s *Store) ListProjects() ([]*model.Project, error) {
 	var projects []*model.Project
 	for rows.Next() {
 		var p model.Project
-		var createdStr, updatedStr string
+		var createdStr, updatedStr, lastTouchedStr string
 		var autoDispatch int
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &autoDispatch, &p.WorkDir, &createdStr, &updatedStr); err != nil {
+		var status, health string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.LeaderAgent, &autoDispatch, &p.WorkDir, &status, &p.Account, &p.Category, &lastTouchedStr, &p.ParkingNote, &health, &p.RevenueStatus, &p.TechStack, &createdStr, &updatedStr); err != nil {
 			return nil, err
 		}
 		p.AutoDispatch = autoDispatch != 0
+		p.Status = model.ProjectStatus(status)
+		p.Health = model.ProjectHealth(health)
 		p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
 		p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+		if lastTouchedStr != "" {
+			t, _ := time.Parse(time.RFC3339, lastTouchedStr)
+			p.LastTouchedAt = &t
+		}
 		projects = append(projects, &p)
 	}
 	return projects, rows.Err()
 }
 
-func (s *Store) UpdateProject(id string, updates map[string]any) (*model.Project, error) {
-	_, err := s.GetProject(id)
+func (s *Store) UpdateProject(projID string, updates map[string]any) (*model.Project, error) {
+	_, err := s.GetProject(projID)
 	if err != nil {
 		return nil, err
 	}
@@ -1208,19 +1206,43 @@ func (s *Store) UpdateProject(id string, updates map[string]any) (*model.Project
 		case "work_dir":
 			sets = append(sets, "work_dir = ?")
 			args = append(args, v)
+		case "status":
+			sets = append(sets, "status = ?")
+			args = append(args, v)
+		case "account":
+			sets = append(sets, "account = ?")
+			args = append(args, v)
+		case "category":
+			sets = append(sets, "category = ?")
+			args = append(args, v)
+		case "parking_note":
+			sets = append(sets, "parking_note = ?")
+			args = append(args, v)
+		case "health":
+			sets = append(sets, "health = ?")
+			args = append(args, v)
+		case "revenue_status":
+			sets = append(sets, "revenue_status = ?")
+			args = append(args, v)
+		case "tech_stack":
+			sets = append(sets, "tech_stack = ?")
+			args = append(args, v)
+		case "last_touched_at":
+			sets = append(sets, "last_touched_at = ?")
+			args = append(args, v)
 		}
 	}
 	if len(sets) == 0 {
-		return s.GetProject(id)
+		return s.GetProject(projID)
 	}
 	sets = append(sets, "updated_at = ?")
 	args = append(args, time.Now().UTC().Format(time.RFC3339))
-	args = append(args, id)
+	args = append(args, projID)
 	_, err = s.db.Exec("UPDATE projects SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
 	if err != nil {
 		return nil, err
 	}
-	return s.GetProject(id)
+	return s.GetProject(projID)
 }
 
 func (s *Store) DeleteProject(id string) error {
@@ -1232,166 +1254,122 @@ func (s *Store) DeleteProject(id string) error {
 	return err
 }
 
-// --- Reviews ---
+// --- Sessions ---
 
-func (s *Store) CreateReview(r *model.Review) error {
-	if r.ID == "" {
-		r.ID = id.New()
+func (s *Store) CreateSession(sess *model.Session) error {
+	if sess.ID == "" {
+		sess.ID = id.New()
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	r.CreatedAt, _ = time.Parse(time.RFC3339, now)
-	r.UpdatedAt = r.CreatedAt
-	if r.Status == "" {
-		r.Status = model.ReviewPending
+	sess.StartedAt = time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO sessions (id, project_id, started_at, ended_at, summary, account) VALUES (?, ?, ?, '', '', ?)`,
+		sess.ID, sess.ProjectID, sess.StartedAt.Format(time.RFC3339), sess.Account)
+	if err != nil {
+		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO reviews (id, task_id, agent_id, branch, diff, summary, status, feedback, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.TaskID, r.AgentID, r.Branch, r.Diff, r.Summary, r.Status, r.Feedback, now, now)
+	// Touch the project
+	s.db.Exec("UPDATE projects SET last_touched_at = ? WHERE id = ?", sess.StartedAt.Format(time.RFC3339), sess.ProjectID)
+	return nil
+}
+
+func (s *Store) EndSession(sessID, summary string) error {
+	now := time.Now().UTC()
+	_, err := s.db.Exec(`UPDATE sessions SET ended_at = ?, summary = ? WHERE id = ?`,
+		now.Format(time.RFC3339), summary, sessID)
 	return err
 }
 
-func (s *Store) GetReview(id string) (*model.Review, error) {
-	row := s.db.QueryRow(`SELECT id, task_id, agent_id, branch, diff, summary, status, feedback, created_at, updated_at FROM reviews WHERE id = ?`, id)
-	return scanReview(row)
-}
-
-func (s *Store) ListReviewsByTask(taskID string) ([]*model.Review, error) {
-	rows, err := s.db.Query(`SELECT id, task_id, agent_id, branch, diff, summary, status, feedback, created_at, updated_at FROM reviews WHERE task_id = ? ORDER BY created_at DESC`, taskID)
+func (s *Store) ListSessions(projectID string, limit int) ([]*model.Session, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.Query(`SELECT id, project_id, started_at, ended_at, summary, account FROM sessions WHERE project_id = ? ORDER BY started_at DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var reviews []*model.Review
+	var sessions []*model.Session
 	for rows.Next() {
-		r, err := scanReview(rows)
-		if err != nil {
+		var sess model.Session
+		var startedStr, endedStr string
+		if err := rows.Scan(&sess.ID, &sess.ProjectID, &startedStr, &endedStr, &sess.Summary, &sess.Account); err != nil {
 			return nil, err
 		}
-		reviews = append(reviews, r)
+		sess.StartedAt, _ = time.Parse(time.RFC3339, startedStr)
+		if endedStr != "" {
+			t, _ := time.Parse(time.RFC3339, endedStr)
+			sess.EndedAt = &t
+		}
+		sessions = append(sessions, &sess)
 	}
-	return reviews, nil
+	return sessions, rows.Err()
 }
 
-func (s *Store) ListReviews(statusFilter, agentID, projectID string) ([]*model.Review, error) {
-	query := `SELECT r.id, r.task_id, r.agent_id, r.branch, r.diff, r.summary, r.status, r.feedback, r.created_at, r.updated_at FROM reviews r`
-	var conditions []string
-	var args []any
-	if projectID != "" {
-		query = `SELECT r.id, r.task_id, r.agent_id, r.branch, r.diff, r.summary, r.status, r.feedback, r.created_at, r.updated_at FROM reviews r JOIN tasks t ON r.task_id = t.id`
-		conditions = append(conditions, "t.project_id = ?")
-		args = append(args, projectID)
+// --- Progress ---
+
+func (s *Store) CreateProgress(p *model.Progress) error {
+	if p.ID == "" {
+		p.ID = id.New()
 	}
-	if statusFilter != "" {
-		conditions = append(conditions, "r.status = ?")
-		args = append(args, statusFilter)
+	p.CreatedAt = time.Now().UTC()
+	_, err := s.db.Exec(`INSERT INTO progress (id, project_id, source, summary, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		p.ID, p.ProjectID, p.Source, p.Summary, p.Detail, p.CreatedAt.Format(time.RFC3339))
+	if err != nil {
+		return err
 	}
-	if agentID != "" {
-		conditions = append(conditions, "r.agent_id = ?")
-		args = append(args, agentID)
+	// Touch the project
+	s.db.Exec("UPDATE projects SET last_touched_at = ? WHERE id = ?", p.CreatedAt.Format(time.RFC3339), p.ProjectID)
+	return nil
+}
+
+func (s *Store) ListProgress(projectID string, limit int) ([]*model.Progress, error) {
+	if limit <= 0 {
+		limit = 20
 	}
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += ` ORDER BY r.created_at DESC`
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.Query(`SELECT id, project_id, source, summary, detail, created_at FROM progress WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var reviews []*model.Review
+	var entries []*model.Progress
 	for rows.Next() {
-		r, err := scanReview(rows)
-		if err != nil {
+		var p model.Progress
+		var createdStr string
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Source, &p.Summary, &p.Detail, &createdStr); err != nil {
 			return nil, err
 		}
-		reviews = append(reviews, r)
+		p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+		entries = append(entries, &p)
 	}
-	return reviews, nil
+	return entries, rows.Err()
 }
 
-func (s *Store) UpdateReviewStatus(id string, status model.ReviewStatus, feedback string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := s.db.Exec(`UPDATE reviews SET status = ?, feedback = ?, updated_at = ? WHERE id = ?`, status, feedback, now, id)
-	return err
-}
-
-func scanReview(s scanner) (*model.Review, error) {
-	var r model.Review
-	var createdAt, updatedAt string
-	err := s.Scan(&r.ID, &r.TaskID, &r.AgentID, &r.Branch, &r.Diff, &r.Summary, &r.Status, &r.Feedback, &createdAt, &updatedAt)
-	if err != nil {
-		return nil, err
-	}
-	r.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	r.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &r, nil
-}
-
-// --- Token Usage ---
-
-func (s *Store) RecordTokenUsage(u *model.TokenUsage) error {
-	if u.ID == "" {
-		u.ID = id.New()
-	}
-	u.CreatedAt = time.Now().UTC()
-	u.TotalTokens = u.InputTokens + u.OutputTokens
-	if u.CostUSD == 0 {
-		u.CostUSD = model.CalculateCost(u.Model, u.InputTokens, u.OutputTokens)
-	}
-	_, err := s.db.Exec(`INSERT INTO token_usage (id, agent_name, model, input_tokens, output_tokens, total_tokens, cost_usd, task_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, u.AgentName, u.Model, u.InputTokens, u.OutputTokens, u.TotalTokens, u.CostUSD, u.TaskID,
-		u.CreatedAt.Format(time.RFC3339))
-	return err
-}
-
-func (s *Store) TokenUsageByAgent() ([]*model.TokenSummary, error) {
-	rows, err := s.db.Query(`SELECT agent_name, COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0), COUNT(*) FROM token_usage GROUP BY agent_name ORDER BY SUM(cost_usd) DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var summaries []*model.TokenSummary
-	for rows.Next() {
-		var ts model.TokenSummary
-		if err := rows.Scan(&ts.AgentName, &ts.InputTokens, &ts.OutputTokens, &ts.TotalTokens, &ts.CostUSD, &ts.Reports); err != nil {
-			return nil, err
-		}
-		summaries = append(summaries, &ts)
-	}
-	return summaries, rows.Err()
-}
-
-func (s *Store) TokenUsageTotal() (*model.TokenSummary, error) {
-	var ts model.TokenSummary
-	err := s.db.QueryRow(`SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0), COUNT(*) FROM token_usage`).
-		Scan(&ts.InputTokens, &ts.OutputTokens, &ts.TotalTokens, &ts.CostUSD, &ts.Reports)
-	if err != nil {
-		return nil, err
-	}
-	return &ts, nil
-}
-
-func (s *Store) TokenUsageRecent(limit int) ([]*model.TokenUsage, error) {
+func (s *Store) ListAllProgress(limit int) ([]*model.Progress, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.Query(`SELECT id, agent_name, model, input_tokens, output_tokens, total_tokens, cost_usd, task_id, created_at FROM token_usage ORDER BY created_at DESC LIMIT ?`, limit)
+	rows, err := s.db.Query(`SELECT id, project_id, source, summary, detail, created_at FROM progress ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var usages []*model.TokenUsage
+	var entries []*model.Progress
 	for rows.Next() {
-		var u model.TokenUsage
-		var ts string
-		if err := rows.Scan(&u.ID, &u.AgentName, &u.Model, &u.InputTokens, &u.OutputTokens, &u.TotalTokens, &u.CostUSD, &u.TaskID, &ts); err != nil {
+		var p model.Progress
+		var createdStr string
+		if err := rows.Scan(&p.ID, &p.ProjectID, &p.Source, &p.Summary, &p.Detail, &createdStr); err != nil {
 			return nil, err
 		}
-		u.CreatedAt, _ = time.Parse(time.RFC3339, ts)
-		usages = append(usages, &u)
+		p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+		entries = append(entries, &p)
 	}
-	return usages, rows.Err()
+	return entries, rows.Err()
+}
+
+// TaskCountByProject returns count of open tasks (not done/killed) per project.
+func (s *Store) TaskCountByProject(projectID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status NOT IN ('done')`, projectID).Scan(&count)
+	return count, err
 }
 
 // --- Stats ---
@@ -1402,15 +1380,13 @@ type DayCount struct {
 }
 
 type Stats struct {
-	TasksByStatus   map[string]int         `json:"tasks_by_status"`
-	TasksByPriority map[string]int         `json:"tasks_by_priority"`
-	TotalTasks      int                    `json:"total_tasks"`
-	AgentsByStatus  map[string]int         `json:"agents_by_status"`
-	TotalAgents     int                    `json:"total_agents"`
-	UnreadMessages  int                    `json:"unread_messages"`
-	TokenUsage      *model.TokenSummary    `json:"token_usage,omitempty"`
-	TokenByAgent    []*model.TokenSummary  `json:"token_by_agent,omitempty"`
-	Velocity        []DayCount             `json:"velocity,omitempty"`
+	TasksByStatus   map[string]int `json:"tasks_by_status"`
+	TasksByPriority map[string]int `json:"tasks_by_priority"`
+	TotalTasks      int            `json:"total_tasks"`
+	AgentsByStatus  map[string]int `json:"agents_by_status"`
+	TotalAgents     int            `json:"total_agents"`
+	UnreadMessages  int            `json:"unread_messages"`
+	Velocity        []DayCount     `json:"velocity,omitempty"`
 }
 
 func (s *Store) Stats() (*Stats, error) {
@@ -1463,14 +1439,6 @@ func (s *Store) Stats() (*Stats, error) {
 
 	// Unread messages
 	s.db.QueryRow("SELECT COUNT(*) FROM messages WHERE read = 0").Scan(&stats.UnreadMessages)
-
-	// Token usage
-	if total, err := s.TokenUsageTotal(); err == nil {
-		stats.TokenUsage = total
-	}
-	if byAgent, err := s.TokenUsageByAgent(); err == nil {
-		stats.TokenByAgent = byAgent
-	}
 
 	// Velocity: tasks completed per day over the past 7 days
 	sevenDaysAgo := time.Now().UTC().Add(-7 * 24 * time.Hour).Format("2006-01-02")
@@ -1568,311 +1536,3 @@ func (s *Store) GetAllSettings() (map[string]string, error) {
 	return settings, rows.Err()
 }
 
-// --- Proposals ---
-
-func (s *Store) CreateProposal(p *model.Proposal) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	p.ID = id.New()
-	p.CreatedAt, _ = time.Parse(time.RFC3339, now)
-	p.UpdatedAt = p.CreatedAt
-	if p.Status == "" {
-		p.Status = model.ProposalPending
-	}
-	sectionsJSON, _ := json.Marshal(p.Sections)
-	_, err := s.db.Exec(`INSERT INTO proposals (id, agent_id, project_id, title, summary, sections, status, feedback, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.AgentID, p.ProjectID, p.Title, p.Summary, string(sectionsJSON), p.Status, p.Feedback, now, now)
-	return err
-}
-
-func (s *Store) GetProposal(id string) (*model.Proposal, error) {
-	row := s.db.QueryRow(`SELECT id, agent_id, project_id, title, summary, sections, status, feedback, created_at, updated_at FROM proposals WHERE id = ?`, id)
-	return scanProposal(row)
-}
-
-func (s *Store) ListProposals(filters map[string]string) ([]*model.Proposal, error) {
-	query := `SELECT id, agent_id, project_id, title, summary, sections, status, feedback, created_at, updated_at FROM proposals`
-	var conditions []string
-	var args []any
-	if v, ok := filters["agent_id"]; ok {
-		conditions = append(conditions, "agent_id = ?")
-		args = append(args, v)
-	}
-	if v, ok := filters["project_id"]; ok {
-		conditions = append(conditions, "project_id = ?")
-		args = append(args, v)
-	}
-	if v, ok := filters["status"]; ok {
-		conditions = append(conditions, "status = ?")
-		args = append(args, v)
-	}
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += " ORDER BY created_at DESC"
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var proposals []*model.Proposal
-	for rows.Next() {
-		p, err := scanProposalRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		proposals = append(proposals, p)
-	}
-	return proposals, rows.Err()
-}
-
-func (s *Store) UpdateProposal(id string, updates map[string]any) (*model.Proposal, error) {
-	_, err := s.GetProposal(id)
-	if err != nil {
-		return nil, err
-	}
-	var sets []string
-	var args []any
-	for k, v := range updates {
-		switch k {
-		case "status":
-			sets = append(sets, "status = ?")
-			args = append(args, v)
-		case "feedback":
-			sets = append(sets, "feedback = ?")
-			args = append(args, v)
-		case "title":
-			sets = append(sets, "title = ?")
-			args = append(args, v)
-		case "summary":
-			sets = append(sets, "summary = ?")
-			args = append(args, v)
-		case "sections":
-			b, _ := json.Marshal(v)
-			sets = append(sets, "sections = ?")
-			args = append(args, string(b))
-		}
-	}
-	if len(sets) == 0 {
-		return s.GetProposal(id)
-	}
-	sets = append(sets, "updated_at = ?")
-	args = append(args, time.Now().UTC().Format(time.RFC3339))
-	args = append(args, id)
-	_, err = s.db.Exec("UPDATE proposals SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
-	if err != nil {
-		return nil, err
-	}
-	return s.GetProposal(id)
-}
-
-func (s *Store) DeleteProposal(id string) error {
-	res, err := s.db.Exec("DELETE FROM proposals WHERE id = ?", id)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (s *Store) PendingProposalCounts() (map[string]int, error) {
-	rows, err := s.db.Query(`SELECT COALESCE(NULLIF(project_id,''), agent_id), COUNT(*) FROM proposals WHERE status = 'pending' GROUP BY COALESCE(NULLIF(project_id,''), agent_id)`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	counts := map[string]int{}
-	for rows.Next() {
-		var key string
-		var count int
-		rows.Scan(&key, &count)
-		counts[key] = count
-	}
-	return counts, rows.Err()
-}
-
-func scanProposal(row scanner) (*model.Proposal, error) {
-	var p model.Proposal
-	var sectionsJSON, createdAt, updatedAt string
-	err := row.Scan(&p.ID, &p.AgentID, &p.ProjectID, &p.Title, &p.Summary, &sectionsJSON, &p.Status, &p.Feedback, &createdAt, &updatedAt)
-	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	json.Unmarshal([]byte(sectionsJSON), &p.Sections)
-	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &p, nil
-}
-
-func scanProposalRows(rows *sql.Rows) (*model.Proposal, error) {
-	var p model.Proposal
-	var sectionsJSON, createdAt, updatedAt string
-	err := rows.Scan(&p.ID, &p.AgentID, &p.ProjectID, &p.Title, &p.Summary, &sectionsJSON, &p.Status, &p.Feedback, &createdAt, &updatedAt)
-	if err != nil {
-		return nil, err
-	}
-	json.Unmarshal([]byte(sectionsJSON), &p.Sections)
-	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &p, nil
-}
-
-// --- Personas ---
-
-func (s *Store) CreatePersona(p *model.Persona) error {
-	if p.ID == "" {
-		p.ID = id.New()
-	}
-	now := time.Now().UTC()
-	p.CreatedAt = now
-	p.UpdatedAt = now
-	if p.DefaultModelTier == "" {
-		p.DefaultModelTier = "sonnet"
-	}
-
-	capsJSON, _ := json.Marshal(p.Capabilities)
-	traitsJSON, _ := json.Marshal(p.PersonalityTraits)
-
-	_, err := s.db.Exec(`INSERT INTO personas (id, name, description, role, capabilities, personality_traits, system_prompt, default_model_tier, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.Role, string(capsJSON), string(traitsJSON),
-		p.SystemPrompt, p.DefaultModelTier,
-		now.Format(time.RFC3339), now.Format(time.RFC3339))
-	return err
-}
-
-func (s *Store) GetPersona(personaID string) (*model.Persona, error) {
-	row := s.db.QueryRow(`SELECT id, name, description, role, capabilities, personality_traits, system_prompt, default_model_tier, created_at, updated_at FROM personas WHERE id = ?`, personaID)
-	return scanPersona(row)
-}
-
-func (s *Store) ListPersonas(filters map[string]string) ([]*model.Persona, error) {
-	query := `SELECT id, name, description, role, capabilities, personality_traits, system_prompt, default_model_tier, created_at, updated_at FROM personas`
-	var conditions []string
-	var args []any
-	if filters != nil {
-		if role, ok := filters["role"]; ok {
-			conditions = append(conditions, "role = ?")
-			args = append(args, role)
-		}
-		if name, ok := filters["name"]; ok {
-			conditions = append(conditions, "name = ?")
-			args = append(args, name)
-		}
-	}
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += " ORDER BY name"
-
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var personas []*model.Persona
-	for rows.Next() {
-		p, err := scanPersonaRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		personas = append(personas, p)
-	}
-	return personas, rows.Err()
-}
-
-func (s *Store) UpdatePersona(personaID string, fields map[string]any) (*model.Persona, error) {
-	if len(fields) == 0 {
-		return s.GetPersona(personaID)
-	}
-
-	// Verify persona exists
-	if _, err := s.GetPersona(personaID); err != nil {
-		return nil, err
-	}
-
-	var sets []string
-	var args []any
-	for k, v := range fields {
-		switch k {
-		case "name", "description", "role", "system_prompt", "default_model_tier":
-			sets = append(sets, k+" = ?")
-			args = append(args, v)
-		case "capabilities", "personality_traits":
-			j, _ := json.Marshal(v)
-			sets = append(sets, k+" = ?")
-			args = append(args, string(j))
-		}
-	}
-	sets = append(sets, "updated_at = ?")
-	args = append(args, time.Now().UTC().Format(time.RFC3339))
-	args = append(args, personaID)
-
-	_, err := s.db.Exec("UPDATE personas SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
-	if err != nil {
-		return nil, err
-	}
-	return s.GetPersona(personaID)
-}
-
-func (s *Store) DeletePersona(personaID string) error {
-	res, err := s.db.Exec("DELETE FROM personas WHERE id = ?", personaID)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (s *Store) UpdateAgentPersona(agentName, personaID string) error {
-	res, err := s.db.Exec("UPDATE agents SET persona_id = ? WHERE name = ?", personaID, agentName)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func scanPersona(row scanner) (*model.Persona, error) {
-	var p model.Persona
-	var capsJSON, traitsJSON, createdAt, updatedAt string
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Role, &capsJSON, &traitsJSON, &p.SystemPrompt, &p.DefaultModelTier, &createdAt, &updatedAt)
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	json.Unmarshal([]byte(capsJSON), &p.Capabilities)
-	json.Unmarshal([]byte(traitsJSON), &p.PersonalityTraits)
-	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &p, nil
-}
-
-func scanPersonaRows(rows *sql.Rows) (*model.Persona, error) {
-	var p model.Persona
-	var capsJSON, traitsJSON, createdAt, updatedAt string
-	err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Role, &capsJSON, &traitsJSON, &p.SystemPrompt, &p.DefaultModelTier, &createdAt, &updatedAt)
-	if err != nil {
-		return nil, err
-	}
-	json.Unmarshal([]byte(capsJSON), &p.Capabilities)
-	json.Unmarshal([]byte(traitsJSON), &p.PersonalityTraits)
-	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &p, nil
-}

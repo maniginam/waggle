@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waggle - Mission Control</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #232733;
+  --border: #2d3140;
+  --text: #e0e0e8;
+  --text-dim: #8890a4;
+  --accent: #6c8aff;
+  --green: #4ade80;
+  --yellow: #fbbf24;
+  --red: #f87171;
+  --orange: #fb923c;
+  --purple: #a78bfa;
+  --cyan: #22d3ee;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 100;
+}
+header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+header h1 span { color: var(--accent); }
+.filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.filter-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.filter-btn:hover, .filter-btn.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface2);
+}
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.section {
+  margin-bottom: 28px;
+}
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title .count {
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+.card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.card-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.health-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.health-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.health-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.health-red { background: var(--red); box-shadow: 0 0 6px var(--red); animation: pulse 2s infinite; }
+.health-unknown { background: var(--text-dim); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.card-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.tag {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface2);
+  font-size: 11px;
+}
+.tag-pro { color: var(--purple); border: 1px solid rgba(167,139,250,0.3); }
+.tag-team { color: var(--cyan); border: 1px solid rgba(34,211,238,0.3); }
+.card-note {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-stats {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.urgency-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.urgency-critical { background: rgba(248,113,113,0.2); color: var(--red); }
+.urgency-high { background: rgba(251,146,60,0.2); color: var(--orange); }
+.urgency-medium { background: rgba(251,191,36,0.2); color: var(--yellow); }
+.dormant-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.dormant-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.dormant-item:hover { border-color: var(--text-dim); }
+.killed-list {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.progress-feed {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.progress-item {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.progress-item:last-child { border-bottom: none; }
+.progress-time {
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 80px;
+  text-align: right;
+}
+.progress-source {
+  color: var(--accent);
+  font-weight: 500;
+  min-width: 60px;
+}
+.progress-text { color: var(--text); flex: 1; }
+
+/* Detail panel */
+.detail-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+}
+.detail-overlay.open { display: flex; justify-content: flex-end; }
+.detail-panel {
+  width: 480px;
+  max-width: 90vw;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px;
+}
+.detail-panel h2 { font-size: 20px; margin-bottom: 4px; }
+.detail-section { margin-top: 20px; }
+.detail-section h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.detail-field {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.detail-field label { color: var(--text-dim); }
+.detail-note {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text);
+}
+.task-list { list-style: none; }
+.task-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.task-priority {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.pri-critical { background: var(--red); }
+.pri-high { background: var(--orange); }
+.pri-medium { background: var(--yellow); }
+.pri-low { background: var(--text-dim); }
+.close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.detail-panel { position: relative; }
+
+/* Edit inline */
+.editable {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.editable:hover { background: var(--surface2); }
+select.inline-select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+/* Action buttons */
+.action-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.action-btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+}
+.action-btn:hover { border-color: var(--accent); }
+.action-btn.danger { border-color: rgba(248,113,113,0.3); color: var(--red); }
+.action-btn.danger:hover { border-color: var(--red); background: rgba(248,113,113,0.1); }
+.action-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.action-btn.primary:hover { opacity: 0.9; }
+.action-btn.success { border-color: rgba(74,222,128,0.3); color: var(--green); }
+.action-btn.success:hover { border-color: var(--green); background: rgba(74,222,128,0.1); }
+
+/* Add task form */
+.add-task-form {
+  display: none;
+  margin-top: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.add-task-form.open { display: block; }
+.add-task-form input, .add-task-form select {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  outline: none;
+}
+.add-task-form input:focus { border-color: var(--accent); }
+.form-row { display: flex; gap: 8px; }
+.form-row select { width: auto; flex: 1; }
+
+/* Spawn modal */
+.spawn-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 300;
+  justify-content: center;
+  align-items: center;
+}
+.spawn-modal.open { display: flex; }
+.spawn-dialog {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 400px;
+  max-width: 90vw;
+}
+.spawn-dialog h3 { margin-bottom: 12px; }
+.spawn-dialog input, .spawn-dialog textarea {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  outline: none;
+  font-family: inherit;
+}
+.spawn-dialog textarea { min-height: 60px; resize: vertical; }
+.spawn-dialog .btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+/* Notification toast */
+.toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  animation: slidein 0.3s ease;
+  max-width: 350px;
+  cursor: pointer;
+}
+.toast .toast-title { font-weight: 600; margin-bottom: 4px; }
+.toast .toast-body { color: var(--text-dim); }
+@keyframes slidein { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* Connected agents indicator */
+.agents-indicator {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 4px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.agents-indicator .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+/* Message bar */
+.msg-bar {
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.msg-bar input, .msg-bar select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+}
+.msg-bar input:focus { border-color: var(--accent); }
+.msg-bar input[type="text"] { flex: 1; }
+.msg-bar select { min-width: 140px; }
+.msg-bar button {
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.msg-bar button:hover { opacity: 0.9; }
+.msg-bar button:disabled { opacity: 0.4; cursor: default; }
+.msg-sent { color: var(--green); font-size: 12px; animation: fadeout 2s forwards; }
+@keyframes fadeout { 0%{opacity:1} 70%{opacity:1} 100%{opacity:0} }
+
+/* Chat in detail panel */
+.chat-messages {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.chat-msg {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  max-width: 90%;
+}
+.chat-msg.from-user {
+  background: var(--accent);
+  color: #fff;
+  align-self: flex-end;
+  border-bottom-right-radius: 2px;
+}
+.chat-msg.from-agent {
+  background: var(--surface2);
+  color: var(--text);
+  align-self: flex-start;
+  border-bottom-left-radius: 2px;
+}
+.chat-msg .msg-from {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  opacity: 0.7;
+}
+.chat-msg .msg-time {
+  font-size: 10px;
+  opacity: 0.5;
+  margin-top: 2px;
+}
+.chat-input {
+  display: flex;
+  gap: 6px;
+}
+.chat-input input {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+}
+.chat-input input:focus { border-color: var(--accent); }
+.chat-input button {
+  padding: 8px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Unread badge */
+.unread-badge {
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .cards { grid-template-columns: 1fr; }
+  header { flex-direction: column; gap: 8px; }
+  .detail-panel { width: 100%; }
+  main { padding: 12px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1><span>Waggle</span> Mission Control</h1>
+  <div class="filters">
+    <div class="agents-indicator" id="agents-indicator" onclick="toggleAgentList()" title="Connected agents">
+      <div class="dot"></div> <span id="agent-count">0</span> agents
+    </div>
+    <button class="filter-btn active" data-filter="all">All</button>
+    <button class="filter-btn" data-filter="pro">Pro</button>
+    <button class="filter-btn" data-filter="team">Team</button>
+  </div>
+</header>
+<div class="msg-bar" id="msg-bar">
+  <select id="msg-to"><option value="">broadcast</option></select>
+  <input type="text" id="msg-text" placeholder="Send message to agent..." onkeydown="if(event.key==='Enter')sendMessage()">
+  <button onclick="sendMessage()" id="msg-send">Send</button>
+  <span id="msg-status"></span>
+</div>
+<main id="app">
+  <div id="attention-section" class="section" style="display:none">
+    <div class="section-title">Needs Attention <span class="count" id="attention-count">0</span></div>
+    <div class="cards" id="attention-cards"></div>
+  </div>
+  <div id="earning-section" class="section" style="display:none">
+    <div class="section-title">Earning <span class="count" id="earning-count">0</span></div>
+    <div class="cards" id="earning-cards"></div>
+  </div>
+  <div id="active-section" class="section" style="display:none">
+    <div class="section-title">Active Projects <span class="count" id="active-count">0</span></div>
+    <div class="cards" id="active-cards"></div>
+  </div>
+  <div id="paused-section" class="section" style="display:none">
+    <div class="section-title">Paused <span class="count" id="paused-count">0</span></div>
+    <div class="cards" id="paused-cards"></div>
+  </div>
+  <div id="dormant-section" class="section" style="display:none">
+    <div class="section-title">Dormant</div>
+    <div class="dormant-list" id="dormant-list"></div>
+  </div>
+  <div id="killed-section" class="section" style="display:none">
+    <div class="section-title">Killed</div>
+    <div class="killed-list" id="killed-list"></div>
+  </div>
+  <div class="section progress-feed">
+    <div class="section-title">Recent Progress</div>
+    <div id="progress-feed"></div>
+  </div>
+</main>
+
+<div class="detail-overlay" id="detail-overlay">
+  <div class="detail-panel" id="detail-panel">
+    <button class="close-btn" id="close-detail">&times;</button>
+    <h2 id="detail-name"></h2>
+    <div class="card-meta" id="detail-meta"></div>
+    <div class="action-bar" id="detail-actions"></div>
+    <div class="detail-section" id="detail-parking-section" style="display:none">
+      <h3>Where I Left Off</h3>
+      <div class="detail-note" id="detail-parking"></div>
+    </div>
+    <div class="detail-section">
+      <h3>Status</h3>
+      <div id="detail-fields"></div>
+    </div>
+    <div class="detail-section">
+      <h3>Open Tasks <button class="action-btn" style="float:right;padding:2px 8px;font-size:11px" onclick="toggleAddTask()">+ Add</button></h3>
+      <div class="add-task-form" id="add-task-form">
+        <input type="text" id="new-task-title" placeholder="Task title" onkeydown="if(event.key==='Enter')addTask()">
+        <div class="form-row">
+          <select id="new-task-priority">
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+            <option value="low">Low</option>
+          </select>
+          <button class="action-btn primary" onclick="addTask()" style="padding:6px 16px">Add</button>
+        </div>
+      </div>
+      <ul class="task-list" id="detail-tasks"></ul>
+    </div>
+    <div class="detail-section">
+      <h3>Recent Progress</h3>
+      <div id="detail-progress"></div>
+    </div>
+    <div class="detail-section">
+      <h3>Messages</h3>
+      <div class="chat-messages" id="detail-chat"></div>
+      <div class="chat-input">
+        <input type="text" id="detail-chat-input" placeholder="Send message..." onkeydown="if(event.key==='Enter')sendProjectMessage()">
+        <button onclick="sendProjectMessage()">Send</button>
+      </div>
+    </div>
+    <div class="detail-section">
+      <h3>Sessions</h3>
+      <div id="detail-sessions"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<div class="spawn-modal" id="spawn-modal">
+  <div class="spawn-dialog">
+    <h3>Spawn Agent</h3>
+    <input type="text" id="spawn-name" placeholder="Agent name (e.g. backend-agent)">
+    <input type="text" id="spawn-project" placeholder="Project ID" readonly>
+    <input type="text" id="spawn-workdir" placeholder="Working directory" readonly>
+    <textarea id="spawn-prompt" placeholder="Initial prompt (optional)"></textarea>
+    <div class="btn-row">
+      <button class="action-btn" onclick="closeSpawnModal()">Cancel</button>
+      <button class="action-btn primary" onclick="doSpawn()">Spawn</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+let allProjects = [];
+let allProgress = [];
+let allAgents = [];
+let currentFilter = 'all';
+let currentDetailProjectId = null;
+
+// --- Fetch ---
+async function fetchProjects() {
+  const resp = await fetch(API + '/api/whats-next');
+  if (!resp.ok) return [];
+  return resp.json();
+}
+
+async function fetchAllProjects() {
+  const resp = await fetch(API + '/api/projects');
+  if (!resp.ok) return [];
+  return resp.json();
+}
+
+async function fetchProgress() {
+  const resp = await fetch(API + '/api/progress?limit=20');
+  if (!resp.ok) return [];
+  return resp.json();
+}
+
+async function fetchAgents() {
+  const resp = await fetch(API + '/api/agents');
+  if (!resp.ok) return [];
+  return resp.json();
+}
+
+async function fetchMessages(projectId, limit) {
+  let url = API + '/api/messages?limit=' + (limit || 30);
+  if (projectId) url += '&project_id=' + encodeURIComponent(projectId);
+  const resp = await fetch(url);
+  if (!resp.ok) return [];
+  return resp.json();
+}
+
+async function fetchBriefing(projectId) {
+  const resp = await fetch(API + '/api/briefing?project_id=' + encodeURIComponent(projectId));
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
+async function updateProject(id, updates) {
+  await fetch(API + '/api/projects/' + id, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(updates)
+  });
+}
+
+// --- Render ---
+function renderCard(p) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.onclick = () => openDetail(p.id || p.ID);
+
+  const healthClass = 'health-' + (p.health || p.Health || 'unknown');
+  const name = p.name || p.Name || 'Unknown';
+  const account = p.account || p.Account || '';
+  const category = p.category || p.Category || '';
+  const parkingNote = p.parking_note || p.ParkingNote || '';
+  const lastTouched = p.last_touched || timeAgo(p.last_touched_at || p.LastTouchedAt);
+  const openTasks = p.open_tasks != null ? p.open_tasks : '?';
+  const urgency = p.urgency || '';
+  const reason = p.reason || '';
+  const techStack = p.tech_stack || p.TechStack || '';
+  const revenueStatus = p.revenue_status || p.RevenueStatus || '';
+
+  let urgencyHTML = '';
+  if (urgency && urgency !== 'low') {
+    urgencyHTML = `<span class="urgency-badge urgency-${urgency}">${urgency}</span>`;
+  }
+
+  let metaTags = '';
+  if (account) metaTags += `<span class="tag tag-${account}">${account}</span>`;
+  if (techStack) metaTags += `<span class="tag">${techStack}</span>`;
+  if (revenueStatus) metaTags += `<span class="tag">${revenueStatus}</span>`;
+
+  const status = (p.status || p.Status || 'active').toLowerCase();
+
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="card-name">${esc(name)}</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        ${urgencyHTML}
+        <div class="health-dot ${healthClass}"></div>
+      </div>
+    </div>
+    <div class="card-meta">${metaTags}${status !== 'active' && status !== 'earning' ? `<span class="tag">${status}</span>` : ''}</div>
+    <div class="card-stats">
+      <span>${lastTouched}</span>
+      <span>${openTasks} open tasks</span>
+    </div>
+    ${reason ? `<div class="card-note">${esc(reason)}</div>` : ''}
+    ${parkingNote ? `<div class="card-note">"${esc(parkingNote)}"</div>` : ''}
+  `;
+  return card;
+}
+
+function renderAll() {
+  const filtered = currentFilter === 'all'
+    ? allProjects
+    : allProjects.filter(p => (p.account || p.Account || '') === currentFilter);
+
+  // Categorize
+  const attention = [], earning = [], active = [], paused = [], dormant = [], killed = [];
+  for (const p of filtered) {
+    const status = (p.status || p.Status || 'active').toLowerCase();
+    const health = (p.health || p.Health || 'unknown').toLowerCase();
+    const rev = (p.revenue_status || p.RevenueStatus || '').toLowerCase();
+    const urgency = p.urgency || '';
+
+    if (status === 'killed') { killed.push(p); continue; }
+    if (status === 'dormant' && urgency === 'low') { dormant.push(p); continue; }
+    if (status === 'paused') { paused.push(p); continue; }
+    if (health === 'red' || rev === 'stalled' || urgency === 'critical' || urgency === 'high') {
+      attention.push(p);
+    } else if (status === 'earning' || rev === 'earning') {
+      earning.push(p);
+    } else if (status === 'dormant') {
+      dormant.push(p);
+    } else {
+      active.push(p);
+    }
+  }
+
+  renderSection('attention', attention);
+  renderSection('earning', earning);
+  renderSection('active', active);
+  renderSection('paused', paused);
+
+  // Dormant: compact list
+  const dormantEl = document.getElementById('dormant-list');
+  const dormantSec = document.getElementById('dormant-section');
+  dormantEl.innerHTML = '';
+  dormantSec.style.display = dormant.length ? '' : 'none';
+  for (const p of dormant) {
+    const el = document.createElement('span');
+    el.className = 'dormant-item';
+    el.textContent = p.name || p.Name;
+    el.onclick = () => openDetail(p.id || p.ID);
+    dormantEl.appendChild(el);
+  }
+
+  // Killed: inline list
+  const killedEl = document.getElementById('killed-list');
+  const killedSec = document.getElementById('killed-section');
+  killedSec.style.display = killed.length ? '' : 'none';
+  killedEl.textContent = killed.map(p => p.name || p.Name).join(' | ');
+
+  // Progress feed
+  renderProgressFeed();
+}
+
+function renderSection(id, items) {
+  const container = document.getElementById(id + '-cards');
+  const section = document.getElementById(id + '-section');
+  const count = document.getElementById(id + '-count');
+  container.innerHTML = '';
+  section.style.display = items.length ? '' : 'none';
+  if (count) count.textContent = items.length;
+  for (const p of items) {
+    container.appendChild(renderCard(p));
+  }
+}
+
+function renderProgressFeed() {
+  const container = document.getElementById('progress-feed');
+  container.innerHTML = '';
+  if (!allProgress || !allProgress.length) {
+    container.innerHTML = '<div style="color:var(--text-dim);font-size:13px">No progress logged yet</div>';
+    return;
+  }
+  for (const p of allProgress.slice(0, 15)) {
+    const el = document.createElement('div');
+    el.className = 'progress-item';
+    el.innerHTML = `
+      <span class="progress-time">${timeAgo(p.created_at)}</span>
+      <span class="progress-source">${esc(p.source)}</span>
+      <span class="progress-text">${esc(p.summary)}</span>
+    `;
+    container.appendChild(el);
+  }
+}
+
+// --- Detail Panel ---
+async function openDetail(projectId) {
+  const briefing = await fetchBriefing(projectId);
+  if (!briefing) return;
+
+  const p = briefing.project;
+  document.getElementById('detail-name').textContent = p.name || p.Name;
+
+  // Meta
+  const metaEl = document.getElementById('detail-meta');
+  let metaHTML = '';
+  if (p.account) metaHTML += `<span class="tag tag-${p.account}">${p.account}</span>`;
+  if (p.tech_stack) metaHTML += `<span class="tag">${p.tech_stack}</span>`;
+  if (p.category) metaHTML += `<span class="tag">${p.category}</span>`;
+  metaEl.innerHTML = metaHTML;
+
+  // Action buttons
+  const actionsEl = document.getElementById('detail-actions');
+  const workDir = p.work_dir || p.WorkDir || '';
+  let actionsHTML = '';
+  actionsHTML += `<button class="action-btn success" onclick="openSpawnModal('${p.id}','${esc(workDir)}')">Spawn Agent</button>`;
+  actionsHTML += `<button class="action-btn" onclick="checkHealth('${p.id}')">Check Health</button>`;
+
+  // Show kill buttons for agents on this project
+  const projectAgents = allAgents.filter(a =>
+    (a.project_id || a.ProjectID) === p.id &&
+    (a.status || a.Status) !== 'disconnected'
+  );
+  for (const a of projectAgents) {
+    const aName = a.name || a.Name;
+    actionsHTML += `<button class="action-btn danger" onclick="killAgent('${esc(aName)}')">Kill ${esc(aName)}</button>`;
+  }
+
+  actionsEl.innerHTML = actionsHTML;
+
+  // Parking note
+  const parkingSec = document.getElementById('detail-parking-section');
+  const parkingEl = document.getElementById('detail-parking');
+  if (p.parking_note) {
+    parkingSec.style.display = '';
+    parkingEl.textContent = p.parking_note;
+  } else {
+    parkingSec.style.display = 'none';
+  }
+
+  // Fields
+  const fieldsEl = document.getElementById('detail-fields');
+  fieldsEl.innerHTML = `
+    <div class="detail-field"><label>Status</label>
+      <select class="inline-select" onchange="updateField('${p.id}','status',this.value)">
+        ${['active','dormant','paused','earning','broken','killed'].map(s =>
+          `<option value="${s}" ${(p.status||'active')===s?'selected':''}>${s}</option>`
+        ).join('')}
+      </select>
+    </div>
+    <div class="detail-field"><label>Health</label>
+      <select class="inline-select" onchange="updateField('${p.id}','health',this.value)">
+        ${['green','yellow','red','unknown'].map(h =>
+          `<option value="${h}" ${(p.health||'unknown')===h?'selected':''}>${h}</option>`
+        ).join('')}
+      </select>
+    </div>
+    <div class="detail-field"><label>Last Touched</label><span>${briefing.last_touched}</span></div>
+    <div class="detail-field"><label>Open Tasks</label><span>${briefing.open_task_count}</span></div>
+    <div class="detail-field"><label>Revenue</label>
+      <select class="inline-select" onchange="updateField('${p.id}','revenue_status',this.value)">
+        ${['','earning','setup','stalled'].map(r =>
+          `<option value="${r}" ${(p.revenue_status||'')===r?'selected':''}>${r||'none'}</option>`
+        ).join('')}
+      </select>
+    </div>
+  `;
+
+  // Tasks
+  const tasksEl = document.getElementById('detail-tasks');
+  tasksEl.innerHTML = '';
+  if (briefing.top_tasks && briefing.top_tasks.length) {
+    for (const t of briefing.top_tasks) {
+      const li = document.createElement('li');
+      li.innerHTML = `<div class="task-priority pri-${t.priority}"></div><span>${esc(t.title)}</span><span class="tag">${t.status}</span>`;
+      tasksEl.appendChild(li);
+    }
+  } else {
+    tasksEl.innerHTML = '<li style="color:var(--text-dim)">No open tasks</li>';
+  }
+
+  // Progress
+  const progEl = document.getElementById('detail-progress');
+  progEl.innerHTML = '';
+  if (briefing.recent_progress && briefing.recent_progress.length) {
+    for (const pr of briefing.recent_progress) {
+      const el = document.createElement('div');
+      el.className = 'progress-item';
+      el.innerHTML = `<span class="progress-time">${timeAgo(pr.created_at)}</span><span class="progress-source">${esc(pr.source)}</span><span class="progress-text">${esc(pr.summary)}</span>`;
+      progEl.appendChild(el);
+    }
+  } else {
+    progEl.innerHTML = '<div style="color:var(--text-dim);font-size:13px">No progress logged</div>';
+  }
+
+  // Sessions
+  const sessEl = document.getElementById('detail-sessions');
+  sessEl.innerHTML = '';
+  if (briefing.recent_sessions && briefing.recent_sessions.length) {
+    for (const s of briefing.recent_sessions) {
+      const el = document.createElement('div');
+      el.className = 'progress-item';
+      el.innerHTML = `<span class="progress-time">${timeAgo(s.started_at)}</span><span class="progress-text">${esc(s.summary || 'No summary')}</span>`;
+      sessEl.appendChild(el);
+    }
+  } else {
+    sessEl.innerHTML = '<div style="color:var(--text-dim);font-size:13px">No sessions recorded</div>';
+  }
+
+  // Load project chat
+  currentDetailProjectId = projectId;
+  loadProjectChat(projectId);
+
+  document.getElementById('detail-overlay').classList.add('open');
+}
+
+async function updateField(projectId, field, value) {
+  const updates = {};
+  updates[field] = value;
+  await updateProject(projectId, updates);
+  await refresh();
+}
+
+function closeDetail() {
+  document.getElementById('detail-overlay').classList.remove('open');
+  currentDetailProjectId = null;
+}
+
+// --- Messaging ---
+async function sendMessage() {
+  const to = document.getElementById('msg-to').value;
+  const body = document.getElementById('msg-text').value.trim();
+  if (!body) return;
+
+  const payload = { from: 'user', body };
+  if (to) payload.to = to;
+
+  const resp = await fetch(API + '/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+
+  if (resp.ok) {
+    document.getElementById('msg-text').value = '';
+    const status = document.getElementById('msg-status');
+    status.innerHTML = '<span class="msg-sent">Sent</span>';
+    setTimeout(() => status.innerHTML = '', 2500);
+  }
+}
+
+async function sendProjectMessage() {
+  const input = document.getElementById('detail-chat-input');
+  const body = input.value.trim();
+  if (!body || !currentDetailProjectId) return;
+
+  const payload = { from: 'user', body, project_id: currentDetailProjectId };
+
+  const resp = await fetch(API + '/api/messages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+
+  if (resp.ok) {
+    input.value = '';
+    // Refresh chat in detail panel
+    loadProjectChat(currentDetailProjectId);
+  }
+}
+
+async function loadProjectChat(projectId) {
+  const messages = await fetchMessages(projectId, 20);
+  const chatEl = document.getElementById('detail-chat');
+  chatEl.innerHTML = '';
+
+  if (!messages || !messages.length) {
+    chatEl.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:8px">No messages yet</div>';
+    return;
+  }
+
+  // Reverse for chronological order (API returns newest first)
+  const sorted = [...messages].reverse();
+  for (const m of sorted) {
+    const isUser = (m.from === 'user');
+    const el = document.createElement('div');
+    el.className = 'chat-msg ' + (isUser ? 'from-user' : 'from-agent');
+    el.innerHTML = `
+      ${!isUser ? `<div class="msg-from">${esc(m.from)}</div>` : ''}
+      <div>${esc(m.body)}</div>
+      <div class="msg-time">${timeAgo(m.created_at)}</div>
+    `;
+    chatEl.appendChild(el);
+  }
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+// --- Task Creation ---
+function toggleAddTask() {
+  document.getElementById('add-task-form').classList.toggle('open');
+  document.getElementById('new-task-title').focus();
+}
+
+async function addTask() {
+  const title = document.getElementById('new-task-title').value.trim();
+  const priority = document.getElementById('new-task-priority').value;
+  if (!title || !currentDetailProjectId) return;
+
+  await fetch(API + '/api/tasks', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ title, priority, project_id: currentDetailProjectId, status: 'ready' })
+  });
+
+  document.getElementById('new-task-title').value = '';
+  document.getElementById('add-task-form').classList.remove('open');
+  openDetail(currentDetailProjectId);
+}
+
+// --- Agent Spawn/Kill ---
+function openSpawnModal(projectId, workDir) {
+  document.getElementById('spawn-project').value = projectId;
+  document.getElementById('spawn-workdir').value = workDir || '';
+  document.getElementById('spawn-name').value = '';
+  document.getElementById('spawn-prompt').value = '';
+  document.getElementById('spawn-modal').classList.add('open');
+  document.getElementById('spawn-name').focus();
+}
+
+function closeSpawnModal() {
+  document.getElementById('spawn-modal').classList.remove('open');
+}
+
+async function doSpawn() {
+  const name = document.getElementById('spawn-name').value.trim();
+  const projectId = document.getElementById('spawn-project').value;
+  const workDir = document.getElementById('spawn-workdir').value;
+  const prompt = document.getElementById('spawn-prompt').value.trim();
+  if (!name) { document.getElementById('spawn-name').focus(); return; }
+
+  const payload = { name, type: 'claude-code', work_dir: workDir };
+  if (projectId) payload.project_id = projectId;
+  if (prompt) payload.prompt = prompt;
+
+  const resp = await fetch(API + '/api/spawn', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+
+  closeSpawnModal();
+  if (resp.ok) {
+    showToast('Agent Spawned', `${name} is starting up`);
+    setTimeout(refresh, 2000);
+  } else {
+    const err = await resp.text();
+    showToast('Spawn Failed', err);
+  }
+}
+
+async function killAgent(name) {
+  if (!confirm(`Kill agent "${name}"?`)) return;
+  const resp = await fetch(API + '/api/agents/' + encodeURIComponent(name), {
+    method: 'DELETE'
+  });
+  if (resp.ok) {
+    showToast('Agent Killed', `${name} has been disconnected`);
+    setTimeout(refresh, 1000);
+  }
+}
+
+function toggleAgentList() {
+  const names = allAgents
+    .filter(a => (a.status || a.Status) !== 'disconnected')
+    .map(a => a.name || a.Name);
+  if (names.length === 0) {
+    showToast('No Agents', 'No agents currently connected');
+  } else {
+    showToast('Connected Agents', names.join(', '));
+  }
+}
+
+// --- Notifications/Toasts ---
+function showToast(title, body) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = `<div class="toast-title">${esc(title)}</div><div class="toast-body">${esc(body)}</div>`;
+  toast.onclick = () => toast.remove();
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 5000);
+}
+
+async function checkHealth(projectId) {
+  showToast('Health Check', 'Running health check...');
+  const resp = await fetch(API + '/api/health-check?project_id=' + projectId, { method: 'POST' });
+  if (resp.ok) {
+    const results = await resp.json();
+    if (results && results.length > 0) {
+      const r = results[0];
+      showToast('Health: ' + r.health, r.reason || 'All good');
+    } else {
+      showToast('Health Check', 'No work_dir set for this project');
+    }
+    openDetail(projectId);
+    refresh();
+  }
+}
+
+// Browser push notification permission
+async function requestNotifications() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+}
+
+function browserNotify(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '/favicon.ico' });
+  }
+  showToast(title, body);
+}
+
+// Track last known event for detecting new messages
+let lastEventCount = 0;
+
+function updateAgentDropdown() {
+  const select = document.getElementById('msg-to');
+  const current = select.value;
+  select.innerHTML = '<option value="">broadcast</option>';
+  for (const a of allAgents) {
+    const name = a.name || a.Name;
+    const status = a.status || a.Status || '';
+    if (status === 'disconnected') continue;
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
+  }
+  select.value = current;
+}
+
+// --- Helpers ---
+function esc(s) {
+  if (!s) return '';
+  const el = document.createElement('span');
+  el.textContent = s;
+  return el.innerHTML;
+}
+
+function timeAgo(ts) {
+  if (!ts) return 'never';
+  const d = new Date(ts);
+  if (isNaN(d)) return 'never';
+  const sec = Math.floor((Date.now() - d) / 1000);
+  if (sec < 60) return 'just now';
+  if (sec < 3600) return Math.floor(sec/60) + 'm ago';
+  if (sec < 86400) return Math.floor(sec/3600) + 'h ago';
+  const days = Math.floor(sec/86400);
+  if (days === 1) return 'yesterday';
+  if (days < 30) return days + 'd ago';
+  return Math.floor(days/30) + 'mo ago';
+}
+
+// --- Init ---
+async function refresh() {
+  const [whatsNext, projects, progress, agents] = await Promise.all([
+    fetchProjects(),
+    fetchAllProjects(),
+    fetchProgress(),
+    fetchAgents()
+  ]);
+  allAgents = agents || [];
+  updateAgentDropdown();
+  const connectedCount = allAgents.filter(a => (a.status || a.Status) !== 'disconnected').length;
+  document.getElementById('agent-count').textContent = connectedCount;
+
+  // Merge whats-next urgency info into full project list
+  const urgencyMap = {};
+  for (const w of (whatsNext || [])) {
+    urgencyMap[w.id] = { urgency: w.urgency, reason: w.reason, open_tasks: w.open_tasks, last_touched: w.last_touched };
+  }
+
+  allProjects = (projects || []).map(p => {
+    const id = p.id || p.ID;
+    const extra = urgencyMap[id] || {};
+    return { ...p, ...extra, id };
+  });
+
+  allProgress = progress || [];
+  renderAll();
+}
+
+// Filters
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    renderAll();
+  });
+});
+
+// Close detail
+document.getElementById('close-detail').addEventListener('click', closeDetail);
+document.getElementById('detail-overlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeDetail();
+});
+
+// SSE for live updates + notifications
+function connectSSE() {
+  const es = new EventSource(API + '/api/events');
+  es.onmessage = (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      const type = event.type || '';
+
+      // Notify on messages to user
+      if (type === 'message') {
+        const payload = event.payload || {};
+        if (payload.to === 'user' || payload.to === '') {
+          browserNotify(`Message from ${payload.from || 'agent'}`, payload.body || '');
+        }
+      }
+      // Notify on task completion
+      if (type === 'task_completed') {
+        const payload = event.payload || {};
+        browserNotify('Task Completed', payload.title || event.task_id || 'A task was completed');
+      }
+      // Notify on agent join/leave
+      if (type === 'agent_joined') {
+        showToast('Agent Connected', event.agent_id || 'An agent connected');
+      }
+      if (type === 'agent_left' || type === 'agent_stale') {
+        showToast('Agent Disconnected', event.agent_id || 'An agent disconnected');
+      }
+    } catch(err) {}
+
+    refresh();
+  };
+  es.onerror = () => {
+    es.close();
+    setTimeout(connectSSE, 5000);
+  };
+}
+
+// Boot
+requestNotifications();
+refresh();
+connectSSE();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

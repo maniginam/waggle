@@ -14,6 +14,9 @@ func Handler() http.Handler {
 	fileServer := http.FileServer(http.FS(sub))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		if r.URL.Path == "/" || r.URL.Path == "" {
+			r.URL.Path = "/mission-control.html"
+		}
 		fileServer.ServeHTTP(w, r)
 	})
 }
