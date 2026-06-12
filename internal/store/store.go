@@ -130,14 +130,6 @@ func (s *Store) migrate() error {
 			updated_at  TEXT NOT NULL
 		);
 
-		CREATE TABLE IF NOT EXISTS push_subscriptions (
-			id         TEXT PRIMARY KEY,
-			endpoint   TEXT UNIQUE NOT NULL,
-			auth       TEXT NOT NULL,
-			p256dh     TEXT NOT NULL,
-			created_at TEXT NOT NULL
-		);
-
 		CREATE TABLE IF NOT EXISTS settings (
 			key   TEXT PRIMARY KEY,
 			value TEXT NOT NULL
@@ -212,6 +204,20 @@ func (s *Store) migrate() error {
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_progress_created ON progress(created_at)")
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_projects_health ON projects(health)")
+
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS revenue (
+		id         TEXT PRIMARY KEY,
+		project_id TEXT NOT NULL,
+		amount     REAL NOT NULL,
+		source     TEXT NOT NULL,
+		note       TEXT DEFAULT '',
+		date       TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY (project_id) REFERENCES projects(id)
+	)`)
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_revenue_project ON revenue(project_id)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_revenue_date ON revenue(date)")
+
 	return err
 }
 
@@ -1458,47 +1464,63 @@ func (s *Store) Stats() (*Stats, error) {
 	return stats, nil
 }
 
-// --- Push Subscriptions ---
+// --- Revenue ---
 
-type PushSubscription struct {
-	ID       string `json:"id"`
-	Endpoint string `json:"endpoint"`
-	Auth     string `json:"auth"`
-	P256dh   string `json:"p256dh"`
-}
-
-func (s *Store) SavePushSubscription(sub *PushSubscription) error {
-	if sub.ID == "" {
-		sub.ID = id.New()
+func (s *Store) CreateRevenue(r *model.Revenue) error {
+	if r.ID == "" {
+		r.ID = id.New()
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
+	r.CreatedAt = time.Now().UTC()
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO push_subscriptions (id, endpoint, auth, p256dh, created_at) VALUES (?, ?, ?, ?, ?)`,
-		sub.ID, sub.Endpoint, sub.Auth, sub.P256dh, now,
+		`INSERT INTO revenue (id, project_id, amount, source, note, date, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.ProjectID, r.Amount, r.Source, r.Note, r.Date, r.CreatedAt.Format(time.RFC3339),
 	)
 	return err
 }
 
-func (s *Store) ListPushSubscriptions() ([]*PushSubscription, error) {
-	rows, err := s.db.Query(`SELECT id, endpoint, auth, p256dh FROM push_subscriptions`)
+func (s *Store) ListRevenue(projectID string) ([]*model.Revenue, error) {
+	query := `SELECT id, project_id, amount, source, note, date, created_at FROM revenue`
+	args := []any{}
+	if projectID != "" {
+		query += ` WHERE project_id = ?`
+		args = append(args, projectID)
+	}
+	query += ` ORDER BY date DESC`
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var subs []*PushSubscription
+	var results []*model.Revenue
 	for rows.Next() {
-		var sub PushSubscription
-		if err := rows.Scan(&sub.ID, &sub.Endpoint, &sub.Auth, &sub.P256dh); err != nil {
+		var r model.Revenue
+		var createdAt string
+		if err := rows.Scan(&r.ID, &r.ProjectID, &r.Amount, &r.Source, &r.Note, &r.Date, &createdAt); err != nil {
 			return nil, err
 		}
-		subs = append(subs, &sub)
+		r.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		results = append(results, &r)
 	}
-	return subs, rows.Err()
+	return results, rows.Err()
 }
 
-func (s *Store) DeletePushSubscription(endpoint string) error {
-	_, err := s.db.Exec(`DELETE FROM push_subscriptions WHERE endpoint = ?`, endpoint)
-	return err
+func (s *Store) RevenueSummary() (map[string]float64, float64, error) {
+	rows, err := s.db.Query(`SELECT project_id, SUM(amount) FROM revenue GROUP BY project_id`)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	byProject := map[string]float64{}
+	var total float64
+	for rows.Next() {
+		var pid string
+		var sum float64
+		rows.Scan(&pid, &sum)
+		byProject[pid] = sum
+		total += sum
+	}
+	return byProject, total, rows.Err()
 }
 
 // Settings

@@ -218,3 +218,13 @@ type Progress struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Revenue struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	Amount    float64   `json:"amount"`
+	Source    string    `json:"source"`
+	Note      string    `json:"note,omitempty"`
+	Date      string    `json:"date"`
+	CreatedAt time.Time `json:"created_at"`
+}
+

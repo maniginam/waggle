@@ -585,6 +585,18 @@ select.inline-select {
   <span id="msg-status"></span>
 </div>
 <main id="app">
+  <div id="revenue-bar" class="section" style="display:none">
+    <div class="section-title">Revenue <span id="revenue-total" style="color:var(--green);font-weight:700"></span></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px" id="revenue-breakdown"></div>
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+      <select id="rev-project" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px"></select>
+      <input id="rev-amount" type="number" step="0.01" placeholder="Amount" style="width:90px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+      <input id="rev-source" placeholder="Source" style="width:100px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+      <input id="rev-date" type="date" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+      <input id="rev-note" placeholder="Note" style="width:120px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+      <button onclick="addRevenue()" style="background:var(--green);color:#000;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600">+ Add</button>
+    </div>
+  </div>
   <div id="attention-section" class="section" style="display:none">
     <div class="section-title">Needs Attention <span class="count" id="attention-count">0</span></div>
     <div class="cards" id="attention-cards"></div>
@@ -1242,12 +1254,14 @@ function timeAgo(ts) {
 
 // --- Init ---
 async function refresh() {
-  const [whatsNext, projects, progress, agents] = await Promise.all([
+  const [whatsNext, projects, progress, agents, revSummary] = await Promise.all([
     fetchProjects(),
     fetchAllProjects(),
     fetchProgress(),
-    fetchAgents()
+    fetchAgents(),
+    fetch(API + '/api/revenue?summary=true').then(r => r.json()).catch(() => null)
   ]);
+  renderRevenue(revSummary);
   allAgents = agents || [];
   updateAgentDropdown();
   const connectedCount = allAgents.filter(a => (a.status || a.Status) !== 'disconnected').length;
@@ -1327,6 +1341,51 @@ requestNotifications();
 refresh();
 connectSSE();
 setInterval(refresh, 30000);
+function renderRevenue(summary) {
+  const bar = document.getElementById('revenue-bar');
+  const totalEl = document.getElementById('revenue-total');
+  const breakdownEl = document.getElementById('revenue-breakdown');
+  const hasEarningProjects = allProjects.some(p => p.status === 'earning' || p.category === 'revenue');
+  if (!hasEarningProjects) { bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  const total = (summary && summary.total) || 0;
+  const byProject = (summary && summary.by_project) || {};
+  totalEl.textContent = '$' + total.toFixed(2);
+  const projectNames = {};
+  for (const p of allProjects) projectNames[p.id] = p.name || p.id;
+  breakdownEl.innerHTML = Object.entries(byProject).map(([pid, amt]) =>
+    `<span style="background:var(--surface2);padding:4px 10px;border-radius:4px;font-size:13px">${projectNames[pid] || pid}: <b style="color:var(--green)">$${amt.toFixed(2)}</b></span>`
+  ).join('');
+  // Populate project dropdown for adding revenue
+  const select = document.getElementById('rev-project');
+  const earningProjects = allProjects.filter(p => p.status === 'earning' || p.category === 'revenue');
+  select.innerHTML = earningProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  // Default date to today
+  document.getElementById('rev-date').value = new Date().toISOString().split('T')[0];
+}
+
+async function addRevenue() {
+  const projectId = document.getElementById('rev-project').value;
+  const amount = parseFloat(document.getElementById('rev-amount').value);
+  const source = document.getElementById('rev-source').value || 'manual';
+  const date = document.getElementById('rev-date').value;
+  const note = document.getElementById('rev-note').value;
+  if (!projectId || !amount || !date) { showToast('Error', 'Project, amount, and date required'); return; }
+  const resp = await fetch(API + '/api/revenue', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ project_id: projectId, amount, source, date, note })
+  });
+  if (resp.ok) {
+    document.getElementById('rev-amount').value = '';
+    document.getElementById('rev-note').value = '';
+    document.getElementById('rev-source').value = '';
+    showToast('Revenue', `$${amount.toFixed(2)} recorded`);
+    refresh();
+  } else {
+    showToast('Error', 'Failed to record revenue');
+  }
+}
 </script>
 </body>
 </html>

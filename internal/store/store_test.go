@@ -667,51 +667,6 @@ func TestSettingsGetSet(t *testing.T) {
 	}
 }
 
-func TestPushSubscriptions(t *testing.T) {
-	s := tempStore(t)
-
-	sub := &PushSubscription{
-		Endpoint: "https://push.example.com/sub1",
-		Auth:     "auth-key-1",
-		P256dh:   "p256dh-key-1",
-	}
-	if err := s.SavePushSubscription(sub); err != nil {
-		t.Fatal(err)
-	}
-
-	subs, err := s.ListPushSubscriptions()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(subs) != 1 {
-		t.Errorf("expected 1 subscription, got %d", len(subs))
-	}
-	if subs[0].Endpoint != "https://push.example.com/sub1" {
-		t.Errorf("unexpected endpoint: %s", subs[0].Endpoint)
-	}
-
-	// Upsert same endpoint
-	sub2 := &PushSubscription{
-		Endpoint: "https://push.example.com/sub1",
-		Auth:     "new-auth",
-		P256dh:   "new-p256dh",
-	}
-	s.SavePushSubscription(sub2)
-	subs, _ = s.ListPushSubscriptions()
-	if len(subs) != 1 {
-		t.Errorf("expected 1 after upsert, got %d", len(subs))
-	}
-
-	// Delete
-	if err := s.DeletePushSubscription("https://push.example.com/sub1"); err != nil {
-		t.Fatal(err)
-	}
-	subs, _ = s.ListPushSubscriptions()
-	if len(subs) != 0 {
-		t.Errorf("expected 0 after delete, got %d", len(subs))
-	}
-}
-
 func TestMarkMessagesRead(t *testing.T) {
 	s := tempStore(t)
 	m1 := &model.Message{From: "a", To: "b", Body: "hello"}
@@ -1302,5 +1257,61 @@ func TestDeleteAgentReturnsErrNotFoundForNonexistent(t *testing.T) {
 	err := s.DeleteAgent("nonexistent-agent")
 	if err != ErrNotFound {
 		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestRevenueCRUD(t *testing.T) {
+	s := tempStore(t)
+
+	proj := &model.Project{Name: "rev-test"}
+	s.CreateProject(proj)
+
+	rev := &model.Revenue{
+		ProjectID: proj.ID,
+		Amount:    49.99,
+		Source:    "kdp",
+		Date:      "2026-06-01",
+		Note:      "book sales",
+	}
+	if err := s.CreateRevenue(rev); err != nil {
+		t.Fatal(err)
+	}
+	if rev.ID == "" {
+		t.Error("expected ID to be set")
+	}
+
+	entries, err := s.ListRevenue(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].Amount != 49.99 {
+		t.Errorf("expected 49.99, got %f", entries[0].Amount)
+	}
+	if entries[0].Source != "kdp" {
+		t.Errorf("expected kdp, got %s", entries[0].Source)
+	}
+
+	// Add second entry
+	s.CreateRevenue(&model.Revenue{ProjectID: proj.ID, Amount: 25.00, Source: "redbubble", Date: "2026-06-05"})
+
+	// List all
+	all, _ := s.ListRevenue("")
+	if len(all) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(all))
+	}
+
+	// Summary
+	byProject, total, err := s.RevenueSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int(total*100) != 7499 {
+		t.Errorf("expected total ~74.99, got %f", total)
+	}
+	if int(byProject[proj.ID]*100) != 7499 {
+		t.Errorf("expected project total ~74.99, got %f", byProject[proj.ID])
 	}
 }

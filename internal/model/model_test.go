@@ -50,3 +50,19 @@ func TestTaskTypeValid(t *testing.T) {
 	}
 }
 
+func TestProjectStatusValid(t *testing.T) {
+	valid := []ProjectStatus{ProjectActive, ProjectDormant, ProjectPaused, ProjectEarning, ProjectBroken, ProjectKilled}
+	for _, s := range valid {
+		if !s.Valid() {
+			t.Errorf("expected %q to be valid", s)
+		}
+	}
+
+	invalid := []ProjectStatus{"", "archived", "pending", "unknown"}
+	for _, s := range invalid {
+		if s.Valid() {
+			t.Errorf("expected %q to be invalid", s)
+		}
+	}
+}
+

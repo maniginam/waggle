@@ -113,3 +113,170 @@ func TestUnknownMethod(t *testing.T) {
 	}
 }
 
+func TestToolsList(t *testing.T) {
+	adapter, _ := setupMCP(t)
+	resp := callMCP(t, adapter, "tools/list", 10, nil)
+
+	result, ok := resp["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected result map, got %v", resp)
+	}
+	tools, ok := result["tools"].([]any)
+	if !ok {
+		t.Fatalf("expected tools array, got %T", result["tools"])
+	}
+
+	expected := []string{
+		"waggle_ctx_briefing", "waggle_park", "waggle_log", "waggle_whats_next",
+		"waggle_create_task", "waggle_list_tasks", "waggle_update_task", "waggle_complete_task", "waggle_delete_task",
+		"waggle_list_projects", "waggle_update_project",
+		"waggle_send_message", "waggle_read_messages",
+	}
+
+	if len(tools) != len(expected) {
+		t.Errorf("expected %d tools, got %d", len(expected), len(tools))
+	}
+
+	names := map[string]bool{}
+	for _, tool := range tools {
+		tm := tool.(map[string]any)
+		names[tm["name"].(string)] = true
+	}
+	for _, name := range expected {
+		if !names[name] {
+			t.Errorf("missing tool: %s", name)
+		}
+	}
+}
+
+func TestCtxBriefing(t *testing.T) {
+	adapter, ts := setupMCP(t)
+
+	// Create a project first
+	body := `{"name":"test-project","status":"active","health":"green"}`
+	resp, _ := ts.Client().Post(ts.URL+"/api/projects", "application/json", strings.NewReader(body))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projectID := proj["id"].(string)
+
+	mcpResp := callMCP(t, adapter, "tools/call", 11, map[string]any{
+		"name":      "waggle_ctx_briefing",
+		"arguments": map[string]any{"project_id": projectID},
+	})
+	result := mcpResp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("briefing failed: %v", result)
+	}
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "test-project") {
+		t.Errorf("briefing should contain project name, got: %s", text[:100])
+	}
+}
+
+func TestParkProject(t *testing.T) {
+	adapter, ts := setupMCP(t)
+
+	body := `{"name":"park-test","status":"active"}`
+	resp, _ := ts.Client().Post(ts.URL+"/api/projects", "application/json", strings.NewReader(body))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projectID := proj["id"].(string)
+
+	mcpResp := callMCP(t, adapter, "tools/call", 12, map[string]any{
+		"name": "waggle_park",
+		"arguments": map[string]any{
+			"project_id":   projectID,
+			"parking_note": "stopped at feature X",
+		},
+	})
+	result := mcpResp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("park failed: %v", result)
+	}
+
+	// Verify parking note was set
+	getResp, _ := ts.Client().Get(ts.URL + "/api/projects/" + projectID)
+	var updated map[string]any
+	json.NewDecoder(getResp.Body).Decode(&updated)
+	getResp.Body.Close()
+	if updated["parking_note"] != "stopped at feature X" {
+		t.Errorf("expected parking note, got %v", updated["parking_note"])
+	}
+}
+
+func TestLogProgress(t *testing.T) {
+	adapter, ts := setupMCP(t)
+
+	body := `{"name":"log-test","status":"active"}`
+	resp, _ := ts.Client().Post(ts.URL+"/api/projects", "application/json", strings.NewReader(body))
+	var proj map[string]any
+	json.NewDecoder(resp.Body).Decode(&proj)
+	resp.Body.Close()
+	projectID := proj["id"].(string)
+
+	mcpResp := callMCP(t, adapter, "tools/call", 13, map[string]any{
+		"name": "waggle_log",
+		"arguments": map[string]any{
+			"project_id": projectID,
+			"source":     "test",
+			"summary":    "deployed v2",
+		},
+	})
+	result := mcpResp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("log failed: %v", result)
+	}
+}
+
+func TestWhatsNext(t *testing.T) {
+	adapter, ts := setupMCP(t)
+
+	body := `{"name":"urgent-project","status":"active","health":"red"}`
+	resp, _ := ts.Client().Post(ts.URL+"/api/projects", "application/json", strings.NewReader(body))
+	resp.Body.Close()
+
+	mcpResp := callMCP(t, adapter, "tools/call", 14, map[string]any{
+		"name":      "waggle_whats_next",
+		"arguments": map[string]any{},
+	})
+	result := mcpResp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("whats_next failed: %v", result)
+	}
+	content := result["content"].([]any)
+	text := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "urgent-project") {
+		t.Errorf("whats_next should contain urgent project, got: %s", text[:100])
+	}
+}
+
+func TestSendAndReadMessages(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	// Send
+	sendResp := callMCP(t, adapter, "tools/call", 15, map[string]any{
+		"name": "waggle_send_message",
+		"arguments": map[string]any{
+			"to":   "someone",
+			"body": "hello from test",
+		},
+	})
+	result := sendResp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("send failed: %v", result)
+	}
+
+	// Read
+	readResp := callMCP(t, adapter, "tools/call", 16, map[string]any{
+		"name":      "waggle_read_messages",
+		"arguments": map[string]any{"limit": 10},
+	})
+	result = readResp["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("read failed: %v", result)
+	}
+}
+

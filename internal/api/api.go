@@ -66,7 +66,6 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/spawn", a.handleSpawn)
 	mux.HandleFunc("/api/sessions", a.handleSessions)
 	mux.HandleFunc("/api/sessions/", a.handleSessionAction)
-	mux.HandleFunc("/api/push/subscribe", a.handlePushSubscribe)
 	mux.HandleFunc("/api/settings", a.handleSettings)
 	mux.HandleFunc("/api/alerts", a.handleAlerts)
 	// Context manager endpoints
@@ -76,6 +75,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/briefing", a.handleBriefing)
 	mux.HandleFunc("/api/whats-next", a.handleWhatsNext)
 	mux.HandleFunc("/api/health-check", a.handleHealthCheck)
+	mux.HandleFunc("/api/revenue", a.handleRevenue)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -1703,10 +1703,6 @@ func (a *API) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *API) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "push notifications are not available")
-}
-
 func (a *API) handleTaskExport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -2180,6 +2176,53 @@ func (a *API) handleWhatsNext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *API) handleRevenue(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		projectID := r.URL.Query().Get("project_id")
+		if r.URL.Query().Get("summary") == "true" {
+			byProject, total, err := a.store.RevenueSummary()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "summary_failed", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"by_project": byProject, "total": total})
+			return
+		}
+		entries, err := a.store.ListRevenue(projectID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		if entries == nil {
+			entries = []*model.Revenue{}
+		}
+		writeJSON(w, http.StatusOK, entries)
+
+	case http.MethodPost:
+		var rev model.Revenue
+		if err := json.NewDecoder(r.Body).Decode(&rev); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		if rev.ProjectID == "" || rev.Amount == 0 || rev.Date == "" {
+			writeError(w, http.StatusBadRequest, "missing_fields", "project_id, amount, and date are required")
+			return
+		}
+		if rev.Source == "" {
+			rev.Source = "manual"
+		}
+		if err := a.store.CreateRevenue(&rev); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, rev)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func (a *API) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
