@@ -90,20 +90,30 @@ type Source interface {
 - Pure contract. No I/O of its own. Dependency: `model`.
 
 ### 2. `internal/overseer/colony.go` — Colony adapter (read-only)
-- Opens `colony.db` with `sql.Open("sqlite", path+"?mode=ro&_busy_timeout=2000")` — **read-only
-  mode**, short busy timeout, so it can never contend with the daemon's writes.
-- Reads: `tasks` (id, title, status, priority, project, updated_at), worker registry rows if
-  present, recent `progress`/events table rows.
-- Tails `STATUS-*.md` only for a `parking_note`-style latest-summary signal (optional, best-effort).
-- Maps rows → `model.Event` (see Event Mapping). Path is config-driven
-  (`COLONY_DB_PATH`, default `~/projects/maniginam/colony/colony.db`).
-- Degrades to empty `Snapshot` if the file is absent/locked. Never errors fatally.
-- Dependencies: `database/sql`, `model`. Testable with a fixture SQLite db.
+- Opens `colony.db` with `sql.Open("sqlite", "file:"+path+"?mode=ro&_busy_timeout=2000")` —
+  **read-only mode**, short busy timeout, so it can never contend with the daemon's writes.
+- **Real schema** (verified against live `~/.colony/colony.db`, table `tasks`):
+  `id TEXT, type TEXT, priority TEXT, status TEXT, payload TEXT(JSON), created_at TEXT,
+   started_at TEXT, worker_pid INTEGER, retries INTEGER, result TEXT, parent_id TEXT`.
+  There is **no** `title`, `project_id`, or `updated_at` column, and **no workers table** —
+  worker liveness is the `worker_pid` + `started_at` columns on a `running` task.
+- `payload` is a JSON string; `project` (e.g. `"passive-income"`) and `prompt` live inside it
+  when present (best-effort parse; both optional). Statuses seen: `queued`, `pending`,
+  `running`, `completed`, `failed`.
+- Query: recent tasks ordered by `coalesce(started_at, created_at) DESC LIMIT N`.
+- Path is config-driven (`COLONY_DB_PATH`, **default `~/.colony/colony.db`** — the live DB;
+  the repo-root `colony.db` is a 0-byte placeholder, do not use it).
+- Degrades to empty `Snapshot` if the file is absent/locked/empty. Never errors fatally.
+- Dependencies: `database/sql`, `encoding/json`, `model`. Testable with a fixture SQLite db.
 
 ### 3. `internal/overseer/gastown.go` — Gas Town adapter (read-only)
 - Shells `gt trail --json --since <interval> --limit N` and `gt agents --json` via
   `exec.CommandContext` with a hard timeout (e.g. 5s).
 - Parses JSON → `model.Event`. If `gt` is missing or errors, returns empty `Snapshot`.
+- **Known current state:** `gt trail --json` presently emits a bd-version warning to stderr
+  and `null` to stdout (Gas Town's `bd` is version-mismatched on this machine). The adapter
+  MUST treat `null`/empty/non-JSON stdout as an empty `Snapshot` — this is the normal
+  degraded path, not an error. The fixture-based shape is used for tests until `gt` is fixed.
 - Never writes; never runs a mutating `gt` subcommand. An allowlist of permitted argv is
   enforced in code (only `trail`, `agents`, later `peek`).
 - Dependencies: `os/exec`, `encoding/json`, `model`. Testable by injecting a fake exec runner.
@@ -127,22 +137,22 @@ type Source interface {
 
 Reuse `model.EventType`. Generic verbs only; no "Claude"/engine-internal leakage:
 
-| Source state | Event Type | AgentID | Payload |
+| Source state | Event Type | TaskID | Payload |
 |---|---|---|---|
-| Colony task status change | `task.<status>` (`queued/running/completed/failed`) | — | `{source:"colony", project, title, priority}` |
-| Colony worker registered/heartbeat/stalled | `worker.<state>` | worker id | `{source:"colony", task_id}` |
-| Colony permission row pending | `permission.pending` | — | `{source:"colony", action, project}` |
-| Colony ROI brain cycle | `brain.cycle` | — | `{source:"colony", queued, interval}` |
-| Gas Town trail commit | `agent.commit` | agent | `{source:"gastown", rig, bead, msg}` |
-| Gas Town agent state | `worker.<state>` | polecat | `{source:"gastown", rig}` |
+| Colony task in `queued/pending/completed/failed` | `task.<status>` | task id | `{source:"colony", type, priority, project?}` |
+| Colony task `running` (worker_pid set) | `worker.running` | task id | `{source:"colony", type, worker_pid, started_at, project?}` |
+| Colony task `type="roi-brain"` running/queued | `brain.cycle` | task id | `{source:"colony", priority}` |
+| Gas Town trail commit | `agent.commit` | bead | `{source:"gastown", agent, rig, msg}` |
+| Gas Town agent state | `worker.<state>` | — | `{source:"gastown", agent, rig}` |
 
-`source` in the payload lets the UI group/filter by engine while the event types stay generic.
+- `type`/`project` come from the task row + parsed `payload` JSON (`project` optional).
+- `permission.pending` is deferred to SP-2 (it is a steer concern, not pure observability).
+- `source` in the payload lets the UI group/filter by engine while event types stay generic.
 
 ## Configuration
 ```
 OVERSEER_ENABLED=true
-COLONY_DB_PATH=~/projects/maniginam/colony/colony.db
-COLONY_STATUS_GLOB=~/projects/maniginam/colony/STATUS-*.md
+COLONY_DB_PATH=~/.colony/colony.db        # live DB; NOT the repo-root 0-byte placeholder
 GASTOWN_BIN=gt
 OVERSEER_COLONY_INTERVAL=3s
 OVERSEER_GASTOWN_INTERVAL=10s
