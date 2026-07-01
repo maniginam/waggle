@@ -65,9 +65,8 @@ type Task struct {
 	DependsOn   []string   `json:"depends_on,omitempty"`
 	TaskType    TaskType   `json:"task_type,omitempty"`
 	ProjectID   string     `json:"project_id,omitempty"`
-	IssueNumber        int      `json:"issue_number,omitempty"`
-	IssueURL           string   `json:"issue_url,omitempty"`
-	RequiredCapability string   `json:"required_capability,omitempty"`
+	IssueNumber int        `json:"issue_number,omitempty"`
+	IssueURL    string     `json:"issue_url,omitempty"`
 }
 
 type AgentRole string
@@ -82,7 +81,6 @@ type Agent struct {
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
 	Type        string      `json:"type"`
-	Model       string      `json:"model,omitempty"`
 	Role        AgentRole   `json:"role"`
 	Status      AgentStatus `json:"status"`
 	CurrentTask string      `json:"current_task,omitempty"`
@@ -228,13 +226,5 @@ type Revenue struct {
 	Note      string    `json:"note,omitempty"`
 	Date      string    `json:"date"`
 	CreatedAt time.Time `json:"created_at"`
-}
-
-type ModelProvider struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Provider     string    `json:"provider"`
-	Capabilities []string  `json:"capabilities"`
-	CreatedAt    time.Time `json:"created_at"`
 }
 
