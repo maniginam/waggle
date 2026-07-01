@@ -32,6 +32,9 @@ func New(store emitter, hub publisher) *Overseer {
 	return &Overseer{store: store, hub: hub}
 }
 
+// Register adds a source to poll. Call all Register calls BEFORE Run:
+// Run hands each &o.sources[i] to a goroutine, so appending after Run
+// starts would race the readers (and could reallocate the backing array).
 func (o *Overseer) Register(src Source, interval time.Duration) {
 	o.sources = append(o.sources, sourceConfig{src: src, interval: interval, dedup: newDeduper(1000)})
 }
