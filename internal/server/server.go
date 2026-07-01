@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/maniginam/waggle/internal/api"
@@ -13,16 +16,18 @@ import (
 	"github.com/maniginam/waggle/internal/event"
 	"github.com/maniginam/waggle/internal/mcp"
 	"github.com/maniginam/waggle/internal/model"
+	"github.com/maniginam/waggle/internal/overseer"
 	"github.com/maniginam/waggle/internal/store"
 )
 
 type Server struct {
-	httpServer *http.Server
-	store      *store.Store
-	eventHub   *event.Hub
-	api        *api.API
-	stopReaper chan struct{}
-	startedAt  time.Time
+	httpServer     *http.Server
+	store          *store.Store
+	eventHub       *event.Hub
+	api            *api.API
+	stopReaper     chan struct{}
+	startedAt      time.Time
+	overseerCancel context.CancelFunc
 }
 
 type Config struct {
@@ -106,12 +111,36 @@ func (s *Server) Start() error {
 	s.stopReaper = make(chan struct{})
 	go s.reapStaleAgents()
 	go s.retentionCleanup()
+
+	if os.Getenv("OVERSEER_ENABLED") == "true" {
+		ov := overseer.New(s.store, s.eventHub)
+
+		colonyPath := os.Getenv("COLONY_DB_PATH")
+		if colonyPath == "" {
+			colonyPath = "~/.colony/colony.db"
+		}
+		ov.Register(overseer.NewColonySource(expandHome(colonyPath)), interval("OVERSEER_COLONY_INTERVAL", 3*time.Second))
+
+		gtBin := os.Getenv("GASTOWN_BIN")
+		if gtBin == "" {
+			gtBin = "gt"
+		}
+		ov.Register(overseer.NewGasTownSource(gtBin), interval("OVERSEER_GASTOWN_INTERVAL", 10*time.Second))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		s.overseerCancel = cancel
+		go ov.Run(ctx)
+	}
+
 	log.Printf("waggle server listening on %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	log.Println("shutting down waggle server...")
+	if s.overseerCancel != nil {
+		s.overseerCancel()
+	}
 	close(s.stopReaper)
 	err := s.httpServer.Shutdown(ctx)
 	s.store.Close()
@@ -192,6 +221,24 @@ func (s *Server) retentionCleanup() {
 			}
 		}
 	}
+}
+
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
+func interval(env string, def time.Duration) time.Duration {
+	if v := os.Getenv(env); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return def
 }
 
 func cors(next http.Handler) http.Handler {
