@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **Read-only, always.** Colony DB opened `file:<path>?mode=ro&_busy_timeout=2000`. `gt` argv allowlist = `{trail, agents}` only; any other subcommand is rejected in code.
-- **Fire-and-forget.** Every adapter error degrades to an empty result; the poller logs nothing fatal and never stops. A panicking source must not kill other sources or the server.
+- **Fire-and-forget, but not silent.** Every adapter error degrades to an empty result and the poller never stops; a panicking source must not kill other sources or the server. On each swallowed failure emit a **non-fatal** `log.Printf("overseer: ...")` line (via stdlib `log`, the repo convention) so a missing engine is diagnosable. Logging must never change control flow.
 - **Opt-in.** `OVERSEER_ENABLED` unset/`!= "true"` → Waggle behaves exactly as today (no goroutine started).
 - **No engine coupling.** Zero changes to `internal/store`, `internal/mcp`, Colony, or Gas Town. Only new files under `internal/overseer/` + a small wiring block in `internal/server/server.go`.
 - **Live Colony DB path:** `~/.colony/colony.db` (the repo-root `colony.db` is a 0-byte placeholder — never use it).
@@ -342,6 +342,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/maniginam/waggle/internal/model"
@@ -362,6 +363,7 @@ func (c *ColonySource) Name() string { return "colony" }
 func (c *ColonySource) Poll(ctx context.Context) (Snapshot, error) {
 	db, err := sql.Open("sqlite", "file:"+c.dbPath+"?mode=ro&_busy_timeout=2000")
 	if err != nil {
+		log.Printf("overseer: colony open %s: %v", c.dbPath, err)
 		return Snapshot{}, nil // degrade to empty, never fatal
 	}
 	defer db.Close()
@@ -372,6 +374,7 @@ func (c *ColonySource) Poll(ctx context.Context) (Snapshot, error) {
 		ORDER BY coalesce(started_at, created_at) DESC
 		LIMIT ?`, c.limit)
 	if err != nil {
+		log.Printf("overseer: colony query: %v", err)
 		return Snapshot{}, nil
 	}
 	defer rows.Close()
@@ -533,6 +536,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os/exec"
 	"strings"
 	"time"
@@ -562,6 +566,7 @@ func (g *GasTownSource) Name() string { return "gastown" }
 func (g *GasTownSource) Poll(ctx context.Context) (Snapshot, error) {
 	out, err := g.runGT(ctx, "trail", "--json", "--limit", "20")
 	if err != nil {
+		log.Printf("overseer: gastown trail: %v", err)
 		return Snapshot{}, nil // gt missing/broken -> empty, never fatal
 	}
 	return Snapshot{Items: parseTrail(out)}, nil
@@ -708,6 +713,7 @@ package overseer
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/maniginam/waggle/internal/model"
@@ -764,9 +770,14 @@ func (o *Overseer) runSource(ctx context.Context, sc *sourceConfig) {
 }
 
 func (o *Overseer) pollOnce(ctx context.Context, sc *sourceConfig) {
-	defer func() { _ = recover() }() // one bad source never kills the loop
+	defer func() {
+		if r := recover(); r != nil { // one bad source never kills the loop
+			log.Printf("overseer: source %s panicked: %v", sc.src.Name(), r)
+		}
+	}()
 	snap, err := sc.src.Poll(ctx)
 	if err != nil {
+		log.Printf("overseer: source %s poll: %v", sc.src.Name(), err)
 		return
 	}
 	for _, it := range sc.dedup.filter(snap.Items) {
