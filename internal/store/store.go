@@ -218,6 +218,26 @@ func (s *Store) migrate() error {
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_revenue_project ON revenue(project_id)")
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_revenue_date ON revenue(date)")
 
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS model_providers (
+		id           TEXT PRIMARY KEY,
+		name         TEXT UNIQUE NOT NULL,
+		provider     TEXT NOT NULL,
+		capabilities TEXT DEFAULT '[]',
+		created_at   TEXT NOT NULL
+	)`)
+
+	// Add model column to agents, required_capability to tasks
+	for _, col := range []struct{ table, name, def string }{
+		{"agents", "model", "TEXT DEFAULT ''"},
+		{"tasks", "required_capability", "TEXT DEFAULT ''"},
+	} {
+		var count int
+		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", col.table, col.name).Scan(&count)
+		if count == 0 {
+			s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", col.table, col.name, col.def))
+		}
+	}
+
 	return err
 }
 
@@ -254,23 +274,23 @@ func (s *Store) CreateTask(t *model.Task) error {
 		deadline = t.Deadline.Format(time.RFC3339)
 	}
 
-	_, err := s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := s.db.Exec(`INSERT INTO tasks (id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url, required_capability)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Title, t.Description, string(criteria), string(t.Status), string(t.Priority),
 		t.Assignee, string(tags), t.Estimate, deadline,
 		t.CreatedAt.Format(time.RFC3339), t.UpdatedAt.Format(time.RFC3339),
 		t.ParentID, string(dependsOn), string(t.TaskType), t.ProjectID,
-		t.IssueNumber, t.IssueURL)
+		t.IssueNumber, t.IssueURL, t.RequiredCapability)
 	return err
 }
 
 func (s *Store) GetTask(id string) (*model.Task, error) {
-	row := s.db.QueryRow(`SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url FROM tasks WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url, required_capability FROM tasks WHERE id = ?`, id)
 	return scanTask(row)
 }
 
 func (s *Store) ListTasks(filters map[string]string) ([]*model.Task, error) {
-	query := `SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url FROM tasks`
+	query := `SELECT id, title, description, criteria, status, priority, assignee, tags, estimate, deadline, created_at, updated_at, parent_id, depends_on, task_type, project_id, issue_number, issue_url, required_capability FROM tasks`
 	var conditions []string
 	var args []any
 
@@ -300,6 +320,10 @@ func (s *Store) ListTasks(filters map[string]string) ([]*model.Task, error) {
 	}
 	if v, ok := filters["task_type"]; ok {
 		conditions = append(conditions, "task_type = ?")
+		args = append(args, v)
+	}
+	if v, ok := filters["required_capability"]; ok {
+		conditions = append(conditions, "required_capability = ?")
 		args = append(args, v)
 	}
 	if v, ok := filters["q"]; ok {
@@ -413,6 +437,9 @@ func (s *Store) UpdateTask(id string, updates map[string]any) (*model.Task, erro
 			args = append(args, v)
 		case "issue_url":
 			sets = append(sets, "issue_url = ?")
+			args = append(args, v)
+		case "required_capability":
+			sets = append(sets, "required_capability = ?")
 			args = append(args, v)
 		}
 	}
@@ -584,17 +611,17 @@ func (s *Store) RegisterAgent(name, agentType, projectID string, role model.Agen
 }
 
 func (s *Store) GetAgent(id string) (*model.Agent, error) {
-	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, name, type, model, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents WHERE id = ?`, id)
 	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByName(name string) (*model.Agent, error) {
-	row := s.db.QueryRow(`SELECT id, name, type, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents WHERE name = ?`, name)
+	row := s.db.QueryRow(`SELECT id, name, type, model, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents WHERE name = ?`, name)
 	return scanAgent(row)
 }
 
 func (s *Store) ListAgents(statusFilter string) ([]*model.Agent, error) {
-	query := `SELECT id, name, type, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents`
+	query := `SELECT id, name, type, model, status, current_task, project_id, role, parent_agent, persona_id, connected_at, last_seen FROM agents`
 	var args []any
 	if statusFilter != "" {
 		query += " WHERE status = ?"
@@ -629,6 +656,12 @@ func (s *Store) UpdateAgentStatus(name string, status model.AgentStatus, current
 func (s *Store) UpdateAgentProject(name, projectID string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.Exec("UPDATE agents SET project_id = ?, last_seen = ? WHERE name = ?", projectID, now, name)
+	return err
+}
+
+func (s *Store) UpdateAgentModel(name, modelName string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec("UPDATE agents SET model = ?, last_seen = ? WHERE name = ?", modelName, now, name)
 	return err
 }
 
@@ -975,7 +1008,7 @@ func scanTask(row scanner) (*model.Task, error) {
 		&t.Status, &t.Priority, &t.Assignee, &tagsJSON,
 		&t.Estimate, &deadlineStr, &createdStr, &updatedStr,
 		&t.ParentID, &dependsOnJSON, &t.TaskType, &t.ProjectID,
-		&t.IssueNumber, &t.IssueURL)
+		&t.IssueNumber, &t.IssueURL, &t.RequiredCapability)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -1003,7 +1036,7 @@ func scanTaskRows(rows *sql.Rows) (*model.Task, error) {
 func scanAgent(row scanner) (*model.Agent, error) {
 	var a model.Agent
 	var connStr, seenStr string
-	err := row.Scan(&a.ID, &a.Name, &a.Type, &a.Status, &a.CurrentTask, &a.ProjectID, &a.Role, &a.ParentAgent, &a.PersonaID, &connStr, &seenStr)
+	err := row.Scan(&a.ID, &a.Name, &a.Type, &a.Model, &a.Status, &a.CurrentTask, &a.ProjectID, &a.Role, &a.ParentAgent, &a.PersonaID, &connStr, &seenStr)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -1558,3 +1591,84 @@ func (s *Store) GetAllSettings() (map[string]string, error) {
 	return settings, rows.Err()
 }
 
+// --- Model Providers ---
+
+func (s *Store) CreateModelProvider(mp *model.ModelProvider) error {
+	if mp.ID == "" {
+		mp.ID = id.New()
+	}
+	mp.CreatedAt = time.Now().UTC()
+	caps, _ := json.Marshal(mp.Capabilities)
+	_, err := s.db.Exec(`INSERT INTO model_providers (id, name, provider, capabilities, created_at) VALUES (?, ?, ?, ?, ?)`,
+		mp.ID, mp.Name, mp.Provider, string(caps), mp.CreatedAt.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) GetModelProvider(id string) (*model.ModelProvider, error) {
+	row := s.db.QueryRow(`SELECT id, name, provider, capabilities, created_at FROM model_providers WHERE id = ?`, id)
+	return scanModelProvider(row)
+}
+
+func (s *Store) GetModelProviderByName(name string) (*model.ModelProvider, error) {
+	row := s.db.QueryRow(`SELECT id, name, provider, capabilities, created_at FROM model_providers WHERE name = ?`, name)
+	return scanModelProvider(row)
+}
+
+func (s *Store) ListModelProviders() ([]*model.ModelProvider, error) {
+	rows, err := s.db.Query(`SELECT id, name, provider, capabilities, created_at FROM model_providers ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var providers []*model.ModelProvider
+	for rows.Next() {
+		mp, err := scanModelProvider(rows)
+		if err != nil {
+			return nil, err
+		}
+		providers = append(providers, mp)
+	}
+	return providers, rows.Err()
+}
+
+func (s *Store) ListModelProvidersByCapability(capability string) ([]*model.ModelProvider, error) {
+	rows, err := s.db.Query(`SELECT id, name, provider, capabilities, created_at FROM model_providers ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var providers []*model.ModelProvider
+	for rows.Next() {
+		mp, err := scanModelProvider(rows)
+		if err != nil {
+			return nil, err
+		}
+		for _, cap := range mp.Capabilities {
+			if cap == capability {
+				providers = append(providers, mp)
+				break
+			}
+		}
+	}
+	return providers, rows.Err()
+}
+
+func (s *Store) DeleteModelProvider(id string) error {
+	_, err := s.db.Exec("DELETE FROM model_providers WHERE id = ?", id)
+	return err
+}
+
+func scanModelProvider(row scanner) (*model.ModelProvider, error) {
+	var mp model.ModelProvider
+	var capsJSON, createdStr string
+	err := row.Scan(&mp.ID, &mp.Name, &mp.Provider, &capsJSON, &createdStr)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal([]byte(capsJSON), &mp.Capabilities)
+	mp.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+	return &mp, nil
+}

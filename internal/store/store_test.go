@@ -1315,3 +1315,176 @@ func TestRevenueCRUD(t *testing.T) {
 		t.Errorf("expected project total ~74.99, got %f", byProject[proj.ID])
 	}
 }
+
+func TestModelProviderCRUD(t *testing.T) {
+	s := tempStore(t)
+
+	// Create
+	mp := &model.ModelProvider{
+		Name:         "dall-e-3",
+		Provider:     "openai",
+		Capabilities: []string{"image-gen"},
+	}
+	if err := s.CreateModelProvider(mp); err != nil {
+		t.Fatal(err)
+	}
+	if mp.ID == "" {
+		t.Error("expected ID to be set")
+	}
+
+	// Create another
+	mp2 := &model.ModelProvider{
+		Name:         "claude-sonnet",
+		Provider:     "anthropic",
+		Capabilities: []string{"code", "text", "vision"},
+	}
+	s.CreateModelProvider(mp2)
+
+	// Get by ID
+	got, err := s.GetModelProvider(mp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "dall-e-3" || got.Provider != "openai" {
+		t.Errorf("unexpected: %+v", got)
+	}
+	if len(got.Capabilities) != 1 || got.Capabilities[0] != "image-gen" {
+		t.Errorf("expected [image-gen], got %v", got.Capabilities)
+	}
+
+	// Get by name
+	got2, err := s.GetModelProviderByName("claude-sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Provider != "anthropic" {
+		t.Errorf("expected anthropic, got %s", got2.Provider)
+	}
+
+	// List all
+	all, err := s.ListModelProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Errorf("expected 2, got %d", len(all))
+	}
+
+	// List by capability
+	imageGens, err := s.ListModelProvidersByCapability("image-gen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(imageGens) != 1 || imageGens[0].Name != "dall-e-3" {
+		t.Errorf("expected [dall-e-3], got %v", imageGens)
+	}
+
+	coders, err := s.ListModelProvidersByCapability("code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(coders) != 1 || coders[0].Name != "claude-sonnet" {
+		t.Errorf("expected [claude-sonnet], got %v", coders)
+	}
+
+	// Delete
+	if err := s.DeleteModelProvider(mp.ID); err != nil {
+		t.Fatal(err)
+	}
+	all2, _ := s.ListModelProviders()
+	if len(all2) != 1 {
+		t.Errorf("expected 1 after delete, got %d", len(all2))
+	}
+}
+
+func TestAgentModelField(t *testing.T) {
+	s := tempStore(t)
+
+	// Register model provider
+	mp := &model.ModelProvider{
+		Name:         "grok-3",
+		Provider:     "xai",
+		Capabilities: []string{"code", "text"},
+	}
+	s.CreateModelProvider(mp)
+
+	// Register agent with model
+	agent, err := s.RegisterAgent("test-agent", "claude-code", "", model.AgentRoleWorker, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set model on agent
+	if err := s.UpdateAgentModel(agent.Name, "grok-3"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify model persisted
+	got, err := s.GetAgentByName("test-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "grok-3" {
+		t.Errorf("expected model grok-3, got %s", got.Model)
+	}
+}
+
+func TestTaskRequiredCapability(t *testing.T) {
+	s := tempStore(t)
+
+	task := &model.Task{
+		Title:              "Generate logo",
+		RequiredCapability: "image-gen",
+	}
+	if err := s.CreateTask(task); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequiredCapability != "image-gen" {
+		t.Errorf("expected image-gen, got %s", got.RequiredCapability)
+	}
+
+	// Filter tasks by capability
+	tasks, err := s.ListTasks(map[string]string{"required_capability": "image-gen"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 task, got %d", len(tasks))
+	}
+
+	// No match
+	tasks2, _ := s.ListTasks(map[string]string{"required_capability": "code"})
+	if len(tasks2) != 0 {
+		t.Errorf("expected 0 tasks, got %d", len(tasks2))
+	}
+}
+
+func TestCapabilityMatchDispatch(t *testing.T) {
+	s := tempStore(t)
+
+	// Create model providers
+	s.CreateModelProvider(&model.ModelProvider{
+		Name:         "dall-e-3",
+		Provider:     "openai",
+		Capabilities: []string{"image-gen"},
+	})
+	s.CreateModelProvider(&model.ModelProvider{
+		Name:         "claude-sonnet",
+		Provider:     "anthropic",
+		Capabilities: []string{"code", "text"},
+	})
+
+	// FindModelProvidersForCapability
+	matches, err := s.ListModelProvidersByCapability("image-gen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].Name != "dall-e-3" {
+		t.Errorf("expected dall-e-3 for image-gen, got %v", matches)
+	}
+}

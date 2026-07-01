@@ -76,6 +76,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/whats-next", a.handleWhatsNext)
 	mux.HandleFunc("/api/health-check", a.handleHealthCheck)
 	mux.HandleFunc("/api/revenue", a.handleRevenue)
+	mux.HandleFunc("/api/models", a.handleModels)
+	mux.HandleFunc("/api/models/", a.handleModel)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -538,6 +540,7 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name        string          `json:"name"`
 			Type        string          `json:"type"`
+			Model       string          `json:"model"`
 			ProjectID   string          `json:"project_id"`
 			Role        model.AgentRole `json:"role"`
 			ParentAgent string          `json:"parent_agent"`
@@ -566,6 +569,10 @@ func (a *API) handleAgent(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		agent, err := a.store.RegisterAgent(req.Name, req.Type, req.ProjectID, req.Role, req.ParentAgent)
+		if err == nil && req.Model != "" {
+			a.store.UpdateAgentModel(req.Name, req.Model)
+			agent.Model = req.Model
+		}
 		// If registered as leader, update the project
 		if err == nil && agent.Role == model.AgentRoleLeader && req.ProjectID != "" {
 			a.store.UpdateProject(req.ProjectID, map[string]any{"leader_agent": agent.Name})
@@ -1244,6 +1251,28 @@ func (a *API) tryAutoDispatch(agentName, projectID string) {
 				}
 			}
 			if !allDone {
+				continue
+			}
+		}
+
+		// Check capability match if task requires one
+		if task.RequiredCapability != "" {
+			agent, err := a.store.GetAgentByName(agentName)
+			if err != nil || agent.Model == "" {
+				continue
+			}
+			mp, err := a.store.GetModelProviderByName(agent.Model)
+			if err != nil {
+				continue
+			}
+			hasCapability := false
+			for _, cap := range mp.Capabilities {
+				if cap == task.RequiredCapability {
+					hasCapability = true
+					break
+				}
+			}
+			if !hasCapability {
 				continue
 			}
 		}
@@ -2346,4 +2375,80 @@ func (a *API) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, results)
+}
+
+func (a *API) handleModels(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		cap := r.URL.Query().Get("capability")
+		var providers []*model.ModelProvider
+		var err error
+		if cap != "" {
+			providers, err = a.store.ListModelProvidersByCapability(cap)
+		} else {
+			providers, err = a.store.ListModelProviders()
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if providers == nil {
+			providers = []*model.ModelProvider{}
+		}
+		writeJSON(w, http.StatusOK, providers)
+
+	case http.MethodPost:
+		var mp model.ModelProvider
+		if err := json.NewDecoder(r.Body).Decode(&mp); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+			return
+		}
+		if mp.Name == "" || mp.Provider == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and provider required"})
+			return
+		}
+		if err := a.store.CreateModelProvider(&mp); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, mp)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleModel(w http.ResponseWriter, r *http.Request) {
+	modelID := strings.TrimPrefix(r.URL.Path, "/api/models/")
+	if modelID == "" {
+		http.Error(w, "model id required", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		mp, err := a.store.GetModelProvider(modelID)
+		if err == store.ErrNotFound {
+			mp, err = a.store.GetModelProviderByName(modelID)
+		}
+		if err == store.ErrNotFound {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, mp)
+
+	case http.MethodDelete:
+		if err := a.store.DeleteModelProvider(modelID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"deleted": modelID})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }

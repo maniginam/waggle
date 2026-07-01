@@ -26,7 +26,8 @@ func (d *deduper) filter(items []Item) []Item {
 		out = append(out, it)
 		if len(d.order) > d.cap {
 			oldest := d.order[0]
-			d.order = d.order[1:]
+			copy(d.order, d.order[1:])
+			d.order = d.order[:d.cap]
 			delete(d.seen, oldest)
 		}
 	}

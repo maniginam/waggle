@@ -597,6 +597,16 @@ select.inline-select {
       <button onclick="addRevenue()" style="background:var(--green);color:#000;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600">+ Add</button>
     </div>
   </div>
+  <div id="model-roster" class="section" style="display:none">
+    <div class="section-title">Model Providers <span class="count" id="model-count">0</span></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px" id="model-cards"></div>
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="mp-name" placeholder="Model name" style="width:140px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+      <input id="mp-provider" placeholder="Provider" style="width:110px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+      <input id="mp-capabilities" placeholder="Capabilities (comma-sep)" style="width:200px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+      <button onclick="addModelProvider()" style="background:var(--accent);color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600">+ Add</button>
+    </div>
+  </div>
   <div id="attention-section" class="section" style="display:none">
     <div class="section-title">Needs Attention <span class="count" id="attention-count">0</span></div>
     <div class="cards" id="attention-cards"></div>
@@ -1254,14 +1264,16 @@ function timeAgo(ts) {
 
 // --- Init ---
 async function refresh() {
-  const [whatsNext, projects, progress, agents, revSummary] = await Promise.all([
+  const [whatsNext, projects, progress, agents, revSummary, modelProviders] = await Promise.all([
     fetchProjects(),
     fetchAllProjects(),
     fetchProgress(),
     fetchAgents(),
-    fetch(API + '/api/revenue?summary=true').then(r => r.json()).catch(() => null)
+    fetch(API + '/api/revenue?summary=true').then(r => r.json()).catch(() => null),
+    fetch(API + '/api/models').then(r => r.json()).catch(() => [])
   ]);
   renderRevenue(revSummary);
+  renderModelRoster(modelProviders || []);
   allAgents = agents || [];
   updateAgentDropdown();
   const connectedCount = allAgents.filter(a => (a.status || a.Status) !== 'disconnected').length;
@@ -1362,6 +1374,55 @@ function renderRevenue(summary) {
   select.innerHTML = earningProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
   // Default date to today
   document.getElementById('rev-date').value = new Date().toISOString().split('T')[0];
+}
+
+function renderModelRoster(models) {
+  const section = document.getElementById('model-roster');
+  const countEl = document.getElementById('model-count');
+  const cardsEl = document.getElementById('model-cards');
+  if (!models.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  countEl.textContent = models.length;
+  const capColors = { code: '--accent', text: '--text-dim', 'image-gen': '--purple', 'stl-gen': '--orange', vision: '--cyan' };
+  cardsEl.innerHTML = models.map(m => {
+    const caps = (m.capabilities || []).map(c => {
+      const color = capColors[c] || '--text-dim';
+      return `<span style="background:var(--bg);padding:2px 6px;border-radius:3px;font-size:11px;color:var(${color})">${c}</span>`;
+    }).join(' ');
+    return `<div style="background:var(--surface2);padding:10px 14px;border-radius:6px;border:1px solid var(--border);min-width:180px">
+      <div style="font-weight:600;font-size:14px">${m.name}</div>
+      <div style="color:var(--text-dim);font-size:12px;margin:2px 0">${m.provider}</div>
+      <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${caps}</div>
+      <button onclick="deleteModel('${m.id}')" style="margin-top:8px;background:none;border:1px solid var(--border);color:var(--red);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px">remove</button>
+    </div>`;
+  }).join('');
+}
+
+async function addModelProvider() {
+  const name = document.getElementById('mp-name').value.trim();
+  const provider = document.getElementById('mp-provider').value.trim();
+  const capsStr = document.getElementById('mp-capabilities').value.trim();
+  if (!name || !provider) { showToast('Error', 'Name and provider required'); return; }
+  const capabilities = capsStr ? capsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+  const resp = await fetch(API + '/api/models', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, provider, capabilities })
+  });
+  if (resp.ok) {
+    document.getElementById('mp-name').value = '';
+    document.getElementById('mp-provider').value = '';
+    document.getElementById('mp-capabilities').value = '';
+    showToast('Model', `${name} added`);
+    refresh();
+  } else {
+    showToast('Error', 'Failed to add model');
+  }
+}
+
+async function deleteModel(id) {
+  const resp = await fetch(API + '/api/models/' + id, { method: 'DELETE' });
+  if (resp.ok) { showToast('Model', 'Removed'); refresh(); }
 }
 
 async function addRevenue() {
