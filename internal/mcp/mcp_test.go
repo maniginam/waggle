@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -284,6 +285,51 @@ func TestMCPAgileTools(t *testing.T) {
 	text := content[0].(map[string]any)["text"].(string)
 	if !strings.Contains(text, "\"id\"") {
 		t.Errorf("expected sprint id in result, got %s", text)
+	}
+}
+
+func TestMCPSprintStatusActive(t *testing.T) {
+	adapter, ts := setupMCP(t)
+
+	// Create a sprint (starts as 'planned').
+	sResp, _ := ts.Client().Post(ts.URL+"/api/sprints", "application/json",
+		strings.NewReader(`{"project_id":"p1","name":"S1"}`))
+	var sprint map[string]any
+	json.NewDecoder(sResp.Body).Decode(&sprint)
+	sResp.Body.Close()
+	sprintID := sprint["id"].(string)
+
+	// Activate it.
+	patchReq, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/sprints/"+sprintID,
+		strings.NewReader(`{"state":"active"}`))
+	patchReq.Header.Set("Content-Type", "application/json")
+	pResp, _ := ts.Client().Do(patchReq)
+	pResp.Body.Close()
+
+	// Exercise the tools/call path for waggle_sprint_status.
+	call := callMCP(t, adapter, "tools/call", 1, map[string]any{
+		"name":      "waggle_sprint_status",
+		"arguments": map[string]any{"project_id": "p1"},
+	})
+	result := call["result"].(map[string]any)
+	if result["isError"] != nil && result["isError"].(bool) {
+		t.Fatalf("sprint_status failed: %v", result)
+	}
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		t.Fatalf("bad result JSON: %v (%s)", err, text)
+	}
+	active, ok := parsed["active_sprint"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected active_sprint object, got %s", text)
+	}
+	if active["id"] != sprintID {
+		t.Errorf("expected active sprint %s, got %v", sprintID, active["id"])
+	}
+	if _, present := parsed["burndown"]; !present {
+		t.Errorf("expected burndown key in result, got %s", text)
 	}
 }
 

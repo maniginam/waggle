@@ -440,7 +440,11 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 		if active == nil {
 			return map[string]any{"active_sprint": nil}, nil
 		}
-		burndown, _ := a.get("/api/sprints/" + active["id"].(string) + "/burndown")
+		sprintID, _ := active["id"].(string)
+		if sprintID == "" {
+			return map[string]any{"active_sprint": active, "burndown": nil}, nil
+		}
+		burndown, _ := a.get("/api/sprints/" + sprintID + "/burndown")
 		return map[string]any{"active_sprint": active, "burndown": burndown}, nil
 
 	// --- Project tools ---
