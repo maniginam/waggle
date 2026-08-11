@@ -76,6 +76,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/whats-next", a.handleWhatsNext)
 	mux.HandleFunc("/api/health-check", a.handleHealthCheck)
 	mux.HandleFunc("/api/revenue", a.handleRevenue)
+	mux.HandleFunc("/api/sprints", a.handleSprints)
+	mux.HandleFunc("/api/sprints/", a.handleSprint)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -2346,4 +2348,130 @@ func (a *API) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, results)
+}
+
+func (a *API) handleSprints(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		sprints, err := a.store.ListSprints(r.URL.Query().Get("project_id"))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		if sprints == nil {
+			sprints = []*model.Sprint{}
+		}
+		writeJSON(w, http.StatusOK, sprints)
+	case http.MethodPost:
+		var sp model.Sprint
+		if err := json.NewDecoder(r.Body).Decode(&sp); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if sp.Name == "" {
+			writeError(w, http.StatusBadRequest, "missing_name", "name is required")
+			return
+		}
+		if sp.State != "" && !sp.State.Valid() {
+			writeError(w, http.StatusBadRequest, "invalid_state", "invalid state: "+string(sp.State))
+			return
+		}
+		if err := a.store.CreateSprint(&sp); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, sp)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleSprint(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/sprints/")
+	parts := strings.SplitN(id, "/", 2)
+	id = parts[0]
+	subAction := ""
+	if len(parts) > 1 {
+		subAction = parts[1]
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing_id", "sprint ID required")
+		return
+	}
+	if subAction == "burndown" {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		days, err := a.store.SprintBurndown(id)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "sprint_not_found", "Sprint "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "burndown_failed", err.Error())
+			return
+		}
+		if days == nil {
+			days = []store.PointDay{}
+		}
+		writeJSON(w, http.StatusOK, days)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		sp, err := a.store.GetSprint(id)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "sprint_not_found", "Sprint "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "get_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, sp)
+	case http.MethodPatch:
+		var updates map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if st, ok := updates["state"].(string); ok {
+			if !model.SprintState(st).Valid() {
+				writeError(w, http.StatusBadRequest, "invalid_state", "invalid state: "+st)
+				return
+			}
+			if err := a.store.SetSprintState(id, model.SprintState(st)); err != nil {
+				if err == store.ErrNotFound {
+					writeError(w, http.StatusNotFound, "sprint_not_found", "Sprint "+id+" not found")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+				return
+			}
+			delete(updates, "state")
+		}
+		sp, err := a.store.UpdateSprint(id, updates)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "sprint_not_found", "Sprint "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, sp)
+	case http.MethodDelete:
+		if err := a.store.DeleteSprint(id); err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "sprint_not_found", "Sprint "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }

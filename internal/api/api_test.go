@@ -2713,6 +2713,39 @@ func TestDeleteNonexistentAgentReturns404(t *testing.T) {
 	}
 }
 
+func TestSprintEndpoints(t *testing.T) {
+	_, ts := setup(t)
+	// Create.
+	body := `{"project_id":"p1","name":"Sprint 1","goal":"ship"}`
+	resp, err := http.Post(ts.URL+"/api/sprints", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var created model.Sprint
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if created.ID == "" {
+		t.Fatal("expected sprint id")
+	}
+	// List.
+	lr := mustGet(t, ts.URL+"/api/sprints?project_id=p1")
+	var list []model.Sprint
+	json.NewDecoder(lr.Body).Decode(&list)
+	lr.Body.Close()
+	if len(list) != 1 {
+		t.Errorf("expected 1 sprint, got %d", len(list))
+	}
+	// Burndown.
+	br := mustGet(t, ts.URL+"/api/sprints/"+created.ID+"/burndown")
+	if br.StatusCode != http.StatusOK {
+		t.Errorf("burndown expected 200, got %d", br.StatusCode)
+	}
+	br.Body.Close()
+}
+
 func TestWakeAgentSkipsAliveRegisteredAgent(t *testing.T) {
 	a, _ := setup(t)
 
