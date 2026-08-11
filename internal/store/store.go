@@ -21,6 +21,7 @@ var (
 	ErrNotAssigned    = errors.New("task not assigned to this agent")
 	ErrInProgress     = errors.New("cannot delete in-progress task")
 	ErrCycleDep       = errors.New("circular dependency detected")
+	ErrInvalidStatus  = errors.New("invalid status")
 )
 
 type Store struct {
@@ -319,6 +320,14 @@ func (s *Store) ListTasks(filters map[string]string) ([]*model.Task, error) {
 		conditions = append(conditions, "task_type = ?")
 		args = append(args, v)
 	}
+	if v, ok := filters["sprint_id"]; ok {
+		if v == "__backlog__" {
+			conditions = append(conditions, "COALESCE(sprint_id,'') = ''")
+		} else {
+			conditions = append(conditions, "sprint_id = ?")
+			args = append(args, v)
+		}
+	}
 	if v, ok := filters["q"]; ok {
 		conditions = append(conditions, "(title LIKE ? OR description LIKE ?)")
 		args = append(args, "%"+v+"%", "%"+v+"%")
@@ -458,6 +467,31 @@ func (s *Store) DeleteTask(id string) error {
 		return ErrInProgress
 	}
 	_, err = s.db.Exec("DELETE FROM tasks WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) MoveTask(taskID, status string, boardOrder float64) (*model.Task, error) {
+	if !model.TaskStatus(status).Valid() {
+		return nil, ErrInvalidStatus
+	}
+	if _, err := s.GetTask(taskID); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec("UPDATE tasks SET status = ?, board_order = ?, updated_at = ? WHERE id = ?",
+		status, boardOrder, now, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetTask(taskID)
+}
+
+func (s *Store) AssignToSprint(taskID, sprintID string) error {
+	if _, err := s.GetTask(taskID); err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec("UPDATE tasks SET sprint_id = ?, updated_at = ? WHERE id = ?", sprintID, now, taskID)
 	return err
 }
 

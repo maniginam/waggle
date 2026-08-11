@@ -1402,3 +1402,40 @@ func TestDeleteSprintClearsTasks(t *testing.T) {
 		t.Errorf("expected sprint_id cleared, got %q", got.SprintID)
 	}
 }
+
+func TestMoveTask(t *testing.T) {
+	s := tempStore(t)
+	task := &model.Task{Title: "move me"}
+	s.CreateTask(task)
+	got, err := s.MoveTask(task.ID, "in_progress", 2.5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != model.TaskInProgress || got.BoardOrder != 2.5 {
+		t.Errorf("got status=%q order=%v", got.Status, got.BoardOrder)
+	}
+	if _, err := s.MoveTask(task.ID, "bogus", 1); err != ErrInvalidStatus {
+		t.Errorf("expected ErrInvalidStatus, got %v", err)
+	}
+}
+
+func TestAssignToSprintAndBacklogFilter(t *testing.T) {
+	s := tempStore(t)
+	sp := &model.Sprint{ProjectID: "p1", Name: "S"}
+	s.CreateSprint(sp)
+	inSprint := &model.Task{Title: "in", ProjectID: "p1"}
+	backlog := &model.Task{Title: "back", ProjectID: "p1"}
+	s.CreateTask(inSprint)
+	s.CreateTask(backlog)
+	if err := s.AssignToSprint(inSprint.ID, sp.ID); err != nil {
+		t.Fatal(err)
+	}
+	inList, _ := s.ListTasks(map[string]string{"sprint_id": sp.ID})
+	if len(inList) != 1 || inList[0].ID != inSprint.ID {
+		t.Errorf("expected only in-sprint task, got %d", len(inList))
+	}
+	backList, _ := s.ListTasks(map[string]string{"sprint_id": "__backlog__", "project_id": "p1"})
+	if len(backList) != 1 || backList[0].ID != backlog.ID {
+		t.Errorf("expected only backlog task, got %d", len(backList))
+	}
+}
