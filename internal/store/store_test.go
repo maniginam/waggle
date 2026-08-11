@@ -1439,3 +1439,27 @@ func TestAssignToSprintAndBacklogFilter(t *testing.T) {
 		t.Errorf("expected only backlog task, got %d", len(backList))
 	}
 }
+
+func TestSprintBurndown(t *testing.T) {
+	s := tempStore(t)
+	sp := &model.Sprint{ProjectID: "p1", Name: "S", StartDate: time.Now().UTC().Format(time.RFC3339)}
+	s.CreateSprint(sp)
+	// Two tasks, 3 + 2 points, both in sprint.
+	a := &model.Task{Title: "a", StoryPoints: 3, SprintID: sp.ID}
+	b := &model.Task{Title: "b", StoryPoints: 2, SprintID: sp.ID}
+	s.CreateTask(a)
+	s.CreateTask(b)
+	// Complete one today.
+	s.MoveTask(a.ID, "done", 0)
+	days, err := s.SprintBurndown(sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(days) == 0 {
+		t.Fatal("expected at least one day")
+	}
+	last := days[len(days)-1]
+	if last.Remaining != 2 {
+		t.Errorf("expected 2 points remaining today, got %d", last.Remaining)
+	}
+}

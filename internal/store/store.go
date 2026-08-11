@@ -1729,3 +1729,71 @@ func (s *Store) GetAllSettings() (map[string]string, error) {
 	return settings, rows.Err()
 }
 
+// --- Burndown ---
+
+type PointDay struct {
+	Date      string `json:"date"`
+	Remaining int    `json:"remaining"`
+}
+
+func (s *Store) SprintBurndown(sprintID string) ([]PointDay, error) {
+	sp, err := s.GetSprint(sprintID)
+	if err != nil {
+		return nil, err
+	}
+	startStr := sp.StartDate
+	if startStr == "" {
+		startStr = sp.CreatedAt.Format(time.RFC3339)
+	}
+	start, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		start = sp.CreatedAt
+	}
+	start = start.UTC().Truncate(24 * time.Hour)
+	end := time.Now().UTC().Truncate(24 * time.Hour)
+	if sp.EndDate != "" {
+		if e, err := time.Parse(time.RFC3339, sp.EndDate); err == nil {
+			ed := e.UTC().Truncate(24 * time.Hour)
+			if ed.Before(end) {
+				end = ed
+			}
+		}
+	}
+	// Load sprint tasks: points + done-date (empty if not done).
+	rows, err := s.db.Query(
+		`SELECT story_points, status, DATE(updated_at) FROM tasks WHERE sprint_id = ?`, sprintID)
+	if err != nil {
+		return nil, err
+	}
+	type tp struct {
+		points   int
+		doneDate string // "" if not done
+	}
+	var tasks []tp
+	for rows.Next() {
+		var pts int
+		var status, upd string
+		rows.Scan(&pts, &status, &upd)
+		d := ""
+		if status == string(model.TaskDone) {
+			d = upd
+		}
+		tasks = append(tasks, tp{points: pts, doneDate: d})
+	}
+	rows.Close()
+
+	var days []PointDay
+	for d := start; !d.After(end); d = d.Add(24 * time.Hour) {
+		dayStr := d.Format("2006-01-02")
+		remaining := 0
+		for _, tk := range tasks {
+			if tk.doneDate != "" && tk.doneDate <= dayStr {
+				continue // completed on or before this day
+			}
+			remaining += tk.points
+		}
+		days = append(days, PointDay{Date: dayStr, Remaining: remaining})
+	}
+	return days, nil
+}
+
