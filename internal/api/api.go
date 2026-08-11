@@ -1292,11 +1292,15 @@ func (a *API) handleWIP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 			return
 		}
-		for status, limit := range req {
+		// Two-pass: validate ALL keys before writing any, so a bad status
+		// yields a clean 400 with no partial mutation of the store.
+		for status := range req {
 			if !model.TaskStatus(status).Valid() {
 				writeError(w, http.StatusBadRequest, "invalid_status", "invalid status: "+status)
 				return
 			}
+		}
+		for status, limit := range req {
 			if err := a.store.SetWIP(projectID, status, limit); err != nil {
 				writeError(w, http.StatusInternalServerError, "set_failed", err.Error())
 				return

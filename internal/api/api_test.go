@@ -2824,3 +2824,34 @@ func TestWIPEndpoint(t *testing.T) {
 		t.Errorf("expected 3, got %d", limits["in_progress"])
 	}
 }
+
+func TestWIPEndpointInvalidStatusNoPartialWrite(t *testing.T) {
+	_, ts := setup(t)
+	// One valid + one invalid status. Must 400 with NO partial mutation.
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/wip?project_id=p2",
+		strings.NewReader(`{"in_progress":3,"bogus":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := mustDo(t, req)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("put expected 400, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	// The valid key must NOT have been written.
+	gr := mustGet(t, ts.URL+"/api/wip?project_id=p2")
+	var limits map[string]int
+	json.NewDecoder(gr.Body).Decode(&limits)
+	gr.Body.Close()
+	if limits["in_progress"] != 0 {
+		t.Errorf("expected no partial write (in_progress==0/absent), got %d", limits["in_progress"])
+	}
+}
+
+func TestWIPEndpointMethodNotAllowed(t *testing.T) {
+	_, ts := setup(t)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/wip?project_id=p1", nil)
+	resp := mustDo(t, req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", resp.StatusCode)
+	}
+}
