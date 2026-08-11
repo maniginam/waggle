@@ -1440,6 +1440,23 @@ func TestAssignToSprintAndBacklogFilter(t *testing.T) {
 	}
 }
 
+func TestWIPLimits(t *testing.T) {
+	s := tempStore(t)
+	if err := s.SetWIP("p1", "in_progress", 3); err != nil {
+		t.Fatal(err)
+	}
+	limits, _ := s.GetWIPLimits("p1")
+	if limits["in_progress"] != 3 {
+		t.Errorf("expected 3, got %d", limits["in_progress"])
+	}
+	// 0 clears.
+	s.SetWIP("p1", "in_progress", 0)
+	limits, _ = s.GetWIPLimits("p1")
+	if _, ok := limits["in_progress"]; ok {
+		t.Error("expected limit cleared")
+	}
+}
+
 func TestSprintBurndown(t *testing.T) {
 	s := tempStore(t)
 	sp := &model.Sprint{ProjectID: "p1", Name: "S", StartDate: time.Now().UTC().Format(time.RFC3339)}

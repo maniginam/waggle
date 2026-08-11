@@ -1797,3 +1797,37 @@ func (s *Store) SprintBurndown(sprintID string) ([]PointDay, error) {
 	return days, nil
 }
 
+// --- WIP Limits ---
+
+func wipKey(projectID, status string) string {
+	return "wip:" + projectID + ":" + status
+}
+
+func (s *Store) SetWIP(projectID, status string, limit int) error {
+	if limit <= 0 {
+		_, err := s.db.Exec("DELETE FROM settings WHERE key = ?", wipKey(projectID, status))
+		return err
+	}
+	return s.SetSetting(wipKey(projectID, status), fmt.Sprintf("%d", limit))
+}
+
+func (s *Store) GetWIPLimits(projectID string) (map[string]int, error) {
+	prefix := "wip:" + projectID + ":"
+	rows, err := s.db.Query("SELECT key, value FROM settings WHERE key LIKE ?", prefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	limits := map[string]int{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		var n int
+		fmt.Sscanf(v, "%d", &n)
+		limits[strings.TrimPrefix(k, prefix)] = n
+	}
+	return limits, rows.Err()
+}
+
