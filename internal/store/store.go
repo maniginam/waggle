@@ -1540,6 +1540,103 @@ func (s *Store) RevenueSummary() (map[string]float64, float64, error) {
 	return byProject, total, rows.Err()
 }
 
+// --- Sprints ---
+
+func (s *Store) CreateSprint(sp *model.Sprint) error {
+	if sp.ID == "" {
+		sp.ID = id.New()
+	}
+	if sp.CreatedAt.IsZero() {
+		sp.CreatedAt = time.Now().UTC()
+	}
+	if sp.State == "" {
+		sp.State = model.SprintPlanned
+	}
+	_, err := s.db.Exec(`INSERT INTO sprints (id, project_id, name, goal, state, start_date, end_date, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		sp.ID, sp.ProjectID, sp.Name, sp.Goal, string(sp.State), sp.StartDate, sp.EndDate,
+		sp.CreatedAt.Format(time.RFC3339))
+	return err
+}
+
+func scanSprint(row scanner) (*model.Sprint, error) {
+	var sp model.Sprint
+	var state, createdStr string
+	err := row.Scan(&sp.ID, &sp.ProjectID, &sp.Name, &sp.Goal, &state, &sp.StartDate, &sp.EndDate, &createdStr)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	sp.State = model.SprintState(state)
+	sp.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+	return &sp, nil
+}
+
+func (s *Store) GetSprint(sprintID string) (*model.Sprint, error) {
+	row := s.db.QueryRow(`SELECT id, project_id, name, goal, state, start_date, end_date, created_at FROM sprints WHERE id = ?`, sprintID)
+	return scanSprint(row)
+}
+
+func (s *Store) ListSprints(projectID string) ([]*model.Sprint, error) {
+	query := `SELECT id, project_id, name, goal, state, start_date, end_date, created_at FROM sprints`
+	var args []any
+	if projectID != "" {
+		query += " WHERE project_id = ?"
+		args = append(args, projectID)
+	}
+	query += " ORDER BY created_at DESC"
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sprints []*model.Sprint
+	for rows.Next() {
+		sp, err := scanSprint(rows)
+		if err != nil {
+			return nil, err
+		}
+		sprints = append(sprints, sp)
+	}
+	return sprints, rows.Err()
+}
+
+func (s *Store) UpdateSprint(sprintID string, updates map[string]any) (*model.Sprint, error) {
+	if _, err := s.GetSprint(sprintID); err != nil {
+		return nil, err
+	}
+	var sets []string
+	var args []any
+	for k, v := range updates {
+		switch k {
+		case "name", "goal", "state", "start_date", "end_date":
+			sets = append(sets, k+" = ?")
+			args = append(args, v)
+		}
+	}
+	if len(sets) == 0 {
+		return s.GetSprint(sprintID)
+	}
+	args = append(args, sprintID)
+	_, err := s.db.Exec("UPDATE sprints SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetSprint(sprintID)
+}
+
+func (s *Store) DeleteSprint(sprintID string) error {
+	if _, err := s.GetSprint(sprintID); err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.db.Exec("UPDATE tasks SET sprint_id = '', updated_at = ? WHERE sprint_id = ?", now, sprintID)
+	_, err := s.db.Exec("DELETE FROM sprints WHERE id = ?", sprintID)
+	return err
+}
+
 // Settings
 
 func (s *Store) GetSetting(key string) (string, error) {

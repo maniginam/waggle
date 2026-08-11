@@ -1330,3 +1330,53 @@ func TestTaskAgileFieldsRoundTrip(t *testing.T) {
 		t.Errorf("got sprint=%q points=%d order=%v", got.SprintID, got.StoryPoints, got.BoardOrder)
 	}
 }
+
+func TestSprintCRUD(t *testing.T) {
+	s := tempStore(t)
+	sp := &model.Sprint{ProjectID: "p1", Name: "Sprint 1", Goal: "ship A"}
+	if err := s.CreateSprint(sp); err != nil {
+		t.Fatal(err)
+	}
+	if sp.ID == "" {
+		t.Fatal("expected ID set")
+	}
+	if sp.State != model.SprintPlanned {
+		t.Errorf("expected default planned, got %q", sp.State)
+	}
+	got, err := s.GetSprint(sp.ID)
+	if err != nil || got.Name != "Sprint 1" {
+		t.Fatalf("get failed: %v %+v", err, got)
+	}
+	if _, err := s.UpdateSprint(sp.ID, map[string]any{"goal": "ship faster"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetSprint(sp.ID)
+	if got.Goal != "ship faster" {
+		t.Errorf("update failed: %q", got.Goal)
+	}
+	list, _ := s.ListSprints("p1")
+	if len(list) != 1 {
+		t.Errorf("expected 1 sprint, got %d", len(list))
+	}
+	if err := s.DeleteSprint(sp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSprint(sp.ID); err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteSprintClearsTasks(t *testing.T) {
+	s := tempStore(t)
+	sp := &model.Sprint{ProjectID: "p1", Name: "S"}
+	s.CreateSprint(sp)
+	task := &model.Task{Title: "t", SprintID: sp.ID}
+	s.CreateTask(task)
+	if err := s.DeleteSprint(sp.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetTask(task.ID)
+	if got.SprintID != "" {
+		t.Errorf("expected sprint_id cleared, got %q", got.SprintID)
+	}
+}
