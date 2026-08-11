@@ -78,6 +78,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/revenue", a.handleRevenue)
 	mux.HandleFunc("/api/sprints", a.handleSprints)
 	mux.HandleFunc("/api/sprints/", a.handleSprint)
+	mux.HandleFunc("/api/wip", a.handleWIP)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -1273,6 +1274,39 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func (a *API) handleWIP(w http.ResponseWriter, r *http.Request) {
+	projectID := r.URL.Query().Get("project_id")
+	switch r.Method {
+	case http.MethodGet:
+		limits, err := a.store.GetWIPLimits(projectID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "get_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, limits)
+	case http.MethodPut:
+		var req map[string]int
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		for status, limit := range req {
+			if !model.TaskStatus(status).Valid() {
+				writeError(w, http.StatusBadRequest, "invalid_status", "invalid status: "+status)
+				return
+			}
+			if err := a.store.SetWIP(projectID, status, limit); err != nil {
+				writeError(w, http.StatusInternalServerError, "set_failed", err.Error())
+				return
+			}
+		}
+		limits, _ := a.store.GetWIPLimits(projectID)
+		writeJSON(w, http.StatusOK, limits)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 // tryAutoDispatch checks if the agent's project has auto_dispatch enabled,

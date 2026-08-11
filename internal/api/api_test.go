@@ -2802,3 +2802,25 @@ func TestTaskMoveAndSprintAssign(t *testing.T) {
 		t.Errorf("expected sprint assigned, got %q", got.SprintID)
 	}
 }
+
+func TestWIPEndpoint(t *testing.T) {
+	_, ts := setup(t)
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/wip?project_id=p1",
+		strings.NewReader(`{"in_progress":3}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("put expected 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	gr := mustGet(t, ts.URL+"/api/wip?project_id=p1")
+	var limits map[string]int
+	json.NewDecoder(gr.Body).Decode(&limits)
+	gr.Body.Close()
+	if limits["in_progress"] != 3 {
+		t.Errorf("expected 3, got %d", limits["in_progress"])
+	}
+}
