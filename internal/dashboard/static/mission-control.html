@@ -564,6 +564,204 @@ select.inline-select {
   .detail-panel { width: 100%; }
   main { padding: 12px; }
 }
+
+/* View nav */
+.view-nav {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+  margin-right: 4px;
+}
+.view-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.view-btn:hover { color: var(--text); background: var(--surface2); }
+.view-btn.active { border-color: var(--accent); color: var(--text); background: var(--surface2); }
+
+/* Board view */
+#board-view { display: none; padding: 20px; }
+#board-view.active { display: block; }
+
+.board-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.board-toolbar label { font-size: 12px; color: var(--text-dim); }
+.board-toolbar select, .board-toolbar input[type="text"] {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.board-toolbar select:focus, .board-toolbar input:focus { border-color: var(--accent); }
+.board-toolbar button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.board-toolbar button:hover { border-color: var(--accent); }
+.board-toolbar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.board-columns {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  align-items: flex-start;
+  padding-bottom: 12px;
+}
+.board-col {
+  flex: 0 0 220px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+  max-height: calc(100vh - 200px);
+}
+.board-col-header {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.board-col-header.wip-over {
+  color: #e040fb;
+  font-weight: 700;
+  border-bottom-color: #e040fb;
+}
+.board-col-title { display: flex; align-items: center; gap: 6px; }
+.board-col-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.wip-badge {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--surface2);
+  font-size: 11px;
+}
+.wip-badge.over {
+  background: rgba(224,64,251,0.2);
+  color: #e040fb;
+  font-weight: 700;
+}
+.wip-limit-input {
+  width: 36px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 11px;
+  text-align: center;
+}
+.board-col-cards {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 60px;
+}
+.board-col-cards.drag-over {
+  background: rgba(108,138,255,0.08);
+  border-radius: 6px;
+}
+.board-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: grab;
+  font-size: 13px;
+  transition: border-color 0.15s, transform 0.1s;
+  user-select: none;
+}
+.board-card:active { cursor: grabbing; }
+.board-card.dragging { opacity: 0.4; transform: rotate(1deg); }
+.board-card:hover { border-color: var(--accent); }
+.board-card-title { font-weight: 500; margin-bottom: 5px; line-height: 1.3; }
+.board-card-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.board-card-pts {
+  background: rgba(108,138,255,0.2);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.board-card-assignee {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.board-col-pts {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Burndown sparkline */
+.burndown-wrap {
+  margin-bottom: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.burndown-wrap svg { flex-shrink: 0; }
+.burndown-label { font-size: 12px; color: var(--text-dim); }
+.burndown-label b { color: var(--text); }
+
+/* Priority dot colors on board cards */
+.board-card[data-pri="critical"] { border-left: 3px solid var(--red); }
+.board-card[data-pri="high"]     { border-left: 3px solid var(--orange); }
+.board-card[data-pri="medium"]   { border-left: 3px solid var(--yellow); }
+.board-card[data-pri="low"]      { border-left: 3px solid var(--text-dim); }
 </style>
 </head>
 <body>
@@ -573,9 +771,20 @@ select.inline-select {
     <div class="agents-indicator" id="agents-indicator" onclick="toggleAgentList()" title="Connected agents">
       <div class="dot"></div> <span id="agent-count">0</span> agents
     </div>
-    <button class="filter-btn active" data-filter="all">All</button>
-    <button class="filter-btn" data-filter="pro">Pro</button>
-    <button class="filter-btn" data-filter="team">Team</button>
+    <div class="view-nav">
+      <button class="view-btn active" id="view-dashboard-btn" onclick="switchView('dashboard')">Dashboard</button>
+      <button class="view-btn" id="view-board-btn" onclick="switchView('board')">Board</button>
+    </div>
+    <div id="dashboard-filters">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="pro">Pro</button>
+      <button class="filter-btn" data-filter="team">Team</button>
+    </div>
+    <div id="board-project-filter" style="display:none">
+      <select id="board-project-select" onchange="onBoardProjectChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:13px;outline:none">
+        <option value="">All Projects</option>
+      </select>
+    </div>
   </div>
 </header>
 <div class="msg-bar" id="msg-bar">
@@ -626,6 +835,28 @@ select.inline-select {
     <div id="progress-feed"></div>
   </div>
 </main>
+
+<!-- Board view (Step 1) -->
+<div id="board-view">
+  <!-- Sprint selector toolbar (Step 4) -->
+  <div class="board-toolbar">
+    <label for="sprint-select">Sprint:</label>
+    <select id="sprint-select" onchange="onSprintChange()">
+      <option value="active">Active Sprint</option>
+      <option value="__backlog__">Backlog</option>
+      <option value="__all__">All</option>
+    </select>
+    <button id="set-active-sprint-btn" onclick="setActiveSprint()" style="display:none" title="Mark selected sprint as active">Set Active</button>
+    <span id="board-sprint-name" style="font-size:12px;color:var(--text-dim);margin-left:4px"></span>
+  </div>
+  <!-- Burndown sparkline (Step 6) -->
+  <div class="burndown-wrap" id="burndown-wrap" style="display:none">
+    <svg id="burndown-svg" width="180" height="48" viewBox="0 0 180 48"></svg>
+    <div class="burndown-label" id="burndown-label"></div>
+  </div>
+  <!-- Kanban columns (Step 2) -->
+  <div class="board-columns" id="board-columns"></div>
+</div>
 
 <div class="detail-overlay" id="detail-overlay">
   <div class="detail-panel" id="detail-panel">
@@ -1281,17 +1512,51 @@ async function refresh() {
 
   allProgress = progress || [];
   renderAll();
+  updateBoardProjectSelect();
 }
 
-// Filters
-document.querySelectorAll('.filter-btn').forEach(btn => {
+// Filters (dashboard only)
+document.querySelectorAll('#dashboard-filters .filter-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('#dashboard-filters .filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentFilter = btn.dataset.filter;
     renderAll();
   });
 });
+
+// --- View Switching ---
+let currentView = 'dashboard';
+
+function switchView(view) {
+  currentView = view;
+  const app = document.getElementById('app');
+  const boardView = document.getElementById('board-view');
+  const dashBtn = document.getElementById('view-dashboard-btn');
+  const boardBtn = document.getElementById('view-board-btn');
+  const dashFilters = document.getElementById('dashboard-filters');
+  const boardProjectFilter = document.getElementById('board-project-filter');
+  const msgBar = document.getElementById('msg-bar');
+
+  if (view === 'board') {
+    app.style.display = 'none';
+    boardView.classList.add('active');
+    dashBtn.classList.remove('active');
+    boardBtn.classList.add('active');
+    dashFilters.style.display = 'none';
+    boardProjectFilter.style.display = '';
+    msgBar.style.display = 'none';
+    loadBoard();
+  } else {
+    app.style.display = '';
+    boardView.classList.remove('active');
+    dashBtn.classList.add('active');
+    boardBtn.classList.remove('active');
+    dashFilters.style.display = '';
+    boardProjectFilter.style.display = 'none';
+    msgBar.style.display = '';
+  }
+}
 
 // Close detail
 document.getElementById('close-detail').addEventListener('click', closeDetail);
@@ -1319,6 +1584,10 @@ function connectSSE() {
         const payload = event.payload || {};
         browserNotify('Task Completed', payload.title || event.task_id || 'A task was completed');
       }
+      // Board live updates (Step 7)
+      if (type === 'task_updated' || type === 'task_created' || type === 'task_completed' || type === 'task_deleted') {
+        boardSSERefresh();
+      }
       // Notify on agent join/leave
       if (type === 'agent_joined') {
         showToast('Agent Connected', event.agent_id || 'An agent connected');
@@ -1341,6 +1610,426 @@ requestNotifications();
 refresh();
 connectSSE();
 setInterval(refresh, 30000);
+// ============================================================
+// BOARD VIEW (Steps 2–7)
+// ============================================================
+
+const BOARD_STATUSES = ['backlog', 'ready', 'in_progress', 'review', 'done', 'blocked'];
+const STATUS_LABELS  = { backlog: 'Backlog', ready: 'Ready', in_progress: 'In Progress', review: 'Review', done: 'Done', blocked: 'Blocked' };
+
+// Board state
+let boardSprints      = [];   // all sprints for current project
+let boardActiveSprint = null; // sprint object where state === 'active'
+let boardWIPLimits    = {};   // { status: limit }
+let boardTasks        = [];   // tasks currently shown
+let dragSrcTaskId     = null;
+let dragSrcStatus     = null;
+
+// --- Sprint selector helpers ---
+function getBoardProjectId() {
+  return document.getElementById('board-project-select').value || '';
+}
+
+function getSprintSelectValue() {
+  return document.getElementById('sprint-select').value;
+}
+
+async function loadBoardSprints() {
+  const pid = getBoardProjectId();
+  let url = API + '/api/sprints';
+  if (pid) url += '?project_id=' + encodeURIComponent(pid);
+  const r = await fetch(url);
+  boardSprints = r.ok ? await r.json() : [];
+  boardActiveSprint = boardSprints.find(s => s.state === 'active') || null;
+
+  // Rebuild sprint dropdown options (keep synthetic ones at top)
+  const sel = document.getElementById('sprint-select');
+  const cur = sel.value;
+  // Remove any previously-added sprint entries
+  while (sel.options.length > 3) sel.remove(3);
+  for (const sp of boardSprints) {
+    const opt = document.createElement('option');
+    opt.value = sp.id;
+    opt.textContent = sp.name + (sp.state === 'active' ? ' ★' : '');
+    sel.appendChild(opt);
+  }
+  // Restore selection if still valid, else default to 'active'
+  const valid = Array.from(sel.options).some(o => o.value === cur);
+  sel.value = valid ? cur : 'active';
+}
+
+async function loadBoardWIP() {
+  const pid = getBoardProjectId();
+  let url = API + '/api/wip';
+  if (pid) url += '?project_id=' + encodeURIComponent(pid);
+  const r = await fetch(url);
+  boardWIPLimits = r.ok ? await r.json() : {};
+}
+
+async function loadBoardTasks() {
+  const pid = getBoardProjectId();
+  const sel = getSprintSelectValue();
+  let url = API + '/api/tasks?';
+  const params = [];
+  if (pid) params.push('project_id=' + encodeURIComponent(pid));
+
+  if (sel === 'active') {
+    if (boardActiveSprint) {
+      params.push('sprint_id=' + encodeURIComponent(boardActiveSprint.id));
+    } else {
+      // No active sprint — show nothing meaningful; treat as empty
+      boardTasks = [];
+      return;
+    }
+  } else if (sel === '__backlog__') {
+    params.push('sprint_id=__backlog__');
+  } else if (sel === '__all__') {
+    // no sprint_id filter
+  } else {
+    // specific sprint id
+    params.push('sprint_id=' + encodeURIComponent(sel));
+  }
+  url += params.join('&');
+  const r = await fetch(url);
+  boardTasks = r.ok ? await r.json() : [];
+  if (!boardTasks) boardTasks = [];
+}
+
+async function loadBoard() {
+  await Promise.all([loadBoardSprints(), loadBoardWIP()]);
+  await loadBoardTasks();
+  renderBoard();
+  renderBurndown();
+  updateBoardSprintUI();
+}
+
+function updateBoardSprintUI() {
+  const sel = getSprintSelectValue();
+  const nameEl = document.getElementById('board-sprint-name');
+  const setBtn = document.getElementById('set-active-sprint-btn');
+
+  if (sel === 'active') {
+    nameEl.textContent = boardActiveSprint ? boardActiveSprint.name : '(no active sprint)';
+    setBtn.style.display = 'none';
+  } else if (sel === '__backlog__') {
+    nameEl.textContent = '';
+    setBtn.style.display = 'none';
+  } else if (sel === '__all__') {
+    nameEl.textContent = '';
+    setBtn.style.display = 'none';
+  } else {
+    const sp = boardSprints.find(s => s.id === sel);
+    nameEl.textContent = sp ? sp.name : '';
+    // Show "Set Active" only if it's not already active
+    setBtn.style.display = (sp && sp.state !== 'active') ? '' : 'none';
+  }
+}
+
+async function onSprintChange() {
+  updateBoardSprintUI();
+  await loadBoardTasks();
+  renderBoard();
+  renderBurndown();
+}
+
+async function onBoardProjectChange() {
+  await loadBoard();
+}
+
+async function setActiveSprint() {
+  const sprintId = getSprintSelectValue();
+  if (!sprintId || sprintId === 'active' || sprintId === '__backlog__' || sprintId === '__all__') return;
+  const r = await fetch(API + '/api/sprints/' + encodeURIComponent(sprintId), {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ state: 'active' })
+  });
+  if (r.ok) {
+    showToast('Sprint Activated', 'Sprint is now active');
+    await loadBoard();
+  } else {
+    showToast('Error', 'Failed to set sprint active');
+  }
+}
+
+// --- Step 5: WIP limit input handler ---
+async function setWIPLimit(status, limitStr) {
+  const limit = parseInt(limitStr, 10);
+  const pid = getBoardProjectId();
+  let url = API + '/api/wip';
+  if (pid) url += '?project_id=' + encodeURIComponent(pid);
+  const body = {};
+  body[status] = isNaN(limit) || limit <= 0 ? 0 : limit;
+  const r = await fetch(url, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (r.ok) {
+    boardWIPLimits = await r.json();
+    renderBoard();
+  }
+}
+
+// --- Step 2: Render the kanban columns ---
+function renderBoard() {
+  const container = document.getElementById('board-columns');
+  container.innerHTML = '';
+
+  // Bucket tasks by status
+  const buckets = {};
+  for (const s of BOARD_STATUSES) buckets[s] = [];
+  for (const t of boardTasks) {
+    const s = t.status || 'backlog';
+    if (buckets[s]) buckets[s].push(t);
+  }
+  // Sort each bucket: ascending board_order, then created_at
+  for (const s of BOARD_STATUSES) {
+    buckets[s].sort((a, b) => {
+      const od = (a.board_order || 0) - (b.board_order || 0);
+      if (od !== 0) return od;
+      return new Date(a.created_at) - new Date(b.created_at);
+    });
+  }
+
+  for (const status of BOARD_STATUSES) {
+    const cards = buckets[status];
+    const count = cards.length;
+    const pts = cards.reduce((s, t) => s + (t.story_points || 0), 0);
+    const limit = boardWIPLimits[status] || 0;
+    const over = limit > 0 && count > limit;
+
+    const col = document.createElement('div');
+    col.className = 'board-col';
+    col.dataset.status = status;
+
+    // Header
+    const hdr = document.createElement('div');
+    hdr.className = 'board-col-header' + (over ? ' wip-over' : '');
+    hdr.innerHTML = `
+      <div class="board-col-title">
+        <span>${STATUS_LABELS[status]}</span>
+        <span class="wip-badge${over ? ' over' : ''}">${count}${limit > 0 ? '/' + limit : ''}</span>
+      </div>
+      <div class="board-col-badges">
+        ${pts > 0 ? `<span class="board-col-pts">${pts}pts</span>` : ''}
+        <input class="wip-limit-input" type="number" min="0" placeholder="WIP" title="Set WIP limit"
+          value="${limit > 0 ? limit : ''}"
+          onchange="setWIPLimit('${status}', this.value)"
+          onclick="event.stopPropagation()">
+      </div>
+    `;
+    col.appendChild(hdr);
+
+    // Cards area (Step 3: drag-and-drop target)
+    const cardsEl = document.createElement('div');
+    cardsEl.className = 'board-col-cards';
+    cardsEl.dataset.status = status;
+    cardsEl.addEventListener('dragover', onDragOver);
+    cardsEl.addEventListener('dragleave', onDragLeave);
+    cardsEl.addEventListener('drop', (e) => onDrop(e, status, cardsEl, buckets[status]));
+
+    for (const task of cards) {
+      cardsEl.appendChild(makeBoardCard(task));
+    }
+    col.appendChild(cardsEl);
+    container.appendChild(col);
+  }
+}
+
+function makeBoardCard(task) {
+  const card = document.createElement('div');
+  card.className = 'board-card';
+  card.draggable = true;
+  card.dataset.taskId = task.id;
+  card.dataset.status = task.status;
+  card.dataset.pri = task.priority || 'low';
+
+  let metaHTML = '';
+  if (task.story_points > 0) metaHTML += `<span class="board-card-pts">${task.story_points}pt</span>`;
+  if (task.assignee) metaHTML += `<span class="board-card-assignee">${esc(task.assignee)}</span>`;
+
+  card.innerHTML = `
+    <div class="board-card-title">${esc(task.title)}</div>
+    ${metaHTML ? `<div class="board-card-meta">${metaHTML}</div>` : ''}
+  `;
+
+  card.addEventListener('dragstart', (e) => {
+    dragSrcTaskId = task.id;
+    dragSrcStatus = task.status;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', task.id);
+  });
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+  });
+
+  return card;
+}
+
+// --- Step 3: Drag-and-drop ---
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function onDragLeave(e) {
+  // Only remove if leaving the cards container itself (not a child)
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+}
+
+async function onDrop(e, targetStatus, cardsEl, existingCards) {
+  e.preventDefault();
+  cardsEl.classList.remove('drag-over');
+  const taskId = dragSrcTaskId;
+  if (!taskId) return;
+
+  // Compute drop position within the column
+  const cardEls = Array.from(cardsEl.querySelectorAll('.board-card:not(.dragging)'));
+  let insertBefore = null; // null means append
+  for (const c of cardEls) {
+    const rect = c.getBoundingClientRect();
+    if (e.clientY < rect.top + rect.height / 2) {
+      insertBefore = c;
+      break;
+    }
+  }
+
+  // Compute new board_order (midpoint of neighbors)
+  // Sort existing by current order to match visual order
+  const sortedExisting = existingCards.filter(t => t.id !== taskId)
+    .sort((a, b) => (a.board_order || 0) - (b.board_order || 0));
+
+  let newOrder;
+  if (sortedExisting.length === 0) {
+    newOrder = 1000;
+  } else if (!insertBefore) {
+    // Append at bottom
+    const last = sortedExisting[sortedExisting.length - 1].board_order || 0;
+    newOrder = last + 1000;
+  } else {
+    const beforeId = insertBefore.dataset.taskId;
+    const beforeIdx = sortedExisting.findIndex(t => t.id === beforeId);
+    if (beforeIdx === 0) {
+      // Top of column
+      newOrder = (sortedExisting[0].board_order || 1000) - 1;
+    } else {
+      const prev = sortedExisting[beforeIdx - 1].board_order || 0;
+      const next = sortedExisting[beforeIdx].board_order || 0;
+      newOrder = (prev + next) / 2;
+    }
+  }
+
+  const r = await fetch(API + '/api/tasks/' + encodeURIComponent(taskId) + '/move', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ status: targetStatus, board_order: newOrder })
+  });
+
+  if (r.ok) {
+    // Update local task list and re-render
+    const updated = await r.json();
+    const idx = boardTasks.findIndex(t => t.id === taskId);
+    if (idx >= 0) boardTasks[idx] = updated;
+    else boardTasks.push(updated);
+    renderBoard();
+  } else {
+    showToast('Move Failed', 'Could not move task');
+  }
+}
+
+// --- Step 6: Burndown sparkline ---
+async function renderBurndown() {
+  const sel = getSprintSelectValue();
+  const wrapEl = document.getElementById('burndown-wrap');
+  let sprintId = null;
+
+  if (sel === 'active' && boardActiveSprint) {
+    sprintId = boardActiveSprint.id;
+  } else if (sel !== '__backlog__' && sel !== '__all__' && sel !== 'active') {
+    sprintId = sel;
+  }
+
+  if (!sprintId) {
+    wrapEl.style.display = 'none';
+    return;
+  }
+
+  const r = await fetch(API + '/api/sprints/' + encodeURIComponent(sprintId) + '/burndown');
+  if (!r.ok) { wrapEl.style.display = 'none'; return; }
+  const days = await r.json();
+  if (!days || days.length === 0) { wrapEl.style.display = 'none'; return; }
+
+  wrapEl.style.display = '';
+  drawBurndownSVG(days);
+}
+
+function drawBurndownSVG(days) {
+  const svg = document.getElementById('burndown-svg');
+  const labelEl = document.getElementById('burndown-label');
+  const W = 180, H = 48, PAD = 4;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const maxRemain = Math.max(...days.map(d => d.remaining), 1);
+  const minRemain = Math.min(...days.map(d => d.remaining));
+  const n = days.length;
+
+  const xOf = i => PAD + i * (W - PAD * 2) / Math.max(n - 1, 1);
+  const yOf = v => H - PAD - (v - minRemain) / (maxRemain - minRemain || 1) * (H - PAD * 2);
+
+  // Build polyline points
+  const pts = days.map((d, i) => `${xOf(i).toFixed(1)},${yOf(d.remaining).toFixed(1)}`).join(' ');
+
+  // Ideal line (start → 0)
+  const idealPts = `${xOf(0).toFixed(1)},${yOf(maxRemain).toFixed(1)} ${xOf(n-1).toFixed(1)},${yOf(0).toFixed(1)}`;
+
+  svg.innerHTML = `
+    <polyline points="${idealPts}" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1" stroke-dasharray="3,3"/>
+    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${xOf(0).toFixed(1)}" cy="${yOf(days[0].remaining).toFixed(1)}" r="3" fill="var(--accent)"/>
+    <circle cx="${xOf(n-1).toFixed(1)}" cy="${yOf(days[n-1].remaining).toFixed(1)}" r="3" fill="var(--accent)"/>
+  `;
+
+  const first = days[0], last = days[n-1];
+  labelEl.innerHTML = `<b>${first.remaining}pts</b> → <b>${last.remaining}pts</b> remaining &nbsp;|&nbsp; ${n} days`;
+}
+
+// --- Step 7: SSE integration (hook into existing connectSSE handler) ---
+// boardRefreshNeeded flags that the next SSE event should trigger a board re-render
+// We patch the existing SSE message handling by hooking into the task event types.
+// The actual hook is wired in connectSSE below; this function handles the refresh.
+async function boardSSERefresh() {
+  if (currentView !== 'board') return;
+  await loadBoardTasks();
+  renderBoard();
+  renderBurndown();
+}
+
+// Populate board project select from allProjects
+function updateBoardProjectSelect() {
+  const sel = document.getElementById('board-project-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All Projects</option>';
+  for (const p of allProjects) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name || p.id;
+    sel.appendChild(opt);
+  }
+  // Restore selection if still present
+  if (cur && Array.from(sel.options).some(o => o.value === cur)) {
+    sel.value = cur;
+  }
+}
+
+// ============================================================
+// END BOARD VIEW
+// ============================================================
+
 function renderRevenue(summary) {
   const bar = document.getElementById('revenue-bar');
   const totalEl = document.getElementById('revenue-total');
