@@ -1315,3 +1315,18 @@ func TestRevenueCRUD(t *testing.T) {
 		t.Errorf("expected project total ~74.99, got %f", byProject[proj.ID])
 	}
 }
+
+func TestTaskAgileFieldsRoundTrip(t *testing.T) {
+	s := tempStore(t)
+	task := &model.Task{Title: "pointed", SprintID: "sp1", StoryPoints: 5, BoardOrder: 1.5}
+	if err := s.CreateTask(task); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SprintID != "sp1" || got.StoryPoints != 5 || got.BoardOrder != 1.5 {
+		t.Errorf("got sprint=%q points=%d order=%v", got.SprintID, got.StoryPoints, got.BoardOrder)
+	}
+}
