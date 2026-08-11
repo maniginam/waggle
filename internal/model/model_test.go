@@ -66,3 +66,14 @@ func TestProjectStatusValid(t *testing.T) {
 	}
 }
 
+func TestSprintStateValid(t *testing.T) {
+	for _, s := range []SprintState{SprintPlanned, SprintActive, SprintClosed} {
+		if !s.Valid() {
+			t.Errorf("expected %q valid", s)
+		}
+	}
+	if SprintState("bogus").Valid() {
+		t.Error("expected bogus invalid")
+	}
+}
+

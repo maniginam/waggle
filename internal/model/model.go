@@ -48,6 +48,33 @@ const (
 	AgentDisconnected AgentStatus = "disconnected"
 )
 
+type SprintState string
+
+const (
+	SprintPlanned SprintState = "planned"
+	SprintActive  SprintState = "active"
+	SprintClosed  SprintState = "closed"
+)
+
+func (s SprintState) Valid() bool {
+	switch s {
+	case SprintPlanned, SprintActive, SprintClosed:
+		return true
+	}
+	return false
+}
+
+type Sprint struct {
+	ID        string      `json:"id"`
+	ProjectID string      `json:"project_id"`
+	Name      string      `json:"name"`
+	Goal      string      `json:"goal,omitempty"`
+	State     SprintState `json:"state"`
+	StartDate string      `json:"start_date,omitempty"`
+	EndDate   string      `json:"end_date,omitempty"`
+	CreatedAt time.Time   `json:"created_at"`
+}
+
 type Task struct {
 	ID          string     `json:"id"`
 	Title       string     `json:"title"`
@@ -65,6 +92,9 @@ type Task struct {
 	DependsOn   []string   `json:"depends_on,omitempty"`
 	TaskType    TaskType   `json:"task_type,omitempty"`
 	ProjectID   string     `json:"project_id,omitempty"`
+	SprintID    string     `json:"sprint_id,omitempty"`
+	StoryPoints int        `json:"story_points,omitempty"`
+	BoardOrder  float64    `json:"board_order"`
 	IssueNumber int        `json:"issue_number,omitempty"`
 	IssueURL    string     `json:"issue_url,omitempty"`
 }
