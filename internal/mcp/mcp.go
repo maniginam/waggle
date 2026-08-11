@@ -198,6 +198,43 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			"required": []string{"id"},
 		}),
 
+		// --- Agile / board tools ---
+		toolDef("waggle_move_task", "Move a task to a board column (status) and optional position. Use to drag a card across the kanban board.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"task_id":     prop("string", "Task ID to move"),
+				"status":      propEnum("string", []string{"backlog", "ready", "in_progress", "review", "done", "blocked"}, "Target column"),
+				"board_order": map[string]any{"type": "number", "description": "Position within the column (optional; appends if omitted)"},
+			},
+			"required": []string{"task_id", "status"},
+		}),
+		toolDef("waggle_create_sprint", "Create a sprint for a project.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": prop("string", "Project ID"),
+				"name":       prop("string", "Sprint name"),
+				"goal":       prop("string", "Sprint goal (optional)"),
+				"start_date": prop("string", "RFC3339 start date (optional)"),
+				"end_date":   prop("string", "RFC3339 end date (optional)"),
+			},
+			"required": []string{"project_id", "name"},
+		}),
+		toolDef("waggle_assign_sprint", "Assign a task to a sprint, or send it to the backlog with an empty sprint_id.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"task_id":   prop("string", "Task ID"),
+				"sprint_id": prop("string", "Sprint ID ('' = backlog)"),
+			},
+			"required": []string{"task_id"},
+		}),
+		toolDef("waggle_sprint_status", "Get the active sprint and its burndown for a project.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": prop("string", "Project ID"),
+			},
+			"required": []string{"project_id"},
+		}),
+
 		// --- Message tools ---
 		toolDef("waggle_send_message", "Send a message to another agent or broadcast.", map[string]any{
 			"type": "object",
@@ -352,6 +389,59 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("id is required")
 		}
 		return a.deleteJSON("/api/tasks/" + id)
+
+	// --- Agile / board tools ---
+
+	case "waggle_move_task":
+		id, _ := args["task_id"].(string)
+		status, _ := args["status"].(string)
+		if id == "" || status == "" {
+			return nil, fmt.Errorf("task_id and status are required")
+		}
+		body := map[string]any{"status": status}
+		if bo, ok := args["board_order"].(float64); ok {
+			body["board_order"] = bo
+		}
+		return a.postJSON("/api/tasks/"+id+"/move", body)
+
+	case "waggle_create_sprint":
+		projectID, _ := args["project_id"].(string)
+		name, _ := args["name"].(string)
+		if projectID == "" || name == "" {
+			return nil, fmt.Errorf("project_id and name are required")
+		}
+		return a.postJSON("/api/sprints", args)
+
+	case "waggle_assign_sprint":
+		id, _ := args["task_id"].(string)
+		if id == "" {
+			return nil, fmt.Errorf("task_id is required")
+		}
+		sprintID, _ := args["sprint_id"].(string)
+		return a.postJSON("/api/tasks/"+id+"/sprint", map[string]string{"sprint_id": sprintID})
+
+	case "waggle_sprint_status":
+		projectID, _ := args["project_id"].(string)
+		if projectID == "" {
+			return nil, fmt.Errorf("project_id is required")
+		}
+		listed, err := a.get("/api/sprints?project_id=" + url.QueryEscape(projectID))
+		if err != nil {
+			return nil, err
+		}
+		sprints, _ := listed.([]any)
+		var active map[string]any
+		for _, sv := range sprints {
+			if m, ok := sv.(map[string]any); ok && m["state"] == "active" {
+				active = m
+				break
+			}
+		}
+		if active == nil {
+			return map[string]any{"active_sprint": nil}, nil
+		}
+		burndown, _ := a.get("/api/sprints/" + active["id"].(string) + "/burndown")
+		return map[string]any{"active_sprint": active, "burndown": burndown}, nil
 
 	// --- Project tools ---
 

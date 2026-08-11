@@ -129,6 +129,7 @@ func TestToolsList(t *testing.T) {
 	expected := []string{
 		"waggle_ctx_briefing", "waggle_park", "waggle_log", "waggle_whats_next",
 		"waggle_create_task", "waggle_list_tasks", "waggle_update_task", "waggle_complete_task", "waggle_delete_task",
+		"waggle_move_task", "waggle_create_sprint", "waggle_assign_sprint", "waggle_sprint_status",
 		"waggle_list_projects", "waggle_update_project",
 		"waggle_send_message", "waggle_read_messages",
 	}
@@ -250,6 +251,39 @@ func TestWhatsNext(t *testing.T) {
 	text := content[0].(map[string]any)["text"].(string)
 	if !strings.Contains(text, "urgent-project") {
 		t.Errorf("whats_next should contain urgent project, got: %s", text[:100])
+	}
+}
+
+func TestMCPAgileTools(t *testing.T) {
+	adapter, _ := setupMCP(t)
+	// tools/list includes the new tools.
+	list := callMCP(t, adapter, "tools/list", 1, nil)
+	result, _ := list["result"].(map[string]any)
+	tools, _ := result["tools"].([]any)
+	names := map[string]bool{}
+	for _, tv := range tools {
+		if m, ok := tv.(map[string]any); ok {
+			names[m["name"].(string)] = true
+		}
+	}
+	for _, want := range []string{"waggle_move_task", "waggle_create_sprint", "waggle_assign_sprint", "waggle_sprint_status"} {
+		if !names[want] {
+			t.Errorf("missing tool %q", want)
+		}
+	}
+	// create_sprint returns a sprint with an id.
+	call := callMCP(t, adapter, "tools/call", 2, map[string]any{
+		"name":      "waggle_create_sprint",
+		"arguments": map[string]any{"project_id": "p1", "name": "S1"},
+	})
+	cr, _ := call["result"].(map[string]any)
+	content, _ := cr["content"].([]any)
+	if len(content) == 0 {
+		t.Fatal("expected content")
+	}
+	text := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "\"id\"") {
+		t.Errorf("expected sprint id in result, got %s", text)
 	}
 }
 
