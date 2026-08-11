@@ -1366,6 +1366,28 @@ func TestSprintCRUD(t *testing.T) {
 	}
 }
 
+func TestSetSprintStateSingleActive(t *testing.T) {
+	s := tempStore(t)
+	a := &model.Sprint{ProjectID: "p1", Name: "A"}
+	b := &model.Sprint{ProjectID: "p1", Name: "B"}
+	s.CreateSprint(a)
+	s.CreateSprint(b)
+	if err := s.SetSprintState(a.ID, model.SprintActive); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSprintState(b.ID, model.SprintActive); err != nil {
+		t.Fatal(err)
+	}
+	ga, _ := s.GetSprint(a.ID)
+	gb, _ := s.GetSprint(b.ID)
+	if ga.State != model.SprintClosed {
+		t.Errorf("expected A closed after B activated, got %q", ga.State)
+	}
+	if gb.State != model.SprintActive {
+		t.Errorf("expected B active, got %q", gb.State)
+	}
+}
+
 func TestDeleteSprintClearsTasks(t *testing.T) {
 	s := tempStore(t)
 	sp := &model.Sprint{ProjectID: "p1", Name: "S"}

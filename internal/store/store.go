@@ -1627,6 +1627,29 @@ func (s *Store) UpdateSprint(sprintID string, updates map[string]any) (*model.Sp
 	return s.GetSprint(sprintID)
 }
 
+func (s *Store) SetSprintState(sprintID string, state model.SprintState) error {
+	sp, err := s.GetSprint(sprintID)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if state == model.SprintActive {
+		if _, err := tx.Exec(
+			"UPDATE sprints SET state = 'closed' WHERE project_id = ? AND state = 'active' AND id != ?",
+			sp.ProjectID, sprintID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec("UPDATE sprints SET state = ? WHERE id = ?", string(state), sprintID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) DeleteSprint(sprintID string) error {
 	if _, err := s.GetSprint(sprintID); err != nil {
 		return err
