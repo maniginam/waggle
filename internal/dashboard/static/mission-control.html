@@ -1846,7 +1846,7 @@ function makeBoardCard(task) {
   card.dataset.pri = task.priority || 'low';
 
   let metaHTML = '';
-  if (task.story_points > 0) metaHTML += `<span class="board-card-pts">${task.story_points}pt</span>`;
+  if (task.story_points > 0) metaHTML += `<span class="board-card-pts">${Number(task.story_points)}pt</span>`;
   if (task.assignee) metaHTML += `<span class="board-card-assignee">${esc(task.assignee)}</span>`;
 
   card.innerHTML = `
@@ -1899,47 +1899,98 @@ async function onDrop(e, targetStatus, cardsEl, existingCards) {
     }
   }
 
-  // Compute new board_order (midpoint of neighbors)
-  // Sort existing by current order to match visual order
+  // Sort existing (excluding the dragged card) by current order to match
+  // visual order. Use ?? 0 so a real board_order of 0 is respected (|| 0 would
+  // also fire on 0, but that is harmless in the comparator; the reads below
+  // that do math must use ??).
   const sortedExisting = existingCards.filter(t => t.id !== taskId)
-    .sort((a, b) => (a.board_order || 0) - (b.board_order || 0));
+    .sort((a, b) => (a.board_order ?? 0) - (b.board_order ?? 0));
 
-  let newOrder;
-  if (sortedExisting.length === 0) {
-    newOrder = 1000;
-  } else if (!insertBefore) {
-    // Append at bottom
-    const last = sortedExisting[sortedExisting.length - 1].board_order || 0;
-    newOrder = last + 1000;
+  // Resolve the drop index within sortedExisting.
+  let dropIdx;
+  if (!insertBefore) {
+    dropIdx = sortedExisting.length; // append at bottom
   } else {
     const beforeId = insertBefore.dataset.taskId;
-    const beforeIdx = sortedExisting.findIndex(t => t.id === beforeId);
-    if (beforeIdx === 0) {
-      // Top of column
-      newOrder = (sortedExisting[0].board_order || 1000) - 1;
-    } else {
-      const prev = sortedExisting[beforeIdx - 1].board_order || 0;
-      const next = sortedExisting[beforeIdx].board_order || 0;
-      newOrder = (prev + next) / 2;
-    }
+    dropIdx = sortedExisting.findIndex(t => t.id === beforeId);
+    if (dropIdx < 0) dropIdx = sortedExisting.length;
   }
 
-  const r = await fetch(API + '/api/tasks/' + encodeURIComponent(taskId) + '/move', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ status: targetStatus, board_order: newOrder })
-  });
+  // Compute midpoint neighbors. prev is the card above the drop, next below.
+  const prevOrder = dropIdx > 0 ? (sortedExisting[dropIdx - 1].board_order ?? 0) : null;
+  const nextOrder = dropIdx < sortedExisting.length ? (sortedExisting[dropIdx].board_order ?? 0) : null;
 
-  if (r.ok) {
-    // Update local task list and re-render
-    const updated = await r.json();
-    const idx = boardTasks.findIndex(t => t.id === taskId);
-    if (idx >= 0) boardTasks[idx] = updated;
-    else boardTasks.push(updated);
+  let newOrder;
+  let collision = false;
+  if (prevOrder === null && nextOrder === null) {
+    newOrder = 1000;                 // empty column
+  } else if (prevOrder === null) {
+    newOrder = nextOrder - 1;        // top of column
+  } else if (nextOrder === null) {
+    newOrder = prevOrder + 1000;     // bottom of column
+  } else if (prevOrder === nextOrder) {
+    collision = true;                // neighbors share order (fresh all-zero board)
+  } else {
+    newOrder = (prevOrder + nextOrder) / 2;
+    // Guard against a midpoint that collides with a neighbor (e.g. adjacent
+    // integers whose midpoint rounds onto one of them under float limits).
+    if (newOrder === prevOrder || newOrder === nextOrder) collision = true;
+  }
+
+  let ok;
+  if (collision) {
+    ok = await reindexColumnDrop(taskId, targetStatus, sortedExisting, dropIdx);
+  } else {
+    ok = await moveTask(taskId, targetStatus, newOrder);
+  }
+
+  if (ok) {
     renderBoard();
   } else {
     showToast('Move Failed', 'Could not move task');
   }
+}
+
+// moveTask persists a single task move and updates local state from the
+// response. Returns true on success.
+async function moveTask(taskId, status, boardOrder) {
+  const r = await fetch(API + '/api/tasks/' + encodeURIComponent(taskId) + '/move', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ status, board_order: boardOrder })
+  });
+  if (!r.ok) return false;
+  const updated = await r.json();
+  const idx = boardTasks.findIndex(t => t.id === taskId);
+  if (idx >= 0) boardTasks[idx] = updated;
+  else boardTasks.push(updated);
+  return true;
+}
+
+// reindexColumnDrop handles the collision case (neighbors sharing board_order,
+// e.g. a fresh all-zero board). It builds the target column's final visual
+// order with the dragged card inserted at dropIdx, then assigns each card a
+// spaced board_order ((i+1)*1000) and persists every changed card. This yields
+// a deterministic, persisted ordering matching the visual drop position.
+async function reindexColumnDrop(taskId, targetStatus, sortedExisting, dropIdx) {
+  const finalOrder = sortedExisting.slice();
+  const dragged = boardTasks.find(t => t.id === taskId) || { id: taskId };
+  finalOrder.splice(dropIdx, 0, dragged);
+
+  let allOk = true;
+  for (let i = 0; i < finalOrder.length; i++) {
+    const card = finalOrder[i];
+    const desired = (i + 1) * 1000;
+    const isDragged = card.id === taskId;
+    // Persist the dragged card always (its status may change); persist others
+    // only when their order actually changes.
+    if (isDragged || (card.board_order ?? 0) !== desired) {
+      const status = isDragged ? targetStatus : card.status;
+      const ok = await moveTask(card.id, status, desired);
+      if (!ok) allOk = false;
+    }
+  }
+  return allOk;
 }
 
 // --- Step 6: Burndown sparkline ---
@@ -1995,7 +2046,7 @@ function drawBurndownSVG(days) {
   `;
 
   const first = days[0], last = days[n-1];
-  labelEl.innerHTML = `<b>${first.remaining}pts</b> → <b>${last.remaining}pts</b> remaining &nbsp;|&nbsp; ${n} days`;
+  labelEl.innerHTML = `<b>${Number(first.remaining)}pts</b> → <b>${Number(last.remaining)}pts</b> remaining &nbsp;|&nbsp; ${n} days`;
 }
 
 // --- Step 7: SSE integration (hook into existing connectSSE handler) ---
