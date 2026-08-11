@@ -271,6 +271,12 @@ func (a *API) handleTask(w http.ResponseWriter, r *http.Request) {
 	case "deps":
 		a.handleTaskDeps(w, r, id)
 		return
+	case "move":
+		a.handleTaskMove(w, r, id)
+		return
+	case "sprint":
+		a.handleTaskSprint(w, r, id)
+		return
 	}
 
 	switch r.Method {
@@ -507,6 +513,65 @@ func (a *API) handleTaskDeps(w http.ResponseWriter, r *http.Request, taskID stri
 		"depends_on":  dependsOn,
 		"blocking":    blockedBy,
 	})
+}
+
+func (a *API) handleTaskMove(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Status     string  `json:"status"`
+		BoardOrder float64 `json:"board_order"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	task, err := a.store.MoveTask(taskID, req.Status, req.BoardOrder)
+	if err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "task_not_found", "Task "+taskID+" not found")
+			return
+		}
+		if err == store.ErrInvalidStatus {
+			writeError(w, http.StatusBadRequest, "invalid_status", "invalid status: "+req.Status)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "move_failed", err.Error())
+		return
+	}
+	a.emit(&model.Event{Type: model.EventTaskUpdated, TaskID: taskID, Payload: map[string]any{
+		"status": req.Status, "board_order": req.BoardOrder,
+	}})
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (a *API) handleTaskSprint(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		SprintID string `json:"sprint_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := a.store.AssignToSprint(taskID, req.SprintID); err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "task_not_found", "Task "+taskID+" not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "assign_failed", err.Error())
+		return
+	}
+	a.emit(&model.Event{Type: model.EventTaskUpdated, TaskID: taskID, Payload: map[string]any{
+		"sprint_id": req.SprintID,
+	}})
+	task, _ := a.store.GetTask(taskID)
+	writeJSON(w, http.StatusOK, task)
 }
 
 func (a *API) handleAgents(w http.ResponseWriter, r *http.Request) {

@@ -2761,3 +2761,44 @@ func TestWakeAgentSkipsAliveRegisteredAgent(t *testing.T) {
 	// If we get here without a spawn attempt, the check passed.
 	// The old code would always try to spawn since mcp-agent isn't in a.procs.
 }
+
+func TestTaskMoveAndSprintAssign(t *testing.T) {
+	a, ts := setup(t)
+	task := &model.Task{Title: "t"}
+	a.store.CreateTask(task)
+	// Move.
+	mr, err := http.Post(ts.URL+"/api/tasks/"+task.ID+"/move", "application/json",
+		strings.NewReader(`{"status":"in_progress","board_order":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mr.StatusCode != http.StatusOK {
+		t.Fatalf("move expected 200, got %d", mr.StatusCode)
+	}
+	var moved model.Task
+	json.NewDecoder(mr.Body).Decode(&moved)
+	mr.Body.Close()
+	if moved.Status != model.TaskInProgress || moved.BoardOrder != 2 {
+		t.Errorf("move failed: %q %v", moved.Status, moved.BoardOrder)
+	}
+	// Bad status.
+	br, _ := http.Post(ts.URL+"/api/tasks/"+task.ID+"/move", "application/json",
+		strings.NewReader(`{"status":"nope","board_order":1}`))
+	if br.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for bad status, got %d", br.StatusCode)
+	}
+	br.Body.Close()
+	// Assign to sprint.
+	sp := &model.Sprint{ProjectID: "p1", Name: "S"}
+	a.store.CreateSprint(sp)
+	sr, _ := http.Post(ts.URL+"/api/tasks/"+task.ID+"/sprint", "application/json",
+		strings.NewReader(`{"sprint_id":"`+sp.ID+`"}`))
+	if sr.StatusCode != http.StatusOK {
+		t.Errorf("sprint assign expected 200, got %d", sr.StatusCode)
+	}
+	sr.Body.Close()
+	got, _ := a.store.GetTask(task.ID)
+	if got.SprintID != sp.ID {
+		t.Errorf("expected sprint assigned, got %q", got.SprintID)
+	}
+}
