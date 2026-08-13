@@ -9,6 +9,12 @@ import (
 	"github.com/maniginam/waggle/internal/model"
 )
 
+// Suppressor marks a task so the next outbound notification for it is dropped,
+// preventing the bot from echoing back moves it just initiated.
+type Suppressor interface {
+	Suppress(taskID string)
+}
+
 type Notifier struct {
 	hub      *event.Hub
 	tg       *Client

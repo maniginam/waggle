@@ -7,12 +7,13 @@ import (
 )
 
 type Handler struct {
-	tg *Client
-	wg *WaggleClient
+	tg         *Client
+	wg         *WaggleClient
+	suppressor Suppressor
 }
 
-func NewHandler(tg *Client, wg *WaggleClient) *Handler {
-	return &Handler{tg: tg, wg: wg}
+func NewHandler(tg *Client, wg *WaggleClient, suppressor Suppressor) *Handler {
+	return &Handler{tg: tg, wg: wg, suppressor: suppressor}
 }
 
 const helpText = "Waggle bot commands:\n" +
@@ -83,6 +84,9 @@ func (h *Handler) HandleCallback(ctx context.Context, cb *CallbackQuery) {
 		return
 	}
 	taskID, status := parts[1], parts[2]
+	if h.suppressor != nil {
+		h.suppressor.Suppress(taskID)
+	}
 	if err := h.wg.MoveTask(taskID, status); err != nil {
 		h.tg.AnswerCallbackQuery(ctx, cb.ID, "error")
 		return

@@ -55,6 +55,9 @@ func (r *Router) dispatchIntent(ctx context.Context, chatID int64, in Intent) {
 	case "whats_next":
 		r.h.HandleCommand(ctx, chatID, "/next")
 	case "move_task":
+		if r.h.suppressor != nil {
+			r.h.suppressor.Suppress(in.Args["task_id"])
+		}
 		if err := r.h.wg.MoveTask(in.Args["task_id"], in.Args["status"]); err != nil {
 			r.h.tg.SendMessage(ctx, chatID, "error: "+err.Error(), nil)
 			return

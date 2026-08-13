@@ -30,7 +30,7 @@ func TestHandleCommandCreateAndTasks(t *testing.T) {
 	var sink []string
 	var mu sync.Mutex
 	tg := fakeTelegram(t, &sink, &mu)
-	h := NewHandler(tg, wg)
+	h := NewHandler(tg, wg, nil)
 
 	h.HandleCommand(context.Background(), 111, "/create ship the bot")
 	tasks, _ := wg.ListTasks("")
@@ -46,6 +46,39 @@ func TestHandleCommandCreateAndTasks(t *testing.T) {
 	}
 }
 
+type fakeSuppressor struct{ ids []string }
+
+func (f *fakeSuppressor) Suppress(id string) { f.ids = append(f.ids, id) }
+
+func TestHandleCallbackSuppressesBeforeMove(t *testing.T) {
+	_, api := newAPIServer(t)
+	wg := NewWaggleClient(api.URL)
+	created, _ := wg.CreateTask("suppress-me", "")
+	id := created["id"].(string)
+
+	var sink []string
+	var mu sync.Mutex
+	tg := fakeTelegram(t, &sink, &mu)
+	fs := &fakeSuppressor{}
+	h := NewHandler(tg, wg, fs)
+
+	h.HandleCallback(context.Background(), &CallbackQuery{
+		ID:      "cb2",
+		Data:    "mv:" + id + ":done",
+		Message: &Message{MessageID: 9, Chat: Chat{ID: 111}},
+	})
+
+	// Suppressor must have recorded the task id.
+	if len(fs.ids) != 1 || fs.ids[0] != id {
+		t.Errorf("suppressor.ids = %v, want [%s]", fs.ids, id)
+	}
+	// Task must also have been moved.
+	tasks, _ := wg.ListTasks("")
+	if tasks[0]["status"] != "done" {
+		t.Errorf("status = %v, want done", tasks[0]["status"])
+	}
+}
+
 func TestHandleCallbackMovesTask(t *testing.T) {
 	_, api := newAPIServer(t)
 	wg := NewWaggleClient(api.URL)
@@ -55,7 +88,7 @@ func TestHandleCallbackMovesTask(t *testing.T) {
 	var sink []string
 	var mu sync.Mutex
 	tg := fakeTelegram(t, &sink, &mu)
-	h := NewHandler(tg, wg)
+	h := NewHandler(tg, wg, nil)
 
 	h.HandleCallback(context.Background(), &CallbackQuery{
 		ID:      "cb1",

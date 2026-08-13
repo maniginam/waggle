@@ -12,7 +12,7 @@ func TestDispatchIgnoresDisallowedChat(t *testing.T) {
 	var sink []string
 	var mu sync.Mutex
 	tg := fakeTelegram(t, &sink, &mu)
-	r := NewRouter(Config{AllowedChats: []int64{999}}, NewHandler(tg, wg), nil)
+	r := NewRouter(Config{AllowedChats: []int64{999}}, NewHandler(tg, wg, nil), nil)
 
 	r.Dispatch(context.Background(), Update{Message: &Message{Chat: Chat{ID: 111}, Text: "/next"}})
 	mu.Lock()
@@ -30,7 +30,7 @@ func TestDispatchNLIntentCreatesTask(t *testing.T) {
 	var mu sync.Mutex
 	tg := fakeTelegram(t, &sink, &mu)
 	nl := fakeNLParser{intent: Intent{Action: "create_task", Args: map[string]string{"title": "from nl"}}}
-	r := NewRouter(Config{AllowedChats: []int64{111}}, NewHandler(tg, wg), nl)
+	r := NewRouter(Config{AllowedChats: []int64{111}}, NewHandler(tg, wg, nil), nl)
 
 	r.Dispatch(context.Background(), Update{Message: &Message{Chat: Chat{ID: 111}, Text: "please make a task from nl"}})
 	tasks, _ := wg.ListTasks("")

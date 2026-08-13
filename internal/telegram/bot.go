@@ -19,7 +19,8 @@ type Bot struct {
 func New(hub *event.Hub, cfg Config) *Bot {
 	tg := NewClient(cfg.TelegramBaseURL)
 	wg := NewWaggleClient(cfg.APIBaseURL)
-	handler := NewHandler(tg, wg)
+	notifier := NewNotifier(hub, tg, cfg.AllowedChats)
+	handler := NewHandler(tg, wg, notifier)
 	var nl NLParser
 	if p, ok := NewClaudeNLParser(); ok {
 		nl = p
@@ -28,7 +29,7 @@ func New(hub *event.Hub, cfg Config) *Bot {
 		cfg:      cfg,
 		tg:       tg,
 		router:   NewRouter(cfg, handler, nl),
-		notifier: NewNotifier(hub, tg, cfg.AllowedChats),
+		notifier: notifier,
 		digester: NewDigester(wg, tg, cfg.AllowedChats),
 	}
 }
