@@ -18,6 +18,7 @@ import (
 	"github.com/maniginam/waggle/internal/model"
 	"github.com/maniginam/waggle/internal/overseer"
 	"github.com/maniginam/waggle/internal/store"
+	"github.com/maniginam/waggle/internal/telegram"
 )
 
 type Server struct {
@@ -28,6 +29,7 @@ type Server struct {
 	stopReaper     chan struct{}
 	startedAt      time.Time
 	overseerCancel context.CancelFunc
+	telegramCancel context.CancelFunc
 }
 
 type Config struct {
@@ -132,6 +134,15 @@ func (s *Server) Start() error {
 		go ov.Run(ctx)
 	}
 
+	tgCfg := telegram.ConfigFromEnv()
+	if telegramEnabled(tgCfg) {
+		bot := telegram.New(s.eventHub, tgCfg)
+		ctx, cancel := context.WithCancel(context.Background())
+		s.telegramCancel = cancel
+		go bot.Run(ctx)
+		log.Printf("telegram bot enabled (chats: %d)", len(tgCfg.AllowedChats))
+	}
+
 	log.Printf("waggle server listening on %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
@@ -140,6 +151,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	log.Println("shutting down waggle server...")
 	if s.overseerCancel != nil {
 		s.overseerCancel()
+	}
+	if s.telegramCancel != nil {
+		s.telegramCancel()
 	}
 	close(s.stopReaper)
 	err := s.httpServer.Shutdown(ctx)
@@ -221,6 +235,10 @@ func (s *Server) retentionCleanup() {
 			}
 		}
 	}
+}
+
+func telegramEnabled(cfg telegram.Config) bool {
+	return os.Getenv("WAGGLE_TELEGRAM_ENABLED") == "true" && cfg.Token != ""
 }
 
 func expandHome(path string) string {
