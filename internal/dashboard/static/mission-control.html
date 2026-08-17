@@ -2519,7 +2519,14 @@ function applyInline(s) {
   // Inline code (`code`)
   s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
   // Link ([text](url)) — url is already HTML-escaped, so & → &amp; etc.
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  // Scheme allowlist: only http(s), mailto, root-relative, and anchor hrefs are
+  // permitted. Anything else (e.g. javascript:) collapses to '#' to block the
+  // stored-XSS click vector. text is already HTML-escaped upstream.
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+    const u = url.trim();
+    const safe = /^(https?:\/\/|mailto:|\/|#)/i.test(u) ? u : '#';
+    return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + text + '</a>';
+  });
   return s;
 }
 
