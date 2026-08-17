@@ -25,7 +25,8 @@ var (
 )
 
 type Store struct {
-	db *sql.DB
+	db         *sql.DB
+	ftsEnabled bool
 }
 
 func DefaultPath() string {
@@ -63,6 +64,8 @@ func (s *Store) Close() error {
 func (s *Store) Exec(query string, args ...any) (sql.Result, error) {
 	return s.db.Exec(query, args...)
 }
+
+func (s *Store) FTSEnabled() bool { return s.ftsEnabled }
 
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`
@@ -235,6 +238,23 @@ func (s *Store) migrate() error {
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sprints_project ON sprints(project_id)")
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sprints_state ON sprints(state)")
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint_id)")
+
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS pages (
+		id         TEXT PRIMARY KEY,
+		project_id TEXT DEFAULT '',
+		parent_id  TEXT DEFAULT '',
+		title      TEXT NOT NULL,
+		icon       TEXT DEFAULT '',
+		content    TEXT DEFAULT '',
+		position   REAL DEFAULT 0,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`)
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_pages_project ON pages(project_id)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_id)")
+	if _, err := s.db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(id UNINDEXED, title, content)`); err == nil {
+		s.ftsEnabled = true
+	}
 
 	return err
 }

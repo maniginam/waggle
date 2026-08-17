@@ -1457,6 +1457,18 @@ func TestWIPLimits(t *testing.T) {
 	}
 }
 
+func TestPagesMigrationAndFTS(t *testing.T) {
+	s := tempStore(t)
+	// pages table exists (insert a raw row succeeds)
+	_, err := s.Exec(`INSERT INTO pages (id, title, created_at, updated_at) VALUES ('p1','T','2026-08-16T00:00:00Z','2026-08-16T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("pages table missing: %v", err)
+	}
+	if !s.FTSEnabled() {
+		t.Error("expected FTS5 enabled in modernc sqlite")
+	}
+}
+
 func TestSprintBurndown(t *testing.T) {
 	s := tempStore(t)
 	sp := &model.Sprint{ProjectID: "p1", Name: "S", StartDate: time.Now().UTC().Format(time.RFC3339)}
