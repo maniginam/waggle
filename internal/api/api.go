@@ -80,6 +80,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/sprints/", a.handleSprint)
 	mux.HandleFunc("/api/wip", a.handleWIP)
 	mux.HandleFunc("/api/pages", a.handlePages)
+	mux.HandleFunc("/api/pages/search", a.handlePageSearch)
 	mux.HandleFunc("/api/pages/", a.handlePage)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2624,8 +2625,7 @@ func (a *API) handlePage(w http.ResponseWriter, r *http.Request) {
 		subAction = parts[1]
 	}
 	if subAction == "move" {
-		// handlePageMove is defined in Task 7; stub for now.
-		w.WriteHeader(http.StatusNotFound)
+		a.handlePageMove(w, r, id)
 		return
 	}
 	if id == "" {
@@ -2675,4 +2675,46 @@ func (a *API) handlePage(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (a *API) handlePageMove(w http.ResponseWriter, r *http.Request, pageID string) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ParentID string  `json:"parent_id"`
+		Position float64 `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := a.store.MovePage(pageID, req.ParentID, req.Position); err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "page_not_found", "Page "+pageID+" not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "move_failed", err.Error())
+		return
+	}
+	page, _ := a.store.GetPage(pageID)
+	a.emit(&model.Event{Type: model.EventPageUpdated, Payload: page})
+	writeJSON(w, http.StatusOK, page)
+}
+
+func (a *API) handlePageSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	pages, err := a.store.SearchPages(r.URL.Query().Get("q"), r.URL.Query().Get("project_id"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "search_failed", err.Error())
+		return
+	}
+	if pages == nil {
+		pages = []*model.Page{}
+	}
+	writeJSON(w, http.StatusOK, pages)
 }

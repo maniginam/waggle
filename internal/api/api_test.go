@@ -2902,3 +2902,33 @@ func TestPageEndpointsCRUD(t *testing.T) {
 	}
 	dr.Body.Close()
 }
+
+func TestPageMoveAndSearch(t *testing.T) {
+	a, ts := setup(t)
+	parent := &model.Page{Title: "Parent"}
+	child := &model.Page{Title: "Child", Content: "searchable widget text"}
+	a.store.CreatePage(parent)
+	a.store.CreatePage(child)
+
+	mr, err := http.Post(ts.URL+"/api/pages/"+child.ID+"/move", "application/json",
+		strings.NewReader(`{"parent_id":"`+parent.ID+`","position":1.5}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mr.StatusCode != http.StatusOK {
+		t.Fatalf("move expected 200, got %d", mr.StatusCode)
+	}
+	mr.Body.Close()
+	got, _ := a.store.GetPage(child.ID)
+	if got.ParentID != parent.ID || got.Position != 1.5 {
+		t.Errorf("move not persisted: %q %v", got.ParentID, got.Position)
+	}
+
+	sr := mustGet(t, ts.URL+"/api/pages/search?q=widget")
+	var res []model.Page
+	json.NewDecoder(sr.Body).Decode(&res)
+	sr.Body.Close()
+	if len(res) != 1 || res[0].ID != child.ID {
+		t.Errorf("search expected child, got %d", len(res))
+	}
+}
