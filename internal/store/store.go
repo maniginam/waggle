@@ -259,6 +259,102 @@ func (s *Store) migrate() error {
 	return err
 }
 
+// --- Pages ---
+
+func (s *Store) syncPageFTS(id, title, content string) {
+	if !s.ftsEnabled {
+		return
+	}
+	s.db.Exec("DELETE FROM pages_fts WHERE id = ?", id)
+	s.db.Exec("INSERT INTO pages_fts (id, title, content) VALUES (?, ?, ?)", id, title, content)
+}
+
+func scanPage(row scanner) (*model.Page, error) {
+	var p model.Page
+	var createdStr, updatedStr string
+	err := row.Scan(&p.ID, &p.ProjectID, &p.ParentID, &p.Title, &p.Icon, &p.Content, &p.Position, &createdStr, &updatedStr)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+	return &p, nil
+}
+
+const pageCols = "id, project_id, parent_id, title, icon, content, position, created_at, updated_at"
+
+func (s *Store) CreatePage(p *model.Page) error {
+	if p.ID == "" {
+		p.ID = id.New()
+	}
+	now := time.Now().UTC()
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	_, err := s.db.Exec("INSERT INTO pages ("+pageCols+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		p.ID, p.ProjectID, p.ParentID, p.Title, p.Icon, p.Content, p.Position,
+		p.CreatedAt.Format(time.RFC3339), p.UpdatedAt.Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	s.syncPageFTS(p.ID, p.Title, p.Content)
+	return nil
+}
+
+func (s *Store) GetPage(pageID string) (*model.Page, error) {
+	row := s.db.QueryRow("SELECT "+pageCols+" FROM pages WHERE id = ?", pageID)
+	return scanPage(row)
+}
+
+func (s *Store) ListPages(projectID string) ([]*model.Page, error) {
+	rows, err := s.db.Query("SELECT "+pageCols+" FROM pages WHERE project_id = ? ORDER BY position ASC, created_at ASC", projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var pages []*model.Page
+	for rows.Next() {
+		p, err := scanPage(rows)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, p)
+	}
+	return pages, rows.Err()
+}
+
+func (s *Store) UpdatePage(pageID string, updates map[string]any) (*model.Page, error) {
+	if _, err := s.GetPage(pageID); err != nil {
+		return nil, err
+	}
+	var sets []string
+	var args []any
+	for k, v := range updates {
+		switch k {
+		case "title", "icon", "content", "position", "parent_id":
+			sets = append(sets, k+" = ?")
+			args = append(args, v)
+		}
+	}
+	if len(sets) == 0 {
+		return s.GetPage(pageID)
+	}
+	sets = append(sets, "updated_at = ?")
+	args = append(args, time.Now().UTC().Format(time.RFC3339))
+	args = append(args, pageID)
+	if _, err := s.db.Exec("UPDATE pages SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...); err != nil {
+		return nil, err
+	}
+	updated, err := s.GetPage(pageID)
+	if err != nil {
+		return nil, err
+	}
+	s.syncPageFTS(updated.ID, updated.Title, updated.Content)
+	return updated, nil
+}
+
 // --- Tasks ---
 
 func (s *Store) CreateTask(t *model.Task) error {

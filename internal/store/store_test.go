@@ -1492,3 +1492,36 @@ func TestSprintBurndown(t *testing.T) {
 		t.Errorf("expected 2 points remaining today, got %d", last.Remaining)
 	}
 }
+
+func TestPageCRUD(t *testing.T) {
+	s := tempStore(t)
+	p := &model.Page{ProjectID: "proj1", Title: "Notes", Content: "hello world"}
+	if err := s.CreatePage(p); err != nil {
+		t.Fatal(err)
+	}
+	if p.ID == "" {
+		t.Fatal("expected id set")
+	}
+	got, err := s.GetPage(p.ID)
+	if err != nil || got.Title != "Notes" || got.Content != "hello world" {
+		t.Fatalf("get failed: %v %+v", err, got)
+	}
+	// workspace-level page not returned for a project scope
+	ws := &model.Page{Title: "Global"}
+	s.CreatePage(ws)
+	inProj, _ := s.ListPages("proj1")
+	if len(inProj) != 1 || inProj[0].ID != p.ID {
+		t.Errorf("scope filter wrong: %d", len(inProj))
+	}
+	inWs, _ := s.ListPages("")
+	if len(inWs) != 1 || inWs[0].ID != ws.ID {
+		t.Errorf("workspace scope wrong: %d", len(inWs))
+	}
+	if _, err := s.UpdatePage(p.ID, map[string]any{"content": "updated body"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetPage(p.ID)
+	if got.Content != "updated body" {
+		t.Errorf("update failed: %q", got.Content)
+	}
+}
