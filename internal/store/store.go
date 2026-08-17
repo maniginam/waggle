@@ -355,6 +355,33 @@ func (s *Store) UpdatePage(pageID string, updates map[string]any) (*model.Page, 
 	return updated, nil
 }
 
+func (s *Store) DeletePage(pageID string) error {
+	page, err := s.GetPage(pageID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	// Re-parent direct children up to this page's parent.
+	s.db.Exec("UPDATE pages SET parent_id = ?, updated_at = ? WHERE parent_id = ?", page.ParentID, now, pageID)
+	if _, err := s.db.Exec("DELETE FROM pages WHERE id = ?", pageID); err != nil {
+		return err
+	}
+	if s.ftsEnabled {
+		s.db.Exec("DELETE FROM pages_fts WHERE id = ?", pageID)
+	}
+	return nil
+}
+
+func (s *Store) MovePage(pageID, parentID string, position float64) error {
+	if _, err := s.GetPage(pageID); err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec("UPDATE pages SET parent_id = ?, position = ?, updated_at = ? WHERE id = ?",
+		parentID, position, now, pageID)
+	return err
+}
+
 // --- Tasks ---
 
 func (s *Store) CreateTask(t *model.Task) error {

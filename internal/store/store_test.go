@@ -1493,6 +1493,42 @@ func TestSprintBurndown(t *testing.T) {
 	}
 }
 
+func TestDeletePageReparentsChildren(t *testing.T) {
+	s := tempStore(t)
+	root := &model.Page{Title: "root"}
+	s.CreatePage(root)
+	mid := &model.Page{Title: "mid", ParentID: root.ID}
+	s.CreatePage(mid)
+	leaf := &model.Page{Title: "leaf", ParentID: mid.ID}
+	s.CreatePage(leaf)
+
+	if err := s.DeletePage(mid.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetPage(mid.ID); err != ErrNotFound {
+		t.Errorf("mid should be gone: %v", err)
+	}
+	got, _ := s.GetPage(leaf.ID)
+	if got.ParentID != root.ID {
+		t.Errorf("leaf should reparent to root, got %q", got.ParentID)
+	}
+}
+
+func TestMovePage(t *testing.T) {
+	s := tempStore(t)
+	a := &model.Page{Title: "a"}
+	b := &model.Page{Title: "b"}
+	s.CreatePage(a)
+	s.CreatePage(b)
+	if err := s.MovePage(b.ID, a.ID, 2.5); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetPage(b.ID)
+	if got.ParentID != a.ID || got.Position != 2.5 {
+		t.Errorf("move failed: parent=%q pos=%v", got.ParentID, got.Position)
+	}
+}
+
 func TestPageCRUD(t *testing.T) {
 	s := tempStore(t)
 	p := &model.Page{ProjectID: "proj1", Title: "Notes", Content: "hello world"}
