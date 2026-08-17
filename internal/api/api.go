@@ -79,6 +79,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/sprints", a.handleSprints)
 	mux.HandleFunc("/api/sprints/", a.handleSprint)
 	mux.HandleFunc("/api/wip", a.handleWIP)
+	mux.HandleFunc("/api/pages", a.handlePages)
+	mux.HandleFunc("/api/pages/", a.handlePage)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
@@ -2573,6 +2575,102 @@ func (a *API) handleSprint(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
 			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handlePages(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		pages, err := a.store.ListPages(r.URL.Query().Get("project_id"))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed", err.Error())
+			return
+		}
+		if pages == nil {
+			pages = []*model.Page{}
+		}
+		writeJSON(w, http.StatusOK, pages)
+	case http.MethodPost:
+		var p model.Page
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if p.Title == "" {
+			writeError(w, http.StatusBadRequest, "missing_title", "title is required")
+			return
+		}
+		if err := a.store.CreatePage(&p); err != nil {
+			writeError(w, http.StatusInternalServerError, "create_failed", err.Error())
+			return
+		}
+		a.emit(&model.Event{Type: model.EventPageCreated, Payload: p})
+		writeJSON(w, http.StatusCreated, p)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handlePage(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/pages/")
+	// Task 7 adds the "search" collection route and the "{id}/move" sub-action here.
+	parts := strings.SplitN(id, "/", 2)
+	id = parts[0]
+	subAction := ""
+	if len(parts) > 1 {
+		subAction = parts[1]
+	}
+	if subAction == "move" {
+		// handlePageMove is defined in Task 7; stub for now.
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing_id", "page ID required")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		p, err := a.store.GetPage(id)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "page_not_found", "Page "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "get_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+	case http.MethodPatch:
+		var updates map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		p, err := a.store.UpdatePage(id, updates)
+		if err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "page_not_found", "Page "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "update_failed", err.Error())
+			return
+		}
+		a.emit(&model.Event{Type: model.EventPageUpdated, Payload: p})
+		writeJSON(w, http.StatusOK, p)
+	case http.MethodDelete:
+		if err := a.store.DeletePage(id); err != nil {
+			if err == store.ErrNotFound {
+				writeError(w, http.StatusNotFound, "page_not_found", "Page "+id+" not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "delete_failed", err.Error())
+			return
+		}
+		a.emit(&model.Event{Type: model.EventPageDeleted, Payload: map[string]string{"id": id}})
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

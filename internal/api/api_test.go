@@ -2855,3 +2855,50 @@ func TestWIPEndpointMethodNotAllowed(t *testing.T) {
 		t.Errorf("expected 405, got %d", resp.StatusCode)
 	}
 }
+
+func TestPageEndpointsCRUD(t *testing.T) {
+	_, ts := setup(t)
+	resp, err := http.Post(ts.URL+"/api/pages", "application/json",
+		strings.NewReader(`{"project_id":"proj1","title":"Spec","content":"# Hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create expected 201, got %d", resp.StatusCode)
+	}
+	var created model.Page
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if created.ID == "" {
+		t.Fatal("no page id")
+	}
+	// list scope
+	lr := mustGet(t, ts.URL+"/api/pages?project_id=proj1")
+	var list []model.Page
+	json.NewDecoder(lr.Body).Decode(&list)
+	lr.Body.Close()
+	if len(list) != 1 {
+		t.Errorf("expected 1 page, got %d", len(list))
+	}
+	// patch
+	preq, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/pages/"+created.ID,
+		strings.NewReader(`{"content":"# Updated"}`))
+	pr, _ := http.DefaultClient.Do(preq)
+	if pr.StatusCode != http.StatusOK {
+		t.Errorf("patch expected 200, got %d", pr.StatusCode)
+	}
+	pr.Body.Close()
+	// missing title → 400
+	br, _ := http.Post(ts.URL+"/api/pages", "application/json", strings.NewReader(`{"content":"x"}`))
+	if br.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing title expected 400, got %d", br.StatusCode)
+	}
+	br.Body.Close()
+	// delete
+	dreq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/pages/"+created.ID, nil)
+	dr, _ := http.DefaultClient.Do(dreq)
+	if dr.StatusCode != http.StatusNoContent {
+		t.Errorf("delete expected 204, got %d", dr.StatusCode)
+	}
+	dr.Body.Close()
+}
