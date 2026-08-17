@@ -1529,6 +1529,32 @@ func TestMovePage(t *testing.T) {
 	}
 }
 
+func TestSearchPagesFindsContent(t *testing.T) {
+	s := tempStore(t)
+	a := &model.Page{Title: "Auth design", Content: "the login flow uses tokens"}
+	b := &model.Page{Title: "Grocery", Content: "milk and eggs"}
+	s.CreatePage(a)
+	s.CreatePage(b)
+
+	res, err := s.SearchPages("tokens", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].ID != a.ID {
+		t.Fatalf("expected the auth page, got %d results", len(res))
+	}
+	// after update, search reflects new content and not the old
+	s.UpdatePage(a.ID, map[string]any{"content": "rewritten to use sessions"})
+	res, _ = s.SearchPages("tokens", "")
+	if len(res) != 0 {
+		t.Errorf("stale FTS: still matched old content")
+	}
+	res, _ = s.SearchPages("sessions", "")
+	if len(res) != 1 {
+		t.Errorf("FTS not updated: %d", len(res))
+	}
+}
+
 func TestPageCRUD(t *testing.T) {
 	s := tempStore(t)
 	p := &model.Page{ProjectID: "proj1", Title: "Notes", Content: "hello world"}

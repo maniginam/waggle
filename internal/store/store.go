@@ -384,6 +384,49 @@ func (s *Store) MovePage(pageID, parentID string, position float64) error {
 	return err
 }
 
+func ftsQuote(q string) string {
+	return `"` + strings.ReplaceAll(q, `"`, `""`) + `"`
+}
+
+func (s *Store) SearchPages(query, projectID string) ([]*model.Page, error) {
+	var rows *sql.Rows
+	var err error
+	if s.ftsEnabled {
+		q := "SELECT p." + strings.ReplaceAll(pageCols, ", ", ", p.") +
+			" FROM pages_fts f JOIN pages p ON p.id = f.id WHERE pages_fts MATCH ?"
+		args := []any{ftsQuote(query)}
+		if projectID != "" {
+			q += " AND p.project_id = ?"
+			args = append(args, projectID)
+		}
+		q += " ORDER BY rank"
+		rows, err = s.db.Query(q, args...)
+	} else {
+		q := "SELECT " + pageCols + " FROM pages WHERE (title LIKE ? OR content LIKE ?)"
+		like := "%" + query + "%"
+		args := []any{like, like}
+		if projectID != "" {
+			q += " AND project_id = ?"
+			args = append(args, projectID)
+		}
+		q += " ORDER BY updated_at DESC"
+		rows, err = s.db.Query(q, args...)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var pages []*model.Page
+	for rows.Next() {
+		p, err := scanPage(rows)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, p)
+	}
+	return pages, rows.Err()
+}
+
 // --- Tasks ---
 
 func (s *Store) CreateTask(t *model.Task) error {
