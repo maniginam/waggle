@@ -361,8 +361,10 @@ func (s *Store) DeletePage(pageID string) error {
 		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	// Re-parent direct children up to this page's parent.
-	s.db.Exec("UPDATE pages SET parent_id = ?, updated_at = ? WHERE parent_id = ?", page.ParentID, now, pageID)
+	// Re-parent direct children up to this page's parent before deleting.
+	if _, err := s.db.Exec("UPDATE pages SET parent_id = ?, updated_at = ? WHERE parent_id = ?", page.ParentID, now, pageID); err != nil {
+		return err
+	}
 	if _, err := s.db.Exec("DELETE FROM pages WHERE id = ?", pageID); err != nil {
 		return err
 	}
