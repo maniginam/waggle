@@ -591,6 +591,225 @@ select.inline-select {
 #board-view { display: none; padding: 20px; }
 #board-view.active { display: block; }
 
+/* Docs view */
+#docs-view { display: none; }
+#docs-view.active { display: flex; height: calc(100vh - 60px); overflow: hidden; }
+
+.docs-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.docs-sidebar-toolbar {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.docs-sidebar-toolbar input {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  outline: none;
+}
+.docs-sidebar-toolbar input:focus { border-color: var(--accent); }
+.docs-sidebar-toolbar button {
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.docs-sidebar-toolbar button:hover { border-color: var(--accent); }
+.docs-sidebar-toolbar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.docs-tree-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.docs-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding: 8px 14px 4px;
+}
+.docs-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 14px 5px 0;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  margin: 1px 6px;
+  user-select: none;
+  position: relative;
+}
+.docs-tree-node:hover { background: var(--surface2); }
+.docs-tree-node.selected { background: rgba(108,138,255,0.15); color: var(--accent); }
+.docs-tree-node.drag-over { background: rgba(108,138,255,0.2); outline: 1px dashed var(--accent); }
+.docs-tree-indent { display: inline-block; flex-shrink: 0; }
+.docs-tree-icon { font-size: 14px; flex-shrink: 0; }
+.docs-tree-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.docs-tree-actions {
+  display: none;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.docs-tree-node:hover .docs-tree-actions { display: flex; }
+.docs-tree-action {
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.docs-tree-action:hover { border-color: var(--accent); color: var(--text); }
+.docs-tree-action.danger:hover { border-color: var(--red); color: var(--red); }
+
+.docs-search-results {
+  padding: 8px;
+}
+.docs-search-result {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.docs-search-result:hover { border-color: var(--accent); }
+.docs-search-result-title { font-weight: 600; margin-bottom: 3px; }
+.docs-search-result-snippet { color: var(--text-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.docs-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.docs-editor-toolbar {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.docs-editor-toolbar input[type="text"] {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  outline: none;
+  padding: 0;
+}
+.docs-editor-toolbar input[type="text"]::placeholder { color: var(--text-dim); }
+.docs-editor-toolbar .icon-input {
+  width: 36px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 16px;
+  text-align: center;
+  padding: 4px;
+  outline: none;
+}
+.docs-editor-toolbar .icon-input:focus { border-color: var(--accent); }
+.docs-editor-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.docs-textarea {
+  flex: 1;
+  background: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 16px;
+  resize: none;
+  outline: none;
+}
+.docs-preview {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.docs-preview h1 { font-size: 20px; font-weight: 700; margin: 0 0 12px; }
+.docs-preview h2 { font-size: 17px; font-weight: 600; margin: 16px 0 8px; }
+.docs-preview h3 { font-size: 15px; font-weight: 600; margin: 14px 0 6px; color: var(--text); }
+.docs-preview h4, .docs-preview h5, .docs-preview h6 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; color: var(--text-dim); }
+.docs-preview p { margin: 0 0 10px; }
+.docs-preview code {
+  font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
+  font-size: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.docs-preview pre {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 0 0 10px;
+}
+.docs-preview pre code { background: none; border: none; padding: 0; font-size: 12px; }
+.docs-preview ul, .docs-preview ol { padding-left: 20px; margin: 0 0 10px; }
+.docs-preview li { margin-bottom: 2px; }
+.docs-preview blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  color: var(--text-dim);
+  margin: 0 0 10px;
+  font-style: italic;
+}
+.docs-preview a { color: var(--accent); text-decoration: none; }
+.docs-preview a:hover { text-decoration: underline; }
+.docs-preview strong { font-weight: 700; }
+.docs-preview em { font-style: italic; }
+.docs-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  gap: 12px;
+}
+.docs-empty-state .docs-empty-icon { font-size: 48px; opacity: 0.3; }
+.docs-empty-state p { font-size: 14px; }
+
 .board-toolbar {
   display: flex;
   gap: 10px;
@@ -774,6 +993,12 @@ select.inline-select {
     <div class="view-nav">
       <button class="view-btn active" id="view-dashboard-btn" onclick="switchView('dashboard')">Dashboard</button>
       <button class="view-btn" id="view-board-btn" onclick="switchView('board')">Board</button>
+      <button class="view-btn" id="view-docs-btn" onclick="switchView('docs')">Docs</button>
+    </div>
+    <div id="docs-project-filter" style="display:none">
+      <select id="docs-project-select" onchange="onDocsProjectChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:13px;outline:none">
+        <option value="">Workspace</option>
+      </select>
     </div>
     <div id="dashboard-filters">
       <button class="filter-btn active" data-filter="all">All</button>
@@ -856,6 +1081,37 @@ select.inline-select {
   </div>
   <!-- Kanban columns (Step 2) -->
   <div class="board-columns" id="board-columns"></div>
+</div>
+
+<!-- Docs view (Task 9) -->
+<div id="docs-view">
+  <div class="docs-sidebar">
+    <div class="docs-sidebar-toolbar">
+      <input type="text" id="docs-search-input" placeholder="Search pages..." oninput="onDocsSearch(this.value)">
+      <button class="primary" onclick="docsNewPage()" title="New page">+</button>
+    </div>
+    <div class="docs-tree-scroll" id="docs-tree-scroll">
+      <!-- tree sections injected by JS -->
+    </div>
+  </div>
+  <div class="docs-editor" id="docs-editor-pane">
+    <div class="docs-empty-state" id="docs-empty-state">
+      <div class="docs-empty-icon">📄</div>
+      <p>Select a page or create a new one</p>
+    </div>
+    <div id="docs-editor-inner" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <div class="docs-editor-toolbar">
+        <input type="text" id="docs-page-icon" class="icon-input" placeholder="📝" maxlength="4" title="Icon">
+        <input type="text" id="docs-page-title" placeholder="Page title" oninput="onDocsTitleInput()">
+        <button class="action-btn primary" onclick="docsPageSave()">Save</button>
+        <button class="action-btn danger" onclick="docsPageDelete()" title="Delete page">Delete</button>
+      </div>
+      <div class="docs-editor-body">
+        <textarea class="docs-textarea" id="docs-content-textarea" placeholder="Write markdown here..." oninput="onDocsContentInput()"></textarea>
+        <div class="docs-preview" id="docs-preview"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="detail-overlay" id="detail-overlay">
@@ -1513,6 +1769,7 @@ async function refresh() {
   allProgress = progress || [];
   renderAll();
   updateBoardProjectSelect();
+  updateDocsProjectSelect();
 }
 
 // Filters (dashboard only)
@@ -1532,28 +1789,41 @@ function switchView(view) {
   currentView = view;
   const app = document.getElementById('app');
   const boardView = document.getElementById('board-view');
-  const dashBtn = document.getElementById('view-dashboard-btn');
-  const boardBtn = document.getElementById('view-board-btn');
-  const dashFilters = document.getElementById('dashboard-filters');
+  const docsView  = document.getElementById('docs-view');
+  const dashBtn   = document.getElementById('view-dashboard-btn');
+  const boardBtn  = document.getElementById('view-board-btn');
+  const docsBtn   = document.getElementById('view-docs-btn');
+  const dashFilters        = document.getElementById('dashboard-filters');
   const boardProjectFilter = document.getElementById('board-project-filter');
-  const msgBar = document.getElementById('msg-bar');
+  const docsProjectFilter  = document.getElementById('docs-project-filter');
+  const msgBar    = document.getElementById('msg-bar');
+
+  // Reset all first
+  app.style.display = 'none';
+  boardView.classList.remove('active');
+  docsView.classList.remove('active');
+  dashBtn.classList.remove('active');
+  boardBtn.classList.remove('active');
+  docsBtn.classList.remove('active');
+  dashFilters.style.display = 'none';
+  boardProjectFilter.style.display = 'none';
+  docsProjectFilter.style.display = 'none';
+  msgBar.style.display = 'none';
 
   if (view === 'board') {
-    app.style.display = 'none';
     boardView.classList.add('active');
-    dashBtn.classList.remove('active');
     boardBtn.classList.add('active');
-    dashFilters.style.display = 'none';
     boardProjectFilter.style.display = '';
-    msgBar.style.display = 'none';
     loadBoard();
+  } else if (view === 'docs') {
+    docsView.classList.add('active');
+    docsBtn.classList.add('active');
+    docsProjectFilter.style.display = '';
+    docsRefreshTree();
   } else {
     app.style.display = '';
-    boardView.classList.remove('active');
     dashBtn.classList.add('active');
-    boardBtn.classList.remove('active');
     dashFilters.style.display = '';
-    boardProjectFilter.style.display = 'none';
     msgBar.style.display = '';
   }
 }
@@ -1587,6 +1857,10 @@ function connectSSE() {
       // Board live updates (Step 7)
       if (type === 'task_updated' || type === 'task_created' || type === 'task_completed' || type === 'task_deleted') {
         boardSSERefresh();
+      }
+      // Docs live updates (Task 9)
+      if (type === 'page_created' || type === 'page_updated' || type === 'page_deleted') {
+        docsSSERefresh(type, event.payload || {});
       }
       // Notify on agent join/leave
       if (type === 'agent_joined') {
@@ -2079,6 +2353,586 @@ function updateBoardProjectSelect() {
 
 // ============================================================
 // END BOARD VIEW
+// ============================================================
+
+// ============================================================
+// DOCS VIEW (Task 9)
+// ============================================================
+
+// --- State ---
+let docsAllPages    = [];   // all pages currently loaded (workspace or project scope)
+let docsCurrentPage = null; // the page object open in the editor
+let docsSearchMode  = false;
+
+// --- API helpers ---
+async function fetchPages(projectId) {
+  let url = API + '/api/pages';
+  if (projectId) url += '?project_id=' + encodeURIComponent(projectId);
+  const r = await fetch(url);
+  return r.ok ? (await r.json()) || [] : [];
+}
+
+async function fetchPage(id) {
+  const r = await fetch(API + '/api/pages/' + encodeURIComponent(id));
+  return r.ok ? await r.json() : null;
+}
+
+async function createPage(payload) {
+  const r = await fetch(API + '/api/pages', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  return r.ok ? await r.json() : null;
+}
+
+async function updatePage(id, updates) {
+  const r = await fetch(API + '/api/pages/' + encodeURIComponent(id), {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(updates)
+  });
+  return r.ok ? await r.json() : null;
+}
+
+async function deletePage(id) {
+  const r = await fetch(API + '/api/pages/' + encodeURIComponent(id), { method: 'DELETE' });
+  return r.ok;
+}
+
+async function movePage(id, parentId, position) {
+  const body = { position };
+  if (parentId) body.parent_id = parentId; else body.parent_id = '';
+  const r = await fetch(API + '/api/pages/' + encodeURIComponent(id) + '/move', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  return r.ok ? await r.json() : null;
+}
+
+async function searchPages(query, projectId) {
+  let url = API + '/api/pages/search?q=' + encodeURIComponent(query);
+  if (projectId) url += '&project_id=' + encodeURIComponent(projectId);
+  const r = await fetch(url);
+  return r.ok ? (await r.json()) || [] : [];
+}
+
+// --- Markdown renderer (escape-FIRST, then format) ---
+function renderMarkdown(md) {
+  if (!md) return '';
+
+  // STEP 1: HTML-escape the raw input so <script> and other HTML become literal text.
+  // We do this via a textNode round-trip identical to esc() but returning the
+  // escaped string rather than innerHTML of a wrapper.
+  function htmlEscape(s) {
+    const el = document.createElement('div');
+    el.textContent = s;
+    return el.innerHTML;
+  }
+
+  // STEP 2: Apply markdown formatting to the escaped string.
+  // At this point every < > & " is already entity-encoded, so we are
+  // only adding safe HTML tags — never re-introducing raw user HTML.
+
+  // Fenced code blocks (``` ... ```)
+  let out = htmlEscape(md);
+
+  out = out.replace(/```[\s\S]*?```/g, (m) => {
+    // m is already escaped; strip the fence markers and wrap in <pre><code>
+    const inner = m.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '');
+    return '<pre><code>' + inner + '</code></pre>';
+  });
+
+  // Process line-by-line for headings, blockquotes, lists, paragraphs
+  const lines = out.split('\n');
+  const result = [];
+  let inUL = false, inOL = false, inPre = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // Detect already-wrapped pre blocks (from fenced code pass above)
+    if (line.startsWith('<pre>')) { inPre = true; }
+    if (inPre) {
+      result.push(line);
+      if (line.endsWith('</pre>') || line.includes('</pre>')) inPre = false;
+      continue;
+    }
+
+    // Close open lists if blank or non-list line
+    const isULItem = /^[-*] /.test(line);
+    const isOLItem = /^\d+\. /.test(line);
+
+    if (inUL && !isULItem) { result.push('</ul>'); inUL = false; }
+    if (inOL && !isOLItem) { result.push('</ol>'); inOL = false; }
+
+    // Headings
+    const hmatch = line.match(/^(#{1,6}) (.*)/);
+    if (hmatch) {
+      const lvl = hmatch[1].length;
+      result.push(`<h${lvl}>${applyInline(hmatch[2])}</h${lvl}>`);
+      continue;
+    }
+
+    // Blockquote
+    if (line.startsWith('&gt; ')) {
+      result.push('<blockquote>' + applyInline(line.slice(5)) + '</blockquote>');
+      continue;
+    }
+
+    // Unordered list
+    if (isULItem) {
+      if (!inUL) { result.push('<ul>'); inUL = true; }
+      result.push('<li>' + applyInline(line.slice(2)) + '</li>');
+      continue;
+    }
+
+    // Ordered list
+    if (isOLItem) {
+      if (!inOL) { result.push('<ol>'); inOL = true; }
+      result.push('<li>' + applyInline(line.replace(/^\d+\. /, '')) + '</li>');
+      continue;
+    }
+
+    // Blank line
+    if (line.trim() === '') {
+      result.push('');
+      continue;
+    }
+
+    // Paragraph
+    result.push('<p>' + applyInline(line) + '</p>');
+  }
+
+  if (inUL) result.push('</ul>');
+  if (inOL) result.push('</ol>');
+
+  return result.join('\n');
+}
+
+function applyInline(s) {
+  // Bold (**text**)
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic (*text*)
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Inline code (`code`)
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Link ([text](url)) — url is already HTML-escaped, so & → &amp; etc.
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return s;
+}
+
+// --- Tree building ---
+function buildTree(pages) {
+  const byId = {};
+  for (const p of pages) byId[p.id] = { ...p, children: [] };
+  const roots = [];
+  for (const p of pages) {
+    if (p.parent_id && byId[p.parent_id]) {
+      byId[p.parent_id].children.push(byId[p.id]);
+    } else {
+      roots.push(byId[p.id]);
+    }
+  }
+  const sortNodes = nodes => {
+    nodes.sort((a, b) => {
+      const pd = (a.position || 0) - (b.position || 0);
+      if (pd !== 0) return pd;
+      return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+    });
+    for (const n of nodes) sortNodes(n.children);
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+// --- Tree rendering ---
+function renderDocsTree() {
+  const scroll = document.getElementById('docs-tree-scroll');
+  scroll.innerHTML = '';
+
+  if (docsSearchMode) return; // search results take over
+
+  const pid = getDocsProjectId();
+
+  // We always show workspace pages (project_id == '' or null).
+  // When a project is selected, we additionally show that project's pages in a second section.
+  const workspacePages = docsAllPages.filter(p => !p.project_id);
+  const projectPages   = pid ? docsAllPages.filter(p => p.project_id === pid) : [];
+
+  appendTreeSection(scroll, 'Workspace', buildTree(workspacePages));
+  if (pid) appendTreeSection(scroll, 'Project', buildTree(projectPages));
+}
+
+function appendTreeSection(container, label, roots) {
+  const labelEl = document.createElement('div');
+  labelEl.className = 'docs-section-label';
+  labelEl.textContent = label;
+  container.appendChild(labelEl);
+
+  if (roots.length === 0) {
+    const emptyEl = document.createElement('div');
+    emptyEl.style.cssText = 'color:var(--text-dim);font-size:12px;padding:4px 14px 8px';
+    emptyEl.textContent = 'No pages yet';
+    container.appendChild(emptyEl);
+    return;
+  }
+
+  const renderNode = (node, depth) => {
+    const row = document.createElement('div');
+    row.className = 'docs-tree-node';
+    row.dataset.pageId = node.id;
+    if (docsCurrentPage && docsCurrentPage.id === node.id) row.classList.add('selected');
+
+    // Indent spacer
+    const indent = document.createElement('span');
+    indent.className = 'docs-tree-indent';
+    indent.style.width = (depth * 14 + 8) + 'px';
+    row.appendChild(indent);
+
+    // Icon
+    const iconEl = document.createElement('span');
+    iconEl.className = 'docs-tree-icon';
+    iconEl.textContent = node.icon || '📄';
+    row.appendChild(iconEl);
+
+    // Title
+    const titleEl = document.createElement('span');
+    titleEl.className = 'docs-tree-title';
+    titleEl.textContent = node.title || 'Untitled';
+    row.appendChild(titleEl);
+
+    // Actions (shown on hover via CSS)
+    const actionsEl = document.createElement('span');
+    actionsEl.className = 'docs-tree-actions';
+
+    const addChildBtn = document.createElement('button');
+    addChildBtn.className = 'docs-tree-action';
+    addChildBtn.textContent = '+';
+    addChildBtn.title = 'New child page';
+    addChildBtn.onclick = (e) => { e.stopPropagation(); docsNewChildPage(node.id, node.project_id); };
+
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'docs-tree-action';
+    renameBtn.textContent = '✎';
+    renameBtn.title = 'Rename';
+    renameBtn.onclick = (e) => { e.stopPropagation(); docsRenamePage(node); };
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'docs-tree-action danger';
+    deleteBtn.textContent = '✕';
+    deleteBtn.title = 'Delete';
+    deleteBtn.onclick = (e) => { e.stopPropagation(); docsDeletePage(node.id); };
+
+    actionsEl.appendChild(addChildBtn);
+    actionsEl.appendChild(renameBtn);
+    actionsEl.appendChild(deleteBtn);
+    row.appendChild(actionsEl);
+
+    // Click to open
+    row.addEventListener('click', () => docsOpenPage(node.id));
+
+    // Drag-and-drop: this node is draggable (to move it)
+    row.draggable = true;
+    row.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', node.id);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    // Drop target: nest dragged page under this node
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', (e) => {
+      if (!row.contains(e.relatedTarget)) row.classList.remove('drag-over');
+    });
+    row.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      const draggedId = e.dataTransfer.getData('text/plain');
+      if (!draggedId || draggedId === node.id) return;
+      await docsNestPage(draggedId, node.id, node.children);
+    });
+
+    container.appendChild(row);
+
+    for (const child of node.children) {
+      renderNode(child, depth + 1);
+    }
+  };
+
+  for (const root of roots) renderNode(root, 0);
+}
+
+// --- Drag-to-nest: compute fractional position midpoint like the Board does ---
+async function docsNestPage(draggedId, newParentId, existingChildren) {
+  // Place at end of children (position = last.position + 1000, or 1000 if none)
+  const sorted = existingChildren
+    .filter(c => c.id !== draggedId)
+    .sort((a, b) => (a.position || 0) - (b.position || 0));
+  const lastPos = sorted.length > 0 ? (sorted[sorted.length - 1].position || 0) : 0;
+  const newPos = lastPos + 1000;
+
+  const result = await movePage(draggedId, newParentId, newPos);
+  if (result) {
+    await docsRefreshTree();
+    showToast('Moved', 'Page nested successfully');
+  } else {
+    showToast('Error', 'Could not move page');
+  }
+}
+
+// --- Open page in editor ---
+async function docsOpenPage(pageId) {
+  const page = await fetchPage(pageId);
+  if (!page) { showToast('Error', 'Could not load page'); return; }
+  docsCurrentPage = page;
+
+  // Show editor
+  document.getElementById('docs-empty-state').style.display = 'none';
+  const inner = document.getElementById('docs-editor-inner');
+  inner.style.display = 'flex';
+
+  document.getElementById('docs-page-icon').value  = page.icon || '';
+  document.getElementById('docs-page-title').value = page.title || '';
+  document.getElementById('docs-content-textarea').value = page.content || '';
+  document.getElementById('docs-preview').innerHTML = renderMarkdown(page.content || '');
+
+  // Highlight in tree
+  document.querySelectorAll('.docs-tree-node').forEach(n => n.classList.remove('selected'));
+  const sel = document.querySelector(`.docs-tree-node[data-page-id="${CSS.escape(pageId)}"]`);
+  if (sel) sel.classList.add('selected');
+}
+
+// --- Live preview update ---
+function onDocsContentInput() {
+  const content = document.getElementById('docs-content-textarea').value;
+  document.getElementById('docs-preview').innerHTML = renderMarkdown(content);
+}
+
+function onDocsTitleInput() {
+  // title shown live in tree would require re-render; defer to save
+}
+
+// --- Save ---
+async function docsPageSave() {
+  if (!docsCurrentPage) return;
+  const title   = document.getElementById('docs-page-title').value.trim() || 'Untitled';
+  const icon    = document.getElementById('docs-page-icon').value.trim();
+  const content = document.getElementById('docs-content-textarea').value;
+
+  const updated = await updatePage(docsCurrentPage.id, { title, icon, content });
+  if (updated) {
+    docsCurrentPage = updated;
+    showToast('Saved', title);
+    await docsRefreshTree();
+  } else {
+    showToast('Error', 'Save failed');
+  }
+}
+
+// --- Delete ---
+async function docsPageDelete() {
+  if (!docsCurrentPage) return;
+  if (!confirm('Delete "' + (docsCurrentPage.title || 'Untitled') + '"? Children will be moved up.')) return;
+  const ok = await deletePage(docsCurrentPage.id);
+  if (ok) {
+    docsCurrentPage = null;
+    document.getElementById('docs-empty-state').style.display = '';
+    document.getElementById('docs-editor-inner').style.display = 'none';
+    await docsRefreshTree();
+    showToast('Deleted', 'Page removed (children re-parented)');
+  } else {
+    showToast('Error', 'Delete failed');
+  }
+}
+
+async function docsDeletePage(pageId) {
+  if (!confirm('Delete this page? Children will be moved up.')) return;
+  const ok = await deletePage(pageId);
+  if (ok) {
+    if (docsCurrentPage && docsCurrentPage.id === pageId) {
+      docsCurrentPage = null;
+      document.getElementById('docs-empty-state').style.display = '';
+      document.getElementById('docs-editor-inner').style.display = 'none';
+    }
+    await docsRefreshTree();
+    showToast('Deleted', 'Page removed (children re-parented)');
+  } else {
+    showToast('Error', 'Delete failed');
+  }
+}
+
+// --- Rename (quick inline) ---
+async function docsRenamePage(node) {
+  const newTitle = prompt('Rename page:', node.title || 'Untitled');
+  if (newTitle === null) return; // cancelled
+  const result = await updatePage(node.id, { title: newTitle.trim() || 'Untitled' });
+  if (result) {
+    if (docsCurrentPage && docsCurrentPage.id === node.id) {
+      docsCurrentPage = result;
+      document.getElementById('docs-page-title').value = result.title;
+    }
+    await docsRefreshTree();
+  } else {
+    showToast('Error', 'Rename failed');
+  }
+}
+
+// --- New page ---
+async function docsNewPage() {
+  const pid = getDocsProjectId();
+  const payload = { title: 'New Page' };
+  if (pid) payload.project_id = pid;
+  const page = await createPage(payload);
+  if (page) {
+    await docsRefreshTree();
+    docsOpenPage(page.id);
+  } else {
+    showToast('Error', 'Could not create page');
+  }
+}
+
+async function docsNewChildPage(parentId, projectId) {
+  const payload = { title: 'New Page', parent_id: parentId };
+  if (projectId) payload.project_id = projectId;
+  const page = await createPage(payload);
+  if (page) {
+    await docsRefreshTree();
+    docsOpenPage(page.id);
+  } else {
+    showToast('Error', 'Could not create page');
+  }
+}
+
+// --- Search ---
+let docsSearchTimer = null;
+function onDocsSearch(query) {
+  clearTimeout(docsSearchTimer);
+  if (!query.trim()) {
+    docsSearchMode = false;
+    renderDocsTree();
+    return;
+  }
+  docsSearchMode = true;
+  docsSearchTimer = setTimeout(() => runDocsSearch(query), 250);
+}
+
+async function runDocsSearch(query) {
+  const pid = getDocsProjectId();
+  const results = await searchPages(query, pid);
+  const scroll = document.getElementById('docs-tree-scroll');
+  scroll.innerHTML = '';
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'docs-section-label';
+  labelEl.textContent = 'Search Results';
+  scroll.appendChild(labelEl);
+
+  if (!results.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'color:var(--text-dim);font-size:12px;padding:4px 14px';
+    empty.textContent = 'No results';
+    scroll.appendChild(empty);
+    return;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'docs-search-results';
+  for (const page of results) {
+    const item = document.createElement('div');
+    item.className = 'docs-search-result';
+    item.innerHTML = `
+      <div class="docs-search-result-title">${esc(page.icon ? page.icon + ' ' : '') + esc(page.title || 'Untitled')}</div>
+      <div class="docs-search-result-snippet">${esc((page.content || '').slice(0, 120))}</div>
+    `;
+    item.onclick = () => {
+      document.getElementById('docs-search-input').value = '';
+      docsSearchMode = false;
+      docsOpenPage(page.id);
+      docsRefreshTree();
+    };
+    container.appendChild(item);
+  }
+  scroll.appendChild(container);
+}
+
+// --- Refresh tree (re-fetch + re-render) ---
+async function docsRefreshTree() {
+  const pid = getDocsProjectId();
+
+  // Fetch workspace pages and (if a project is selected) project pages together
+  const requests = [fetchPages('')];
+  if (pid) requests.push(fetchPages(pid));
+  const arrays = await Promise.all(requests);
+
+  docsAllPages = arrays[0] || [];
+  if (pid && arrays[1]) {
+    // merge, avoiding duplicates
+    const seen = new Set(docsAllPages.map(p => p.id));
+    for (const p of arrays[1]) {
+      if (!seen.has(p.id)) docsAllPages.push(p);
+    }
+  }
+
+  if (!docsSearchMode) renderDocsTree();
+}
+
+// --- Project selector ---
+function getDocsProjectId() {
+  return document.getElementById('docs-project-select').value || '';
+}
+
+async function onDocsProjectChange() {
+  docsCurrentPage = null;
+  document.getElementById('docs-empty-state').style.display = '';
+  document.getElementById('docs-editor-inner').style.display = 'none';
+  await docsRefreshTree();
+}
+
+function updateDocsProjectSelect() {
+  const sel = document.getElementById('docs-project-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Workspace</option>';
+  for (const p of allProjects) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name || p.id;
+    sel.appendChild(opt);
+  }
+  if (cur && Array.from(sel.options).some(o => o.value === cur)) sel.value = cur;
+}
+
+// --- SSE hook (page_created / page_updated / page_deleted) ---
+async function docsSSERefresh(eventType, payload) {
+  if (currentView !== 'docs') return;
+  await docsRefreshTree();
+
+  // If the open page was updated, reload it
+  if (docsCurrentPage) {
+    if (eventType === 'page_updated' && payload && payload.id === docsCurrentPage.id) {
+      const fresh = await fetchPage(docsCurrentPage.id);
+      if (fresh) {
+        docsCurrentPage = fresh;
+        document.getElementById('docs-page-icon').value  = fresh.icon || '';
+        document.getElementById('docs-page-title').value = fresh.title || '';
+        document.getElementById('docs-content-textarea').value = fresh.content || '';
+        document.getElementById('docs-preview').innerHTML = renderMarkdown(fresh.content || '');
+      }
+    }
+    if (eventType === 'page_deleted' && payload && payload.id === docsCurrentPage.id) {
+      docsCurrentPage = null;
+      document.getElementById('docs-empty-state').style.display = '';
+      document.getElementById('docs-editor-inner').style.display = 'none';
+    }
+  }
+}
+
+// ============================================================
+// END DOCS VIEW
 // ============================================================
 
 function renderRevenue(summary) {
