@@ -135,6 +135,9 @@ const (
 	EventAgentStale          EventType = "agent_stale"
 	EventAgentStatusChanged  EventType = "agent_status_changed"
 	EventMessage             EventType = "message"
+	EventPageCreated         EventType = "page_created"
+	EventPageUpdated         EventType = "page_updated"
+	EventPageDeleted         EventType = "page_deleted"
 )
 
 type Event struct {
@@ -188,6 +191,18 @@ type Comment struct {
 	Author    string    `json:"author"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Page struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id,omitempty"`
+	ParentID  string    `json:"parent_id,omitempty"`
+	Title     string    `json:"title"`
+	Icon      string    `json:"icon,omitempty"`
+	Content   string    `json:"content,omitempty"`
+	Position  float64   `json:"position"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Message struct {

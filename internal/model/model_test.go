@@ -77,3 +77,16 @@ func TestSprintStateValid(t *testing.T) {
 	}
 }
 
+func TestPageEventConsts(t *testing.T) {
+	if EventPageCreated != "page_created" || EventPageUpdated != "page_updated" || EventPageDeleted != "page_deleted" {
+		t.Errorf("unexpected page event consts: %q %q %q", EventPageCreated, EventPageUpdated, EventPageDeleted)
+	}
+}
+
+func TestPageZeroValue(t *testing.T) {
+	var p Page
+	if p.ID != "" || p.Title != "" {
+		t.Error("zero Page should be empty")
+	}
+}
+
