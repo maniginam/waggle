@@ -251,6 +251,38 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 				"limit": map[string]any{"type": "integer", "description": "Max messages to return"},
 			},
 		}),
+
+		// --- Page / doc tools ---
+		toolDef("waggle_list_pages", "List doc pages for a scope. project_id empty = workspace-level pages.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": prop("string", "Project ID; empty for workspace-level pages"),
+			},
+		}),
+		toolDef("waggle_get_page", "Get one doc page's markdown by ID.", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": prop("string", "Page ID")},
+			"required":   []string{"id"},
+		}),
+		toolDef("waggle_write_page", "Create or update a doc page. With id = update; without id = create.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":         prop("string", "Page ID to update (omit to create)"),
+				"project_id": prop("string", "Project ID (empty = workspace-level)"),
+				"parent_id":  prop("string", "Parent page ID (empty = root)"),
+				"title":      prop("string", "Page title"),
+				"content":    prop("string", "Markdown content"),
+			},
+			"required": []string{"title"},
+		}),
+		toolDef("waggle_search_pages", "Full-text search doc pages. Returns ranked matches.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query":      prop("string", "Search query"),
+				"project_id": prop("string", "Optional project scope"),
+			},
+			"required": []string{"query"},
+		}),
 	}
 
 	a.sendResult(req.ID, map[string]any{"tools": tools})
@@ -501,6 +533,49 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			msgURL += "?" + strings.Join(params, "&")
 		}
 		return a.get(msgURL)
+
+	// --- Page / doc tools ---
+
+	case "waggle_list_pages":
+		pagesURL := "/api/pages"
+		if pid, ok := args["project_id"].(string); ok && pid != "" {
+			pagesURL += "?project_id=" + url.QueryEscape(pid)
+		}
+		return a.get(pagesURL)
+
+	case "waggle_get_page":
+		id, _ := args["id"].(string)
+		if id == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		return a.get("/api/pages/" + url.PathEscape(id))
+
+	case "waggle_write_page":
+		title, _ := args["title"].(string)
+		if title == "" {
+			return nil, fmt.Errorf("title is required")
+		}
+		if id, ok := args["id"].(string); ok && id != "" {
+			updates := map[string]any{}
+			for k, v := range args {
+				if k != "id" {
+					updates[k] = v
+				}
+			}
+			return a.patchJSON("/api/pages/"+url.PathEscape(id), updates)
+		}
+		return a.postJSON("/api/pages", args)
+
+	case "waggle_search_pages":
+		query, _ := args["query"].(string)
+		if query == "" {
+			return nil, fmt.Errorf("query is required")
+		}
+		params := []string{"q=" + url.QueryEscape(query)}
+		if pid, ok := args["project_id"].(string); ok && pid != "" {
+			params = append(params, "project_id="+url.QueryEscape(pid))
+		}
+		return a.get("/api/pages/search?" + strings.Join(params, "&"))
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)

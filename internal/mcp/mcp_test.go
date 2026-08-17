@@ -133,6 +133,7 @@ func TestToolsList(t *testing.T) {
 		"waggle_move_task", "waggle_create_sprint", "waggle_assign_sprint", "waggle_sprint_status",
 		"waggle_list_projects", "waggle_update_project",
 		"waggle_send_message", "waggle_read_messages",
+		"waggle_list_pages", "waggle_get_page", "waggle_write_page", "waggle_search_pages",
 	}
 
 	if len(tools) != len(expected) {
@@ -330,6 +331,42 @@ func TestMCPSprintStatusActive(t *testing.T) {
 	}
 	if _, present := parsed["burndown"]; !present {
 		t.Errorf("expected burndown key in result, got %s", text)
+	}
+}
+
+func TestMCPPageTools(t *testing.T) {
+	adapter, _ := setupMCP(t)
+	list := callMCP(t, adapter, "tools/list", 1, nil)
+	result, _ := list["result"].(map[string]any)
+	tools, _ := result["tools"].([]any)
+	names := map[string]bool{}
+	for _, tv := range tools {
+		if m, ok := tv.(map[string]any); ok {
+			names[m["name"].(string)] = true
+		}
+	}
+	for _, want := range []string{"waggle_list_pages", "waggle_get_page", "waggle_write_page", "waggle_search_pages"} {
+		if !names[want] {
+			t.Errorf("missing tool %q", want)
+		}
+	}
+	// write a page, then search finds it
+	callMCP(t, adapter, "tools/call", 2, map[string]any{
+		"name":      "waggle_write_page",
+		"arguments": map[string]any{"title": "MCP Note", "content": "unicorn payload"},
+	})
+	call := callMCP(t, adapter, "tools/call", 3, map[string]any{
+		"name":      "waggle_search_pages",
+		"arguments": map[string]any{"query": "unicorn"},
+	})
+	cr, _ := call["result"].(map[string]any)
+	content, _ := cr["content"].([]any)
+	if len(content) == 0 {
+		t.Fatal("expected content")
+	}
+	text := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, "MCP Note") {
+		t.Errorf("search did not find the written page, got: %s", text)
 	}
 }
 
