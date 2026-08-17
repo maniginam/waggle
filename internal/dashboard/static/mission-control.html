@@ -1103,6 +1103,7 @@ select.inline-select {
       <div class="docs-editor-toolbar">
         <input type="text" id="docs-page-icon" class="icon-input" placeholder="📝" maxlength="4" title="Icon">
         <input type="text" id="docs-page-title" placeholder="Page title" oninput="onDocsTitleInput()">
+        <span id="docs-dirty-notice" style="display:none;font-size:12px;color:var(--orange);white-space:nowrap"></span>
         <button class="action-btn primary" onclick="docsPageSave()">Save</button>
         <button class="action-btn danger" onclick="docsPageDelete()" title="Delete page">Delete</button>
       </div>
@@ -2707,6 +2708,7 @@ async function docsOpenPage(pageId) {
   document.getElementById('docs-page-title').value = page.title || '';
   document.getElementById('docs-content-textarea').value = page.content || '';
   document.getElementById('docs-preview').innerHTML = renderMarkdown(page.content || '');
+  docsClearDirtyNotice();
 
   // Highlight in tree
   document.querySelectorAll('.docs-tree-node').forEach(n => n.classList.remove('selected'));
@@ -2734,11 +2736,19 @@ async function docsPageSave() {
   const updated = await updatePage(docsCurrentPage.id, { title, icon, content });
   if (updated) {
     docsCurrentPage = updated;
+    docsClearDirtyNotice();
     showToast('Saved', title);
     await docsRefreshTree();
   } else {
     showToast('Error', 'Save failed');
   }
+}
+
+// Clear the "changed on server" notice; the editor now matches a known
+// server baseline (freshly opened or just saved).
+function docsClearDirtyNotice() {
+  const notice = document.getElementById('docs-dirty-notice');
+  if (notice) { notice.textContent = ''; notice.style.display = 'none'; }
 }
 
 // --- Delete ---
@@ -2918,16 +2928,27 @@ async function docsSSERefresh(eventType, payload) {
   if (currentView !== 'docs') return;
   await docsRefreshTree();
 
-  // If the open page was updated, reload it
+  // If the open page was updated, reload it — but never clobber unsaved edits.
+  // This is a shared human+AI store; a concurrent waggle_write_page or another
+  // tab can emit page_updated while the user is mid-edit. Auto-reload only when
+  // the editor is clean; otherwise leave the buffer alone and show a notice.
   if (docsCurrentPage) {
     if (eventType === 'page_updated' && payload && payload.id === docsCurrentPage.id) {
-      const fresh = await fetchPage(docsCurrentPage.id);
-      if (fresh) {
-        docsCurrentPage = fresh;
-        document.getElementById('docs-page-icon').value  = fresh.icon || '';
-        document.getElementById('docs-page-title').value = fresh.title || '';
-        document.getElementById('docs-content-textarea').value = fresh.content || '';
-        document.getElementById('docs-preview').innerHTML = renderMarkdown(fresh.content || '');
+      const textarea = document.getElementById('docs-content-textarea');
+      const dirty = textarea.value !== (docsCurrentPage.content || '');
+      if (dirty) {
+        const notice = document.getElementById('docs-dirty-notice');
+        notice.textContent = 'Changed on server — save to overwrite or reload manually';
+        notice.style.display = '';
+      } else {
+        const fresh = await fetchPage(docsCurrentPage.id);
+        if (fresh) {
+          docsCurrentPage = fresh;
+          document.getElementById('docs-page-icon').value  = fresh.icon || '';
+          document.getElementById('docs-page-title').value = fresh.title || '';
+          textarea.value = fresh.content || '';
+          document.getElementById('docs-preview').innerHTML = renderMarkdown(fresh.content || '');
+        }
       }
     }
     if (eventType === 'page_deleted' && payload && payload.id === docsCurrentPage.id) {
