@@ -981,6 +981,11 @@ select.inline-select {
 .board-card[data-pri="high"]     { border-left: 3px solid var(--orange); }
 .board-card[data-pri="medium"]   { border-left: 3px solid var(--yellow); }
 .board-card[data-pri="low"]      { border-left: 3px solid var(--text-dim); }
+
+/* Table view (C1 Task 1) */
+#table-view table { border-collapse: collapse; }
+#table-view th { position: sticky; top: 0; background: var(--surface1); z-index: 1; }
+#table-view tr + tr td { border-top: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -994,6 +999,7 @@ select.inline-select {
       <button class="view-btn active" id="view-dashboard-btn" onclick="switchView('dashboard')">Dashboard</button>
       <button class="view-btn" id="view-board-btn" onclick="switchView('board')">Board</button>
       <button class="view-btn" id="view-docs-btn" onclick="switchView('docs')">Docs</button>
+      <button class="view-btn" id="view-table-btn" onclick="switchView('table')">Table</button>
     </div>
     <div id="docs-project-filter" style="display:none">
       <select id="docs-project-select" onchange="onDocsProjectChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:13px;outline:none">
@@ -1111,6 +1117,23 @@ select.inline-select {
         <textarea class="docs-textarea" id="docs-content-textarea" placeholder="Write markdown here..." oninput="onDocsContentInput()"></textarea>
         <div class="docs-preview" id="docs-preview"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Table view (C1 Task 1) -->
+<div id="table-view" style="display:none;padding:20px;overflow:auto;height:calc(100vh - 60px);box-sizing:border-box"></div>
+
+<!-- Task detail modal (C1 Task 1) -->
+<div class="detail-overlay" id="task-detail-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;justify-content:flex-end;align-items:stretch">
+  <div style="background:var(--surface1);width:480px;max-width:100%;height:100%;overflow-y:auto;padding:28px 24px;position:relative;box-shadow:-4px 0 24px rgba(0,0,0,0.35)">
+    <button onclick="closeTaskDetail()" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-dim);font-size:22px;cursor:pointer;line-height:1">&times;</button>
+    <h2 id="td-title" style="font-size:20px;margin:0 0 6px;padding-right:32px"></h2>
+    <div id="td-meta" style="font-size:13px;color:var(--text-dim);margin-bottom:16px"></div>
+    <div id="td-fields" style="display:grid;grid-template-columns:120px 1fr;gap:8px 12px;font-size:13px;align-items:start"></div>
+    <div id="td-desc-section" style="margin-top:20px;display:none">
+      <div style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Description</div>
+      <div id="td-desc" style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text)"></div>
     </div>
   </div>
 </div>
@@ -1791,9 +1814,11 @@ function switchView(view) {
   const app = document.getElementById('app');
   const boardView = document.getElementById('board-view');
   const docsView  = document.getElementById('docs-view');
+  const tableView = document.getElementById('table-view');
   const dashBtn   = document.getElementById('view-dashboard-btn');
   const boardBtn  = document.getElementById('view-board-btn');
   const docsBtn   = document.getElementById('view-docs-btn');
+  const tableBtn  = document.getElementById('view-table-btn');
   const dashFilters        = document.getElementById('dashboard-filters');
   const boardProjectFilter = document.getElementById('board-project-filter');
   const docsProjectFilter  = document.getElementById('docs-project-filter');
@@ -1803,9 +1828,11 @@ function switchView(view) {
   app.style.display = 'none';
   boardView.classList.remove('active');
   docsView.classList.remove('active');
+  tableView.style.display = 'none';
   dashBtn.classList.remove('active');
   boardBtn.classList.remove('active');
   docsBtn.classList.remove('active');
+  tableBtn.classList.remove('active');
   dashFilters.style.display = 'none';
   boardProjectFilter.style.display = 'none';
   docsProjectFilter.style.display = 'none';
@@ -1821,6 +1848,10 @@ function switchView(view) {
     docsBtn.classList.add('active');
     docsProjectFilter.style.display = '';
     docsRefreshTree();
+  } else if (view === 'table') {
+    tableView.style.display = '';
+    tableBtn.classList.add('active');
+    loadTableView();
   } else {
     app.style.display = '';
     dashBtn.classList.add('active');
@@ -1858,6 +1889,8 @@ function connectSSE() {
       // Board live updates (Step 7)
       if (type === 'task_updated' || type === 'task_created' || type === 'task_completed' || type === 'task_deleted') {
         boardSSERefresh();
+        // Table live updates (C1 Task 1 Step 6)
+        if (currentView === 'table') loadTableView();
       }
       // Docs live updates (Task 9)
       if (type === 'page_created' || type === 'page_updated' || type === 'page_deleted') {
@@ -3008,6 +3041,237 @@ async function addRevenue() {
     showToast('Error', 'Failed to record revenue');
   }
 }
+
+// ============================================================
+// TABLE VIEW (C1 Task 1)
+// ============================================================
+
+let tableTasks = [];
+let tableSort = { col: 'title', dir: 'asc' };
+let tableFilter = { status: '', priority: '', text: '' };
+
+// Priority rank for sort: lower number = higher priority
+const PRIORITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+
+function getTableProjectId() {
+  // Reuse the board project selector — same scope logic
+  return document.getElementById('board-project-select').value || '';
+}
+
+async function loadTableView() {
+  const pid = getTableProjectId();
+  let url = API + '/api/tasks';
+  if (pid) url += '?project_id=' + encodeURIComponent(pid);
+  const r = await fetch(url);
+  tableTasks = r.ok ? (await r.json() || []) : [];
+
+  // Fetch sprints to build name map
+  let sprintNameById = {};
+  let sprintUrl = API + '/api/sprints';
+  if (pid) sprintUrl += '?project_id=' + encodeURIComponent(pid);
+  const sr = await fetch(sprintUrl);
+  if (sr.ok) {
+    const sprints = await sr.json() || [];
+    for (const s of sprints) sprintNameById[s.id] = s.name;
+  }
+
+  renderTableView(sprintNameById);
+}
+
+function tableGetProjectName(task) {
+  if (!task.project_id) return '';
+  const p = allProjects.find(p => p.id === task.project_id);
+  return p ? (p.name || p.Name || task.project_id) : task.project_id;
+}
+
+function tableSortedFiltered(sprintNameById) {
+  let rows = tableTasks.slice();
+
+  // Filter
+  if (tableFilter.status) rows = rows.filter(t => t.status === tableFilter.status);
+  if (tableFilter.priority) rows = rows.filter(t => t.priority === tableFilter.priority);
+  if (tableFilter.text) {
+    const q = tableFilter.text.toLowerCase();
+    rows = rows.filter(t =>
+      (t.title || '').toLowerCase().includes(q) ||
+      (t.description || '').toLowerCase().includes(q)
+    );
+  }
+
+  // Sort
+  rows.sort((a, b) => {
+    let va, vb;
+    const col = tableSort.col;
+    if (col === 'points') {
+      va = Number(a.story_points) || 0;
+      vb = Number(b.story_points) || 0;
+      return tableSort.dir === 'asc' ? va - vb : vb - va;
+    } else if (col === 'deadline') {
+      va = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+      vb = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+      return tableSort.dir === 'asc' ? va - vb : vb - va;
+    } else if (col === 'priority') {
+      va = PRIORITY_RANK[a.priority] ?? 99;
+      vb = PRIORITY_RANK[b.priority] ?? 99;
+      return tableSort.dir === 'asc' ? va - vb : vb - va;
+    } else if (col === 'sprint') {
+      va = (sprintNameById[a.sprint_id] || '').toLowerCase();
+      vb = (sprintNameById[b.sprint_id] || '').toLowerCase();
+    } else if (col === 'project') {
+      va = tableGetProjectName(a).toLowerCase();
+      vb = tableGetProjectName(b).toLowerCase();
+    } else {
+      va = (String(a[col] || '')).toLowerCase();
+      vb = (String(b[col] || '')).toLowerCase();
+    }
+    if (va < vb) return tableSort.dir === 'asc' ? -1 : 1;
+    if (va > vb) return tableSort.dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  return rows;
+}
+
+function renderTableView(sprintNameById) {
+  const container = document.getElementById('table-view');
+
+  const COLS = [
+    { key: 'title',    label: 'Title' },
+    { key: 'status',   label: 'Status' },
+    { key: 'priority', label: 'Priority' },
+    { key: 'assignee', label: 'Assignee' },
+    { key: 'sprint',   label: 'Sprint' },
+    { key: 'points',   label: 'Pts' },
+    { key: 'deadline', label: 'Deadline' },
+    { key: 'project',  label: 'Project' },
+  ];
+
+  const rows = tableSortedFiltered(sprintNameById);
+
+  // Build status/priority options from current tasks for filter selects
+  const statuses = [...new Set(tableTasks.map(t => t.status).filter(Boolean))].sort();
+  const priorities = ['critical', 'high', 'medium', 'low'].filter(p => tableTasks.some(t => t.priority === p));
+
+  function sortIndicator(col) {
+    if (tableSort.col !== col) return '';
+    return tableSort.dir === 'asc' ? ' ▲' : ' ▼';
+  }
+
+  const thead = `<thead><tr>${COLS.map(c =>
+    `<th data-col="${c.key}" style="cursor:pointer;user-select:none;padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em${tableSort.col===c.key?';color:var(--accent)':''}">${c.label}${sortIndicator(c.key)}</th>`
+  ).join('')}</tr></thead>`;
+
+  const tbody = '<tbody>' + rows.map(task => {
+    const sprint = esc(task.sprint_id ? (sprintNameById[task.sprint_id] || task.sprint_id) : '');
+    const pts = task.story_points ? Number(task.story_points) : '';
+    const dl = task.deadline ? task.deadline.split('T')[0] : '';
+    const proj = esc(tableGetProjectName(task));
+    const pri = task.priority || '';
+    const priColor = { critical: 'var(--red)', high: 'var(--orange)', medium: 'var(--yellow)', low: 'var(--text-dim)' }[pri] || 'var(--text-dim)';
+    const statusColor = { done: 'var(--green)', in_progress: 'var(--accent)', blocked: 'var(--red)', review: 'var(--yellow)' }[task.status] || 'var(--text-dim)';
+    return `<tr data-task-id="${esc(task.id)}" style="cursor:pointer" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onclick="openTableTaskDetail('${esc(task.id)}')">
+      <td style="padding:8px 12px;font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(task.title)}</td>
+      <td style="padding:8px 12px;font-size:12px;color:${statusColor};white-space:nowrap">${esc(task.status || '')}</td>
+      <td style="padding:8px 12px;font-size:12px;color:${priColor};white-space:nowrap">${esc(pri)}</td>
+      <td style="padding:8px 12px;font-size:13px">${esc(task.assignee || '')}</td>
+      <td style="padding:8px 12px;font-size:13px">${sprint}</td>
+      <td style="padding:8px 12px;font-size:13px;text-align:right">${pts}</td>
+      <td style="padding:8px 12px;font-size:13px;white-space:nowrap">${esc(dl)}</td>
+      <td style="padding:8px 12px;font-size:13px">${proj}</td>
+    </tr>`;
+  }).join('') + '</tbody>';
+
+  container.innerHTML = `
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+      <select id="table-filter-status" onchange="onTableFilterChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:13px;outline:none">
+        <option value="">All Statuses</option>
+        ${statuses.map(s => `<option value="${esc(s)}"${tableFilter.status===s?' selected':''}>${esc(s)}</option>`).join('')}
+      </select>
+      <select id="table-filter-priority" onchange="onTableFilterChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:13px;outline:none">
+        <option value="">All Priorities</option>
+        ${priorities.map(p => `<option value="${esc(p)}"${tableFilter.priority===p?' selected':''}>${esc(p)}</option>`).join('')}
+      </select>
+      <input id="table-filter-text" type="text" placeholder="Search title / description..." value="${esc(tableFilter.text)}" oninput="onTableFilterChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:13px;outline:none;min-width:200px">
+      <span style="font-size:12px;color:var(--text-dim);margin-left:auto">${rows.length} / ${tableTasks.length} tasks</span>
+    </div>
+    <div style="overflow:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${thead}
+        ${tbody}
+      </table>
+    </div>
+  `;
+
+  // Attach sort click handlers to headers
+  container.querySelectorAll('th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (tableSort.col === col) {
+        tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        tableSort.col = col;
+        tableSort.dir = 'asc';
+      }
+      // Re-render with cached data — need sprintNameById; rebuild from rendered data isn't feasible,
+      // so re-fetch to keep sprint map fresh
+      loadTableView();
+    });
+  });
+}
+
+function onTableFilterChange() {
+  tableFilter.status   = document.getElementById('table-filter-status').value;
+  tableFilter.priority = document.getElementById('table-filter-priority').value;
+  tableFilter.text     = document.getElementById('table-filter-text').value;
+  // Re-fetch to get current sprint map
+  loadTableView();
+}
+
+// --- Step 5: Task detail panel ---
+let tableDetailTask = null;
+let tableSprintNameById = {};
+
+function openTableTaskDetail(taskId) {
+  const task = tableTasks.find(t => t.id === taskId);
+  if (!task) return;
+  tableDetailTask = task;
+
+  document.getElementById('td-title').textContent = task.title || '';
+  document.getElementById('td-meta').textContent = (task.status || '') + (task.priority ? '  ·  ' + task.priority : '');
+
+  const fields = [
+    ['Status',   esc(task.status || '')],
+    ['Priority', esc(task.priority || '')],
+    ['Assignee', esc(task.assignee || '')],
+    ['Points',   task.story_points ? String(task.story_points) : ''],
+    ['Deadline', task.deadline ? esc(task.deadline.split('T')[0]) : ''],
+    ['Project',  esc(tableGetProjectName(task))],
+  ];
+  document.getElementById('td-fields').innerHTML = fields
+    .filter(([, v]) => v !== '')
+    .map(([l, v]) => `<span style="color:var(--text-dim);font-weight:600">${l}</span><span>${v}</span>`)
+    .join('');
+
+  const descSection = document.getElementById('td-desc-section');
+  const descEl = document.getElementById('td-desc');
+  if (task.description) {
+    descEl.textContent = task.description;
+    descSection.style.display = '';
+  } else {
+    descSection.style.display = 'none';
+  }
+
+  const overlay = document.getElementById('task-detail-overlay');
+  overlay.style.display = 'flex';
+}
+
+function closeTaskDetail() {
+  document.getElementById('task-detail-overlay').style.display = 'none';
+}
+
+document.getElementById('task-detail-overlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeTaskDetail();
+});
 </script>
 </body>
 </html>
