@@ -3047,6 +3047,7 @@ async function addRevenue() {
 // ============================================================
 
 let tableTasks = [];
+let tableSprintNameById = {};
 let tableSort = { col: 'title', dir: 'asc' };
 let tableFilter = { status: '', priority: '', text: '' };
 
@@ -3065,17 +3066,17 @@ async function loadTableView() {
   const r = await fetch(url);
   tableTasks = r.ok ? (await r.json() || []) : [];
 
-  // Fetch sprints to build name map
-  let sprintNameById = {};
+  // Fetch sprints once into the module-level name map; sort/filter re-renders read this cache.
+  tableSprintNameById = {};
   let sprintUrl = API + '/api/sprints';
   if (pid) sprintUrl += '?project_id=' + encodeURIComponent(pid);
   const sr = await fetch(sprintUrl);
   if (sr.ok) {
     const sprints = await sr.json() || [];
-    for (const s of sprints) sprintNameById[s.id] = s.name;
+    for (const s of sprints) tableSprintNameById[s.id] = s.name;
   }
 
-  renderTableView(sprintNameById);
+  renderTableView();
 }
 
 function tableGetProjectName(task) {
@@ -3084,7 +3085,7 @@ function tableGetProjectName(task) {
   return p ? (p.name || p.Name || task.project_id) : task.project_id;
 }
 
-function tableSortedFiltered(sprintNameById) {
+function tableSortedFiltered() {
   let rows = tableTasks.slice();
 
   // Filter
@@ -3115,8 +3116,8 @@ function tableSortedFiltered(sprintNameById) {
       vb = PRIORITY_RANK[b.priority] ?? 99;
       return tableSort.dir === 'asc' ? va - vb : vb - va;
     } else if (col === 'sprint') {
-      va = (sprintNameById[a.sprint_id] || '').toLowerCase();
-      vb = (sprintNameById[b.sprint_id] || '').toLowerCase();
+      va = (tableSprintNameById[a.sprint_id] || '').toLowerCase();
+      vb = (tableSprintNameById[b.sprint_id] || '').toLowerCase();
     } else if (col === 'project') {
       va = tableGetProjectName(a).toLowerCase();
       vb = tableGetProjectName(b).toLowerCase();
@@ -3132,7 +3133,7 @@ function tableSortedFiltered(sprintNameById) {
   return rows;
 }
 
-function renderTableView(sprintNameById) {
+function renderTableView() {
   const container = document.getElementById('table-view');
 
   const COLS = [
@@ -3146,7 +3147,7 @@ function renderTableView(sprintNameById) {
     { key: 'project',  label: 'Project' },
   ];
 
-  const rows = tableSortedFiltered(sprintNameById);
+  const rows = tableSortedFiltered();
 
   // Build status/priority options from current tasks for filter selects
   const statuses = [...new Set(tableTasks.map(t => t.status).filter(Boolean))].sort();
@@ -3162,7 +3163,7 @@ function renderTableView(sprintNameById) {
   ).join('')}</tr></thead>`;
 
   const tbody = '<tbody>' + rows.map(task => {
-    const sprint = esc(task.sprint_id ? (sprintNameById[task.sprint_id] || task.sprint_id) : '');
+    const sprint = esc(task.sprint_id ? (tableSprintNameById[task.sprint_id] || task.sprint_id) : '');
     const pts = task.story_points ? Number(task.story_points) : '';
     const dl = task.deadline ? task.deadline.split('T')[0] : '';
     const proj = esc(tableGetProjectName(task));
@@ -3212,9 +3213,8 @@ function renderTableView(sprintNameById) {
         tableSort.col = col;
         tableSort.dir = 'asc';
       }
-      // Re-render with cached data — need sprintNameById; rebuild from rendered data isn't feasible,
-      // so re-fetch to keep sprint map fresh
-      loadTableView();
+      // Client-side re-render from cache — no network request.
+      renderTableView();
     });
   });
 }
@@ -3223,18 +3223,14 @@ function onTableFilterChange() {
   tableFilter.status   = document.getElementById('table-filter-status').value;
   tableFilter.priority = document.getElementById('table-filter-priority').value;
   tableFilter.text     = document.getElementById('table-filter-text').value;
-  // Re-fetch to get current sprint map
-  loadTableView();
+  // Client-side re-render from cache — no network request.
+  renderTableView();
 }
 
 // --- Step 5: Task detail panel ---
-let tableDetailTask = null;
-let tableSprintNameById = {};
-
 function openTableTaskDetail(taskId) {
   const task = tableTasks.find(t => t.id === taskId);
   if (!task) return;
-  tableDetailTask = task;
 
   document.getElementById('td-title').textContent = task.title || '';
   document.getElementById('td-meta').textContent = (task.status || '') + (task.priority ? '  ·  ' + task.priority : '');
