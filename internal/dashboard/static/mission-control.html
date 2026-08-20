@@ -986,6 +986,127 @@ select.inline-select {
 #table-view table { border-collapse: collapse; }
 #table-view th { position: sticky; top: 0; background: var(--surface1); z-index: 1; }
 #table-view tr + tr td { border-top: 1px solid var(--border); }
+
+/* Calendar view (C1 Task 2) */
+#calendar-view { padding: 20px; overflow: auto; height: calc(100vh - 60px); box-sizing: border-box; }
+.cal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.cal-month-label {
+  font-size: 18px;
+  font-weight: 600;
+  min-width: 180px;
+  text-align: center;
+}
+.cal-nav-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.cal-nav-btn:hover { border-color: var(--accent); }
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cal-day-header {
+  background: var(--surface);
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-dim);
+}
+.cal-cell {
+  background: var(--surface);
+  min-height: 90px;
+  padding: 4px 6px;
+  vertical-align: top;
+  position: relative;
+}
+.cal-cell.other-month { background: var(--bg); }
+.cal-cell.today { background: rgba(108,138,255,0.07); }
+.cal-date-num {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+.cal-cell.today .cal-date-num {
+  color: var(--accent);
+}
+.cal-chip {
+  display: block;
+  border-radius: 3px;
+  padding: 2px 5px;
+  font-size: 11px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: none;
+  width: 100%;
+  text-align: left;
+  transition: opacity 0.1s;
+}
+.cal-chip:hover { opacity: 0.8; }
+.cal-chip-critical { background: rgba(248,113,113,0.25); color: var(--red); }
+.cal-chip-high     { background: rgba(251,146,60,0.25);  color: var(--orange); }
+.cal-chip-medium   { background: rgba(251,191,36,0.25);  color: var(--yellow); }
+.cal-chip-low      { background: rgba(136,144,164,0.2);  color: var(--text-dim); }
+.cal-more {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 1px 5px;
+  cursor: default;
+}
+.cal-unscheduled {
+  margin-top: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.cal-unscheduled-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.cal-unscheduled-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cal-unscheduled-chip {
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+.cal-unscheduled-chip:hover { border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -1000,6 +1121,7 @@ select.inline-select {
       <button class="view-btn" id="view-board-btn" onclick="switchView('board')">Board</button>
       <button class="view-btn" id="view-docs-btn" onclick="switchView('docs')">Docs</button>
       <button class="view-btn" id="view-table-btn" onclick="switchView('table')">Table</button>
+      <button class="view-btn" id="view-calendar-btn" onclick="switchView('calendar')">Calendar</button>
     </div>
     <div id="docs-project-filter" style="display:none">
       <select id="docs-project-select" onchange="onDocsProjectChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:13px;outline:none">
@@ -1123,6 +1245,9 @@ select.inline-select {
 
 <!-- Table view (C1 Task 1) -->
 <div id="table-view" style="display:none;padding:20px;overflow:auto;height:calc(100vh - 60px);box-sizing:border-box"></div>
+
+<!-- Calendar view (C1 Task 2) -->
+<div id="calendar-view" style="display:none"></div>
 
 <!-- Task detail modal (C1 Task 1) -->
 <div class="detail-overlay" id="task-detail-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;justify-content:flex-end;align-items:stretch">
@@ -1811,28 +1936,32 @@ let currentView = 'dashboard';
 
 function switchView(view) {
   currentView = view;
-  const app = document.getElementById('app');
-  const boardView = document.getElementById('board-view');
-  const docsView  = document.getElementById('docs-view');
-  const tableView = document.getElementById('table-view');
-  const dashBtn   = document.getElementById('view-dashboard-btn');
-  const boardBtn  = document.getElementById('view-board-btn');
-  const docsBtn   = document.getElementById('view-docs-btn');
-  const tableBtn  = document.getElementById('view-table-btn');
+  const app          = document.getElementById('app');
+  const boardView    = document.getElementById('board-view');
+  const docsView     = document.getElementById('docs-view');
+  const tableView    = document.getElementById('table-view');
+  const calView      = document.getElementById('calendar-view');
+  const dashBtn      = document.getElementById('view-dashboard-btn');
+  const boardBtn     = document.getElementById('view-board-btn');
+  const docsBtn      = document.getElementById('view-docs-btn');
+  const tableBtn     = document.getElementById('view-table-btn');
+  const calBtn       = document.getElementById('view-calendar-btn');
   const dashFilters        = document.getElementById('dashboard-filters');
   const boardProjectFilter = document.getElementById('board-project-filter');
   const docsProjectFilter  = document.getElementById('docs-project-filter');
-  const msgBar    = document.getElementById('msg-bar');
+  const msgBar       = document.getElementById('msg-bar');
 
   // Reset all first
   app.style.display = 'none';
   boardView.classList.remove('active');
   docsView.classList.remove('active');
   tableView.style.display = 'none';
+  calView.style.display = 'none';
   dashBtn.classList.remove('active');
   boardBtn.classList.remove('active');
   docsBtn.classList.remove('active');
   tableBtn.classList.remove('active');
+  calBtn.classList.remove('active');
   dashFilters.style.display = 'none';
   boardProjectFilter.style.display = 'none';
   docsProjectFilter.style.display = 'none';
@@ -1852,6 +1981,10 @@ function switchView(view) {
     tableView.style.display = '';
     tableBtn.classList.add('active');
     loadTableView();
+  } else if (view === 'calendar') {
+    calView.style.display = '';
+    calBtn.classList.add('active');
+    loadCalendarView();
   } else {
     app.style.display = '';
     dashBtn.classList.add('active');
@@ -1891,6 +2024,8 @@ function connectSSE() {
         boardSSERefresh();
         // Table live updates (C1 Task 1 Step 6)
         if (currentView === 'table') loadTableView();
+        // Calendar live updates (C1 Task 2 Step 6)
+        if (currentView === 'calendar') loadCalendarView();
       }
       // Docs live updates (Task 9)
       if (type === 'page_created' || type === 'page_updated' || type === 'page_deleted') {
@@ -3268,6 +3403,208 @@ function closeTaskDetail() {
 document.getElementById('task-detail-overlay').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) closeTaskDetail();
 });
+
+// ============================================================
+// CALENDAR VIEW (C1 Task 2)
+// ============================================================
+
+// Module-level state: { year, month } (month is 0-based, JS Date convention)
+// Initialized lazily at first render from new Date() so tests stay deterministic.
+let calMonth = null;   // { year: number, month: number }
+let calTasks = [];     // task array fetched on view activation or SSE event
+
+// --- Step 2: fetch + entry point ---
+async function loadCalendarView() {
+  // Initialize calMonth from today if not yet set (or was never set)
+  if (!calMonth) {
+    const now = new Date();
+    calMonth = { year: now.getFullYear(), month: now.getMonth() };
+  }
+
+  const pid = getTableProjectId();  // reuse Task 1 scope accessor
+  let url = API + '/api/tasks';
+  if (pid) url += '?project_id=' + encodeURIComponent(pid);
+  const r = await fetch(url);
+  calTasks = r.ok ? (await r.json() || []) : [];
+
+  renderCalendarView();
+}
+
+// --- Step 3 + 4 + 5: render ---
+function renderCalendarView() {
+  const container = document.getElementById('calendar-view');
+  if (!container) return;
+
+  // Guard: calMonth must be set before rendering (set in loadCalendarView)
+  if (!calMonth) {
+    const now = new Date();
+    calMonth = { year: now.getFullYear(), month: now.getMonth() };
+  }
+
+  const { year, month } = calMonth;
+  const today = new Date();
+  const todayY = today.getFullYear();
+  const todayM = today.getMonth();
+  const todayD = today.getDate();
+
+  // Month metadata
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const firstOfMonth = new Date(year, month, 1);
+  const startDow = firstOfMonth.getDay();           // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+  // --- Step 4: bucket scheduled tasks by day ---
+  const tasksByDay = {};  // key: day-of-month (1-based) -> array of tasks
+  const unscheduled = [];
+
+  for (const t of calTasks) {
+    if (!t.deadline) {
+      unscheduled.push(t);
+      continue;
+    }
+    // Parse YYYY-MM-DD portion only (avoid timezone shifts from full ISO parse)
+    const dlStr = t.deadline.split('T')[0];
+    const parts = dlStr.split('-');
+    if (parts.length < 3) { unscheduled.push(t); continue; }
+    const dlY = parseInt(parts[0], 10);
+    const dlM = parseInt(parts[1], 10) - 1;  // 0-based
+    const dlD = parseInt(parts[2], 10);
+    if (dlY === year && dlM === month) {
+      if (!tasksByDay[dlD]) tasksByDay[dlD] = [];
+      tasksByDay[dlD].push(t);
+    }
+    // Tasks in other months are neither placed nor unscheduled from this view's perspective
+  }
+
+  // --- Build HTML ---
+
+  // Header: prev / label / next / today
+  const headerHTML = `
+    <div class="cal-header">
+      <button class="cal-nav-btn" onclick="calNavMonth(-1)">&#8249;</button>
+      <div class="cal-month-label">${MONTH_NAMES[month]} ${year}</div>
+      <button class="cal-nav-btn" onclick="calNavMonth(1)">&#8250;</button>
+      <button class="cal-nav-btn" onclick="calNavToday()" style="margin-left:6px;font-size:12px">Today</button>
+    </div>
+  `;
+
+  // Day-of-week headers
+  const dowHeaders = DAY_NAMES.map(d =>
+    `<div class="cal-day-header">${d}</div>`
+  ).join('');
+
+  // Grid cells: up to 6 weeks * 7 days = 42 cells
+  const totalCells = Math.ceil((startDow + daysInMonth) / 7) * 7;
+  let cellsHTML = '';
+
+  for (let i = 0; i < totalCells; i++) {
+    let dayNum, isCurrentMonth;
+    if (i < startDow) {
+      // prev month overflow
+      dayNum = daysInPrevMonth - startDow + i + 1;
+      isCurrentMonth = false;
+    } else if (i >= startDow + daysInMonth) {
+      // next month overflow
+      dayNum = i - startDow - daysInMonth + 1;
+      isCurrentMonth = false;
+    } else {
+      dayNum = i - startDow + 1;
+      isCurrentMonth = true;
+    }
+
+    const isToday = isCurrentMonth && year === todayY && month === todayM && dayNum === todayD;
+    let cellClass = 'cal-cell';
+    if (!isCurrentMonth) cellClass += ' other-month';
+    if (isToday) cellClass += ' today';
+
+    let chipsHTML = '';
+    if (isCurrentMonth && tasksByDay[dayNum]) {
+      const tasks = tasksByDay[dayNum];
+      const MAX_CHIPS = 3;
+      const visible = tasks.slice(0, MAX_CHIPS);
+      const overflow = tasks.length - MAX_CHIPS;
+      for (const t of visible) {
+        const pri = t.priority || 'low';
+        const chipClass = 'cal-chip cal-chip-' + pri;
+        // onclick reuses Task 1 Step 5 detail panel opener via tableTasks cache.
+        // We pass the task id; openCalTaskDetail looks it up from calTasks.
+        chipsHTML += `<button class="${chipClass}" onclick="openCalTaskDetail(${JSON.stringify(t.id)})">${esc(t.title)}</button>`;
+      }
+      if (overflow > 0) {
+        chipsHTML += `<div class="cal-more">+${overflow} more</div>`;
+      }
+    }
+
+    cellsHTML += `
+      <div class="${cellClass}">
+        <div class="cal-date-num">${dayNum}</div>
+        ${chipsHTML}
+      </div>`;
+  }
+
+  // --- Step 5: Unscheduled strip ---
+  let unscheduledHTML = '';
+  if (unscheduled.length > 0) {
+    const chips = unscheduled.map(t =>
+      `<button class="cal-unscheduled-chip" onclick="openCalTaskDetail(${JSON.stringify(t.id)})">${esc(t.title)}</button>`
+    ).join('');
+    unscheduledHTML = `
+      <div class="cal-unscheduled">
+        <div class="cal-unscheduled-title">Unscheduled <span style="font-size:11px;font-weight:400">(${unscheduled.length})</span></div>
+        <div class="cal-unscheduled-chips">${chips}</div>
+      </div>`;
+  }
+
+  container.innerHTML = headerHTML + `
+    <div class="cal-grid">
+      ${dowHeaders}
+      ${cellsHTML}
+    </div>
+    ${unscheduledHTML}
+  `;
+}
+
+// --- Month navigation (Steps 3): re-bucket + re-render, NO re-fetch ---
+function calNavMonth(delta) {
+  if (!calMonth) {
+    const now = new Date();
+    calMonth = { year: now.getFullYear(), month: now.getMonth() };
+  }
+  let { year, month } = calMonth;
+  month += delta;
+  // Year rollover
+  if (month < 0)  { month += 12; year -= 1; }
+  if (month > 11) { month -= 12; year += 1; }
+  calMonth = { year, month };
+  renderCalendarView();   // re-bucket calTasks; no network request
+}
+
+function calNavToday() {
+  const now = new Date();
+  calMonth = { year: now.getFullYear(), month: now.getMonth() };
+  renderCalendarView();   // re-bucket calTasks; no network request
+}
+
+// --- Task detail: reuse Task 1 Step 5 panel ---
+// openTableTaskDetail looks up from tableTasks; calendar tasks are fetched
+// separately into calTasks. We find the task in calTasks and, if not already
+// in tableTasks, temporarily inject it so the existing panel function works.
+function openCalTaskDetail(taskId) {
+  const task = calTasks.find(t => t.id === taskId);
+  if (!task) return;
+  // Ensure it's visible in the tableTasks cache the panel reads from
+  if (!tableTasks.find(t => t.id === taskId)) {
+    tableTasks.push(task);
+  }
+  openTableTaskDetail(taskId);  // reuse Task 1 Step 5 panel
+}
+
+// ============================================================
+// END CALENDAR VIEW
+// ============================================================
 </script>
 </body>
 </html>
