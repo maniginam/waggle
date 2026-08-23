@@ -1554,10 +1554,11 @@ func (a *API) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	mcpData, _ := json.MarshalIndent(mcpConfig, "", "  ")
 	os.WriteFile(mcpPath, mcpData, 0644)
 
-	// Find claude binary
-	claudeBin, err := exec.LookPath("claude")
+	// Find claude binary (PATH first, then known install dirs so a
+	// minimal-PATH daemon launch can still resolve it)
+	claudeBin, err := resolveClaudeBin(exec.LookPath, defaultClaudeCandidates())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "claude_not_found", "claude CLI not found in PATH")
+		writeError(w, http.StatusInternalServerError, "claude_not_found", "claude CLI not found in PATH or known install locations")
 		return
 	}
 
