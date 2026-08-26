@@ -220,6 +220,15 @@ func TestViewCRUDAndValidation(t *testing.T) {
 	if _, err := s.UpdateView(kan.ID, map[string]any{"name": "Pipeline"}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
+	// re-validation: regrouping the kanban onto a date column is rejected
+	// and must not mutate the persisted config.
+	if _, err := s.UpdateView(kan.ID, map[string]any{
+		"config": map[string]any{"group_by": dt.ID}}); err != ErrInvalidViewConfig {
+		t.Fatalf("expected ErrInvalidViewConfig on bad config update, got %v", err)
+	}
+	if got, err := s.GetView(kan.ID); err != nil || got.Config.GroupBy != sel.ID {
+		t.Fatalf("rejected update mutated stored config: err=%v group_by=%q", err, got.Config.GroupBy)
+	}
 	if err := s.DeleteView(tbl.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
