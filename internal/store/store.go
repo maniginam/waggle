@@ -256,6 +256,43 @@ func (s *Store) migrate() error {
 		s.ftsEnabled = true
 	}
 
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS udb (
+		id         TEXT PRIMARY KEY,
+		project_id TEXT DEFAULT '',
+		name       TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`)
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_udb_project ON udb(project_id)")
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS udb_column (
+		id           TEXT PRIMARY KEY,
+		db_id        TEXT NOT NULL,
+		name         TEXT NOT NULL,
+		type         TEXT NOT NULL,
+		position     INTEGER NOT NULL DEFAULT 0,
+		options_json TEXT DEFAULT '',
+		created_at   TEXT NOT NULL
+	)`)
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_udb_column_db ON udb_column(db_id)")
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS udb_row (
+		id         TEXT PRIMARY KEY,
+		db_id      TEXT NOT NULL,
+		data_json  TEXT NOT NULL DEFAULT '{}',
+		position   INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`)
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_udb_row_db ON udb_row(db_id)")
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS udb_view (
+		id          TEXT PRIMARY KEY,
+		db_id       TEXT NOT NULL,
+		name        TEXT NOT NULL,
+		kind        TEXT NOT NULL,
+		config_json TEXT NOT NULL DEFAULT '{}',
+		position    INTEGER NOT NULL DEFAULT 0
+	)`)
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_udb_view_db ON udb_view(db_id)")
+
 	return err
 }
 
