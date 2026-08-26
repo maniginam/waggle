@@ -2261,7 +2261,7 @@ function buildRowInputs(existing) {
     if (c.type === 'select')
       return '<label>' + esc(c.name) + ' <select data-col="' + esc(c.id) + '">' +
         '<option value=""></option>' +
-        (c.options || []).map(o => '<option ' + (v === o.value ? 'selected' : '') + '>' + esc(o.value) + '</option>').join('') +
+        (c.options || []).map(o => '<option value="' + esc(o.value) + '" ' + (v === o.value ? 'selected' : '') + '>' + esc(o.value) + '</option>').join('') +
         '</select></label>';
     const t = c.type === 'number' ? 'number' : (c.type === 'date' ? 'date' : 'text');
     return '<label>' + esc(c.name) + ' <input type="' + t + '" data-col="' + esc(c.id) + '" value="' + esc(v == null ? '' : String(v)) + '"></label>';
@@ -2281,14 +2281,16 @@ function collectRowData() {
   return data;
 }
 
-function addRow() { openRowForm(null); }
+function addRow() { udbState.editingRowId = null; openRowForm(null); }
 function editRow(id) { udbState.editingRowId = id; openRowForm(udbState.rows.find(r => r.id === id)); }
+
+function cancelRowForm() { udbState.editingRowId = null; renderUDBMain(); }
 
 function openRowForm(existing) {
   const body = document.getElementById('udb-view-body');
   body.innerHTML = '<div id="udb-row-form">' + buildRowInputs(existing) +
     '<button onclick="saveRow()">Save</button>' +
-    ' <button onclick="renderUDBMain()">Cancel</button></div>';
+    ' <button onclick="cancelRowForm()">Cancel</button></div>';
 }
 
 async function saveRow() {
