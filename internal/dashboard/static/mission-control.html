@@ -1107,6 +1107,74 @@ select.inline-select {
   transition: border-color 0.15s;
 }
 .cal-unscheduled-chip:hover { border-color: var(--accent); }
+
+/* Databases view (C2 Task 11) */
+.udb-db-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--text);
+  transition: background 0.15s;
+}
+.udb-db-item:hover { background: var(--surface2); }
+.udb-db-item.active { background: var(--accent); color: #fff; }
+.udb-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+.udb-col {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.udb-col em { color: var(--text-dim); font-style: normal; font-size: 11px; }
+.udb-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.udb-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface1);
+  z-index: 1;
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+.udb-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+#udb-row-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 480px;
+  padding: 16px;
+  background: var(--surface2);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+#udb-row-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
 </style>
 </head>
 <body>
@@ -1122,6 +1190,7 @@ select.inline-select {
       <button class="view-btn" id="view-docs-btn" onclick="switchView('docs')">Docs</button>
       <button class="view-btn" id="view-table-btn" onclick="switchView('table')">Table</button>
       <button class="view-btn" id="view-calendar-btn" onclick="switchView('calendar')">Calendar</button>
+      <button class="view-btn" id="view-databases-btn" onclick="switchView('databases')">Databases</button>
     </div>
     <div id="docs-project-filter" style="display:none">
       <select id="docs-project-select" onchange="onDocsProjectChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:13px;outline:none">
@@ -1248,6 +1317,12 @@ select.inline-select {
 
 <!-- Calendar view (C1 Task 2) -->
 <div id="calendar-view" style="display:none"></div>
+
+<!-- Databases view (C2 Task 11) -->
+<div id="databases-view" style="display:none;height:calc(100vh - 60px);box-sizing:border-box;display:none;flex-direction:row;overflow:hidden">
+  <div id="udb-sidebar" style="width:220px;min-width:160px;border-right:1px solid var(--border);padding:16px;overflow-y:auto;background:var(--surface1)"></div>
+  <div id="udb-main" style="flex:1;padding:20px;overflow:auto"></div>
+</div>
 
 <!-- Task detail modal (C1 Task 1) -->
 <div class="detail-overlay" id="task-detail-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;justify-content:flex-end;align-items:stretch">
@@ -1934,22 +2009,27 @@ document.querySelectorAll('#dashboard-filters .filter-btn').forEach(btn => {
 // --- View Switching ---
 let currentView = 'dashboard';
 
+// --- Databases view state (C2 Task 11) ---
+let udbState = { projectId: '', databases: [], currentDBId: null, columns: [], rows: [], views: [], currentViewId: null, editingRowId: null };
+
 function switchView(view) {
   currentView = view;
-  const app          = document.getElementById('app');
-  const boardView    = document.getElementById('board-view');
-  const docsView     = document.getElementById('docs-view');
-  const tableView    = document.getElementById('table-view');
-  const calView      = document.getElementById('calendar-view');
-  const dashBtn      = document.getElementById('view-dashboard-btn');
-  const boardBtn     = document.getElementById('view-board-btn');
-  const docsBtn      = document.getElementById('view-docs-btn');
-  const tableBtn     = document.getElementById('view-table-btn');
-  const calBtn       = document.getElementById('view-calendar-btn');
+  const app           = document.getElementById('app');
+  const boardView     = document.getElementById('board-view');
+  const docsView      = document.getElementById('docs-view');
+  const tableView     = document.getElementById('table-view');
+  const calView       = document.getElementById('calendar-view');
+  const dbsView       = document.getElementById('databases-view');
+  const dashBtn       = document.getElementById('view-dashboard-btn');
+  const boardBtn      = document.getElementById('view-board-btn');
+  const docsBtn       = document.getElementById('view-docs-btn');
+  const tableBtn      = document.getElementById('view-table-btn');
+  const calBtn        = document.getElementById('view-calendar-btn');
+  const databasesBtn  = document.getElementById('view-databases-btn');
   const dashFilters        = document.getElementById('dashboard-filters');
   const boardProjectFilter = document.getElementById('board-project-filter');
   const docsProjectFilter  = document.getElementById('docs-project-filter');
-  const msgBar       = document.getElementById('msg-bar');
+  const msgBar        = document.getElementById('msg-bar');
 
   // Reset all first
   app.style.display = 'none';
@@ -1957,11 +2037,13 @@ function switchView(view) {
   docsView.classList.remove('active');
   tableView.style.display = 'none';
   calView.style.display = 'none';
+  dbsView.style.display = 'none';
   dashBtn.classList.remove('active');
   boardBtn.classList.remove('active');
   docsBtn.classList.remove('active');
   tableBtn.classList.remove('active');
   calBtn.classList.remove('active');
+  databasesBtn.classList.remove('active');
   dashFilters.style.display = 'none';
   boardProjectFilter.style.display = 'none';
   docsProjectFilter.style.display = 'none';
@@ -1985,6 +2067,10 @@ function switchView(view) {
     calView.style.display = '';
     calBtn.classList.add('active');
     loadCalendarView();
+  } else if (view === 'databases') {
+    dbsView.style.display = 'flex';
+    databasesBtn.classList.add('active');
+    loadDatabases();
   } else {
     app.style.display = '';
     dashBtn.classList.add('active');
@@ -2031,6 +2117,17 @@ function connectSSE() {
       if (type === 'page_created' || type === 'page_updated' || type === 'page_deleted') {
         docsSSERefresh(type, event.payload || {});
       }
+      // Databases live updates (C2 Task 11)
+      if (type.indexOf('database_') === 0 && currentView === 'databases') {
+        const formOpen = !!document.getElementById('udb-row-form');
+        if (!formOpen) {
+          if (type === 'database_created' || type === 'database_deleted') {
+            loadDatabases();
+          } else if (udbState.currentDBId) {
+            selectDatabase(udbState.currentDBId);
+          }
+        }
+      }
       // Notify on agent join/leave
       if (type === 'agent_joined') {
         showToast('Agent Connected', event.agent_id || 'An agent connected');
@@ -2053,6 +2150,169 @@ requestNotifications();
 refresh();
 connectSSE();
 setInterval(refresh, 30000);
+
+// ============================================================
+// DATABASES VIEW (C2 Task 11)
+// ============================================================
+
+async function loadDatabases() {
+  const pid = udbState.projectId || '';
+  const res = await fetch('/api/udb?project_id=' + encodeURIComponent(pid));
+  udbState.databases = await res.json();
+  renderUDBSidebar();
+  if (udbState.databases.length && !udbState.currentDBId) selectDatabase(udbState.databases[0].id);
+}
+
+function renderUDBSidebar() {
+  const el = document.getElementById('udb-sidebar');
+  el.innerHTML =
+    udbState.databases.map(d =>
+      '<div class="udb-db-item ' + (d.id === udbState.currentDBId ? 'active' : '') + '" onclick="selectDatabase(\'' + esc(d.id) + '\')">' + esc(d.name) + '</div>'
+    ).join('') +
+    '<button onclick="createDatabase()">+ New database</button>';
+}
+
+async function createDatabase() {
+  const name = prompt('Database name');
+  if (!name) return;
+  const res = await fetch('/api/udb', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, project_id: udbState.projectId || ''})});
+  const db = await res.json();
+  await loadDatabases();
+  selectDatabase(db.id);
+}
+
+async function selectDatabase(id) {
+  udbState.currentDBId = id;
+  const [cols, rows, views] = await Promise.all([
+    fetch('/api/udb/' + id + '/columns').then(r => r.json()),
+    fetch('/api/udb/' + id + '/rows').then(r => r.json()),
+    fetch('/api/udb/' + id + '/views').then(r => r.json()),
+  ]);
+  udbState.columns = cols; udbState.rows = rows; udbState.views = views;
+  udbState.currentViewId = views[0] ? views[0].id : null;
+  renderUDBSidebar();
+  renderUDBMain();
+}
+
+function renderUDBMain() {
+  const el = document.getElementById('udb-main');
+  if (!udbState.currentDBId) { el.innerHTML = '<p>Select or create a database.</p>'; return; }
+  el.innerHTML =
+    renderColumnBar() +
+    renderViewTabs() +
+    '<div id="udb-view-body">' + renderTableView() + '</div>';
+}
+
+function renderColumnBar() {
+  return '<div class="udb-columns">' +
+    udbState.columns.map(c =>
+      '<span class="udb-col">' + esc(c.name) + ' <em>' + esc(c.type) + '</em>' +
+      ' <button onclick="deleteColumn(\'' + esc(c.id) + '\')">x</button></span>'
+    ).join('') +
+    '<button onclick="addColumn()">+ column</button></div>';
+}
+
+function renderViewTabs() { return ''; } // replaced in Task 12
+
+function renderTableView() {
+  const cols = udbState.columns;
+  const head = cols.map(c => '<th>' + esc(c.name) + '</th>').join('') + '<th></th>';
+  const body = udbState.rows.map(r => {
+    const cells = cols.map(c => '<td>' + esc(formatCell(r.data ? r.data[c.id] : undefined, c)) + '</td>').join('');
+    return '<tr>' + cells + '<td><button onclick="editRow(\'' + esc(r.id) + '\')">edit</button>' +
+      ' <button onclick="deleteRow(\'' + esc(r.id) + '\')">x</button></td></tr>';
+  }).join('');
+  return '<table class="udb-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>' +
+    '<button onclick="addRow()">+ row</button>';
+}
+
+function formatCell(v, col) {
+  if (v === undefined || v === null) return '';
+  if (col.type === 'checkbox') return v ? '✓' : '';
+  return String(v);
+}
+
+async function addColumn() {
+  const name = prompt('Column name'); if (!name) return;
+  const type = prompt('Type: text, number, date, select, checkbox', 'text'); if (!type) return;
+  let options;
+  if (type === 'select') {
+    const raw = prompt('Options (comma-separated)', 'Todo,Doing,Done') || '';
+    options = raw.split(',').map(s => ({value: s.trim()})).filter(o => o.value);
+  }
+  const res = await fetch('/api/udb/' + udbState.currentDBId + '/columns', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, type, options})});
+  if (!res.ok) { alert('Add column failed'); return; }
+  selectDatabase(udbState.currentDBId);
+}
+
+async function deleteColumn(id) {
+  if (!confirm('Delete column?')) return;
+  await fetch('/api/udb/' + udbState.currentDBId + '/columns/' + id, {method: 'DELETE'});
+  selectDatabase(udbState.currentDBId);
+}
+
+function buildRowInputs(existing) {
+  return udbState.columns.map(c => {
+    const v = existing ? (existing.data ? existing.data[c.id] : undefined) : undefined;
+    if (c.type === 'checkbox')
+      return '<label>' + esc(c.name) + ' <input type="checkbox" data-col="' + esc(c.id) + '" ' + (v ? 'checked' : '') + '></label>';
+    if (c.type === 'select')
+      return '<label>' + esc(c.name) + ' <select data-col="' + esc(c.id) + '">' +
+        '<option value=""></option>' +
+        (c.options || []).map(o => '<option ' + (v === o.value ? 'selected' : '') + '>' + esc(o.value) + '</option>').join('') +
+        '</select></label>';
+    const t = c.type === 'number' ? 'number' : (c.type === 'date' ? 'date' : 'text');
+    return '<label>' + esc(c.name) + ' <input type="' + t + '" data-col="' + esc(c.id) + '" value="' + esc(v == null ? '' : String(v)) + '"></label>';
+  }).join('');
+}
+
+function collectRowData() {
+  const data = {};
+  document.querySelectorAll('#udb-row-form [data-col]').forEach(el => {
+    const c = udbState.columns.find(x => x.id === el.dataset.col);
+    if (!c) return;
+    if (c.type === 'checkbox') data[c.id] = el.checked;
+    else if (el.value === '') { /* leave unset */ }
+    else if (c.type === 'number') data[c.id] = Number(el.value);
+    else data[c.id] = el.value;
+  });
+  return data;
+}
+
+function addRow() { openRowForm(null); }
+function editRow(id) { udbState.editingRowId = id; openRowForm(udbState.rows.find(r => r.id === id)); }
+
+function openRowForm(existing) {
+  const body = document.getElementById('udb-view-body');
+  body.innerHTML = '<div id="udb-row-form">' + buildRowInputs(existing) +
+    '<button onclick="saveRow()">Save</button>' +
+    ' <button onclick="renderUDBMain()">Cancel</button></div>';
+}
+
+async function saveRow() {
+  const data = collectRowData();
+  const dbId = udbState.currentDBId;
+  let res;
+  if (udbState.editingRowId) {
+    res = await fetch('/api/udb/' + dbId + '/rows/' + udbState.editingRowId, {method: 'PATCH',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({data})});
+  } else {
+    res = await fetch('/api/udb/' + dbId + '/rows', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({data})});
+  }
+  udbState.editingRowId = null;
+  if (!res.ok) { alert('Save failed (check cell types)'); return; }
+  selectDatabase(dbId);
+}
+
+async function deleteRow(id) {
+  if (!confirm('Delete row?')) return;
+  await fetch('/api/udb/' + udbState.currentDBId + '/rows/' + id, {method: 'DELETE'});
+  selectDatabase(udbState.currentDBId);
+}
+
 // ============================================================
 // BOARD VIEW (Steps 2–7)
 // ============================================================
