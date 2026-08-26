@@ -207,3 +207,160 @@ func (s *Store) DeleteColumn(colID string) error {
 	}
 	return nil
 }
+
+func validateCellValue(c *model.Column, v any) error {
+	if v == nil {
+		return nil // unset cell allowed
+	}
+	switch c.Type {
+	case model.ColumnTypeText:
+		if _, ok := v.(string); !ok {
+			return ErrInvalidCell
+		}
+	case model.ColumnTypeNumber:
+		switch v.(type) {
+		case float64, float32, int, int64:
+		default:
+			return ErrInvalidCell
+		}
+	case model.ColumnTypeCheckbox:
+		if _, ok := v.(bool); !ok {
+			return ErrInvalidCell
+		}
+	case model.ColumnTypeDate:
+		s, ok := v.(string)
+		if !ok {
+			return ErrInvalidCell
+		}
+		if _, err := time.Parse("2006-01-02", s); err != nil {
+			return ErrInvalidCell
+		}
+	case model.ColumnTypeSelect:
+		s, ok := v.(string)
+		if !ok {
+			return ErrInvalidCell
+		}
+		for _, o := range c.Options {
+			if o.Value == s {
+				return nil
+			}
+		}
+		return ErrInvalidCell
+	default:
+		return ErrInvalidColumnType
+	}
+	return nil
+}
+
+func (s *Store) validateRowData(dbID string, data map[string]any) error {
+	cols, err := s.ListColumns(dbID)
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]*model.Column, len(cols))
+	for _, c := range cols {
+		byID[c.ID] = c
+	}
+	for k, v := range data {
+		c, ok := byID[k]
+		if !ok {
+			return ErrUnknownColumn
+		}
+		if err := validateCellValue(c, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const rowCols = "id, db_id, data_json, position, created_at, updated_at"
+
+func scanRow(row scanner) (*model.Row, error) {
+	var r model.Row
+	var data, c, u string
+	err := row.Scan(&r.ID, &r.DBID, &data, &r.Position, &c, &u)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.Data = map[string]any{}
+	if data != "" {
+		json.Unmarshal([]byte(data), &r.Data)
+	}
+	r.CreatedAt, _ = time.Parse(time.RFC3339, c)
+	r.UpdatedAt, _ = time.Parse(time.RFC3339, u)
+	return &r, nil
+}
+
+func (s *Store) CreateRow(r *model.Row) error {
+	if err := s.validateRowData(r.DBID, r.Data); err != nil {
+		return err
+	}
+	if r.ID == "" {
+		r.ID = id.New()
+	}
+	now := time.Now().UTC()
+	r.CreatedAt, r.UpdatedAt = now, now
+	if r.Data == nil {
+		r.Data = map[string]any{}
+	}
+	b, _ := json.Marshal(r.Data)
+	_, err := s.db.Exec("INSERT INTO udb_row ("+rowCols+") VALUES (?,?,?,?,?,?)",
+		r.ID, r.DBID, string(b), r.Position,
+		now.Format(time.RFC3339), now.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) GetRow(rowID string) (*model.Row, error) {
+	return scanRow(s.db.QueryRow("SELECT "+rowCols+" FROM udb_row WHERE id = ?", rowID))
+}
+
+func (s *Store) ListRows(dbID string) ([]*model.Row, error) {
+	rows, err := s.db.Query("SELECT "+rowCols+" FROM udb_row WHERE db_id = ? ORDER BY position ASC, created_at ASC", dbID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*model.Row
+	for rows.Next() {
+		r, err := scanRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// UpdateRow merges the provided keys into the row's data (partial update).
+func (s *Store) UpdateRow(rowID string, data map[string]any) (*model.Row, error) {
+	existing, err := s.GetRow(rowID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateRowData(existing.DBID, data); err != nil {
+		return nil, err
+	}
+	for k, v := range data {
+		existing.Data[k] = v
+	}
+	b, _ := json.Marshal(existing.Data)
+	if _, err := s.db.Exec("UPDATE udb_row SET data_json = ?, updated_at = ? WHERE id = ?",
+		string(b), time.Now().UTC().Format(time.RFC3339), rowID); err != nil {
+		return nil, err
+	}
+	return s.GetRow(rowID)
+}
+
+func (s *Store) DeleteRow(rowID string) error {
+	res, err := s.db.Exec("DELETE FROM udb_row WHERE id = ?", rowID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
