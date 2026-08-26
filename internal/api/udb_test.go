@@ -7,6 +7,52 @@ import (
 	"testing"
 )
 
+func createTestDB(t *testing.T, base, name string) string {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"name": name})
+	res, _ := http.Post(base+"/api/udb", "application/json", bytes.NewReader(body))
+	var db map[string]any
+	json.NewDecoder(res.Body).Decode(&db)
+	return db["id"].(string)
+}
+
+func addTestColumn(t *testing.T, base, dbID string, m map[string]any) string {
+	t.Helper()
+	body, _ := json.Marshal(m)
+	res, _ := http.Post(base+"/api/udb/"+dbID+"/columns", "application/json", bytes.NewReader(body))
+	var c map[string]any
+	json.NewDecoder(res.Body).Decode(&c)
+	return c["id"].(string)
+}
+
+func TestUDBColumnEndpoints(t *testing.T) {
+	_, srv := setup(t)
+	dbID := createTestDB(t, srv.URL, "T")
+
+	// add column
+	body, _ := json.Marshal(map[string]any{"name": "Status", "type": "select",
+		"options": []map[string]any{{"value": "Todo"}}})
+	res, _ := http.Post(srv.URL+"/api/udb/"+dbID+"/columns", "application/json", bytes.NewReader(body))
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("add column status %d", res.StatusCode)
+	}
+
+	// bad type -> 400 invalid_column_type
+	bad, _ := json.Marshal(map[string]any{"name": "X", "type": "bogus"})
+	res, _ = http.Post(srv.URL+"/api/udb/"+dbID+"/columns", "application/json", bytes.NewReader(bad))
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad type status %d", res.StatusCode)
+	}
+
+	// list
+	res, _ = http.Get(srv.URL + "/api/udb/" + dbID + "/columns")
+	var cols []map[string]any
+	json.NewDecoder(res.Body).Decode(&cols)
+	if len(cols) != 1 {
+		t.Fatalf("expected 1 column, got %d", len(cols))
+	}
+}
+
 func TestUDBDatabaseEndpoints(t *testing.T) {
 	_, srv := setup(t)
 

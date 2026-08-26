@@ -122,7 +122,61 @@ func (a *API) handleUDBItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleUDBColumns(w http.ResponseWriter, r *http.Request, dbID string, rest []string) {
-	w.WriteHeader(http.StatusNotImplemented)
+	if len(rest) == 0 || rest[0] == "" {
+		switch r.Method {
+		case http.MethodGet:
+			cols, err := a.store.ListColumns(dbID)
+			if udbMapErr(w, err) {
+				return
+			}
+			if cols == nil {
+				cols = []*model.Column{}
+			}
+			writeJSON(w, http.StatusOK, cols)
+		case http.MethodPost:
+			var c model.Column
+			if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+				return
+			}
+			if c.Name == "" {
+				writeError(w, http.StatusBadRequest, "missing_name", "column name is required")
+				return
+			}
+			c.DBID = dbID
+			if err := a.store.AddColumn(&c); udbMapErr(w, err) {
+				return
+			}
+			a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+			writeJSON(w, http.StatusCreated, c)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	colID := rest[0]
+	switch r.Method {
+	case http.MethodPatch:
+		var updates map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		c, err := a.store.UpdateColumn(colID, updates)
+		if udbMapErr(w, err) {
+			return
+		}
+		a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+		writeJSON(w, http.StatusOK, c)
+	case http.MethodDelete:
+		if err := a.store.DeleteColumn(colID); udbMapErr(w, err) {
+			return
+		}
+		a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 func (a *API) handleUDBRows(w http.ResponseWriter, r *http.Request, dbID string, rest []string) {
 	w.WriteHeader(http.StatusNotImplemented)
