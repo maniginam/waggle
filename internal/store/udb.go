@@ -364,3 +364,126 @@ func (s *Store) DeleteRow(rowID string) error {
 	}
 	return nil
 }
+
+func (s *Store) columnByID(dbID, colID string) *model.Column {
+	cols, err := s.ListColumns(dbID)
+	if err != nil {
+		return nil
+	}
+	for _, c := range cols {
+		if c.ID == colID {
+			return c
+		}
+	}
+	return nil
+}
+
+func (s *Store) validateView(v *model.View) error {
+	switch v.Kind {
+	case model.ViewKindTable:
+		return nil
+	case model.ViewKindKanban:
+		c := s.columnByID(v.DBID, v.Config.GroupBy)
+		if c == nil || c.Type != model.ColumnTypeSelect {
+			return ErrInvalidViewConfig
+		}
+		return nil
+	case model.ViewKindCalendar:
+		c := s.columnByID(v.DBID, v.Config.DateField)
+		if c == nil || c.Type != model.ColumnTypeDate {
+			return ErrInvalidViewConfig
+		}
+		return nil
+	default:
+		return ErrInvalidView
+	}
+}
+
+const viewCols = "id, db_id, name, kind, config_json, position"
+
+func scanView(row scanner) (*model.View, error) {
+	var v model.View
+	var cfg string
+	err := row.Scan(&v.ID, &v.DBID, &v.Name, &v.Kind, &cfg, &v.Position)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if cfg != "" {
+		json.Unmarshal([]byte(cfg), &v.Config)
+	}
+	return &v, nil
+}
+
+func (s *Store) CreateView(v *model.View) error {
+	if err := s.validateView(v); err != nil {
+		return err
+	}
+	if v.ID == "" {
+		v.ID = id.New()
+	}
+	b, _ := json.Marshal(v.Config)
+	_, err := s.db.Exec("INSERT INTO udb_view ("+viewCols+") VALUES (?,?,?,?,?,?)",
+		v.ID, v.DBID, v.Name, v.Kind, string(b), v.Position)
+	return err
+}
+
+func (s *Store) GetView(viewID string) (*model.View, error) {
+	return scanView(s.db.QueryRow("SELECT "+viewCols+" FROM udb_view WHERE id = ?", viewID))
+}
+
+func (s *Store) ListViews(dbID string) ([]*model.View, error) {
+	rows, err := s.db.Query("SELECT "+viewCols+" FROM udb_view WHERE db_id = ? ORDER BY position ASC", dbID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*model.View
+	for rows.Next() {
+		v, err := scanView(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) UpdateView(viewID string, updates map[string]any) (*model.View, error) {
+	existing, err := s.GetView(viewID)
+	if err != nil {
+		return nil, err
+	}
+	if name, ok := updates["name"].(string); ok {
+		existing.Name = name
+	}
+	if pos, ok := updates["position"].(float64); ok {
+		existing.Position = int(pos)
+	}
+	if cfg, ok := updates["config"]; ok {
+		b, _ := json.Marshal(cfg)
+		json.Unmarshal(b, &existing.Config)
+	}
+	if err := s.validateView(existing); err != nil {
+		return nil, err
+	}
+	cfgB, _ := json.Marshal(existing.Config)
+	if _, err := s.db.Exec("UPDATE udb_view SET name = ?, config_json = ?, position = ? WHERE id = ?",
+		existing.Name, string(cfgB), existing.Position, viewID); err != nil {
+		return nil, err
+	}
+	return s.GetView(viewID)
+}
+
+func (s *Store) DeleteView(viewID string) error {
+	res, err := s.db.Exec("DELETE FROM udb_view WHERE id = ?", viewID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

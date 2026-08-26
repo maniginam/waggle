@@ -173,3 +173,57 @@ func TestColumnCRUD(t *testing.T) {
 		t.Fatalf("expected 0 columns, got %d", len(cols))
 	}
 }
+
+func TestViewCRUDAndValidation(t *testing.T) {
+	s := tempStore(t)
+	db := &model.Database{Name: "T"}
+	s.CreateDatabase(db)
+	sel := &model.Column{DBID: db.ID, Name: "Stage", Type: model.ColumnTypeSelect,
+		Options: []model.SelectOption{{Value: "A"}}}
+	dt := &model.Column{DBID: db.ID, Name: "Due", Type: model.ColumnTypeDate}
+	s.AddColumn(sel)
+	s.AddColumn(dt)
+
+	tbl := &model.View{DBID: db.ID, Name: "All", Kind: model.ViewKindTable}
+	if err := s.CreateView(tbl); err != nil {
+		t.Fatalf("table view: %v", err)
+	}
+	kan := &model.View{DBID: db.ID, Name: "Board", Kind: model.ViewKindKanban,
+		Config: model.ViewConfig{GroupBy: sel.ID}}
+	if err := s.CreateView(kan); err != nil {
+		t.Fatalf("kanban view: %v", err)
+	}
+	cal := &model.View{DBID: db.ID, Name: "Cal", Kind: model.ViewKindCalendar,
+		Config: model.ViewConfig{DateField: dt.ID}}
+	if err := s.CreateView(cal); err != nil {
+		t.Fatalf("calendar view: %v", err)
+	}
+
+	if err := s.CreateView(&model.View{DBID: db.ID, Name: "X", Kind: "grid"}); err != ErrInvalidView {
+		t.Fatalf("expected ErrInvalidView, got %v", err)
+	}
+	// kanban grouped on a non-select column
+	if err := s.CreateView(&model.View{DBID: db.ID, Name: "Y", Kind: model.ViewKindKanban,
+		Config: model.ViewConfig{GroupBy: dt.ID}}); err != ErrInvalidViewConfig {
+		t.Fatalf("expected ErrInvalidViewConfig, got %v", err)
+	}
+	// calendar on a non-date column
+	if err := s.CreateView(&model.View{DBID: db.ID, Name: "Z", Kind: model.ViewKindCalendar,
+		Config: model.ViewConfig{DateField: sel.ID}}); err != ErrInvalidViewConfig {
+		t.Fatalf("expected ErrInvalidViewConfig, got %v", err)
+	}
+
+	views, _ := s.ListViews(db.ID)
+	if len(views) != 3 {
+		t.Fatalf("expected 3 views, got %d", len(views))
+	}
+	if _, err := s.UpdateView(kan.ID, map[string]any{"name": "Pipeline"}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := s.DeleteView(tbl.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if views, _ := s.ListViews(db.ID); len(views) != 2 {
+		t.Fatalf("expected 2 views, got %d", len(views))
+	}
+}
