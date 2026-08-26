@@ -99,6 +99,43 @@ func TestDeleteColumnLeavesRowDataInert(t *testing.T) {
 	}
 }
 
+func TestCellValidationDateAndSelect(t *testing.T) {
+	s := tempStore(t)
+	db := &model.Database{Name: "T"}
+	s.CreateDatabase(db)
+	date := &model.Column{DBID: db.ID, Name: "When", Type: model.ColumnTypeDate}
+	status := &model.Column{DBID: db.ID, Name: "Status", Type: model.ColumnTypeSelect,
+		Options: []model.SelectOption{{Value: "Todo"}, {Value: "Done"}}}
+	s.AddColumn(date)
+	s.AddColumn(status)
+
+	// date: valid ISO date succeeds
+	if err := s.CreateRow(&model.Row{DBID: db.ID, Data: map[string]any{date.ID: "2026-01-15"}}); err != nil {
+		t.Fatalf("valid date: %v", err)
+	}
+	// date: unparseable string rejected
+	if err := s.CreateRow(&model.Row{DBID: db.ID, Data: map[string]any{date.ID: "nope"}}); err != ErrInvalidCell {
+		t.Fatalf("expected ErrInvalidCell for bad date, got %v", err)
+	}
+	// date: out-of-range string rejected
+	if err := s.CreateRow(&model.Row{DBID: db.ID, Data: map[string]any{date.ID: "2026-13-40"}}); err != ErrInvalidCell {
+		t.Fatalf("expected ErrInvalidCell for out-of-range date, got %v", err)
+	}
+
+	// select: matching option succeeds
+	if err := s.CreateRow(&model.Row{DBID: db.ID, Data: map[string]any{status.ID: "Todo"}}); err != nil {
+		t.Fatalf("valid select: %v", err)
+	}
+	// select: non-matching value rejected
+	if err := s.CreateRow(&model.Row{DBID: db.ID, Data: map[string]any{status.ID: "Nope"}}); err != ErrInvalidCell {
+		t.Fatalf("expected ErrInvalidCell for bad select, got %v", err)
+	}
+	// select: non-string value rejected
+	if err := s.CreateRow(&model.Row{DBID: db.ID, Data: map[string]any{status.ID: 42}}); err != ErrInvalidCell {
+		t.Fatalf("expected ErrInvalidCell for non-string select, got %v", err)
+	}
+}
+
 func TestColumnCRUD(t *testing.T) {
 	s := tempStore(t)
 	db := &model.Database{Name: "T"}
