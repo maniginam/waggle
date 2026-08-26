@@ -236,5 +236,59 @@ func (a *API) handleUDBRows(w http.ResponseWriter, r *http.Request, dbID string,
 	}
 }
 func (a *API) handleUDBViews(w http.ResponseWriter, r *http.Request, dbID string, rest []string) {
-	w.WriteHeader(http.StatusNotImplemented)
+	if len(rest) == 0 || rest[0] == "" {
+		switch r.Method {
+		case http.MethodGet:
+			views, err := a.store.ListViews(dbID)
+			if udbMapErr(w, err) {
+				return
+			}
+			if views == nil {
+				views = []*model.View{}
+			}
+			writeJSON(w, http.StatusOK, views)
+		case http.MethodPost:
+			var v model.View
+			if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+				return
+			}
+			if v.Name == "" {
+				writeError(w, http.StatusBadRequest, "missing_name", "view name is required")
+				return
+			}
+			v.DBID = dbID
+			if err := a.store.CreateView(&v); udbMapErr(w, err) {
+				return
+			}
+			a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+			writeJSON(w, http.StatusCreated, v)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	viewID := rest[0]
+	switch r.Method {
+	case http.MethodPatch:
+		var updates map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		v, err := a.store.UpdateView(viewID, updates)
+		if udbMapErr(w, err) {
+			return
+		}
+		a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+		writeJSON(w, http.StatusOK, v)
+	case http.MethodDelete:
+		if err := a.store.DeleteView(viewID); udbMapErr(w, err) {
+			return
+		}
+		a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }

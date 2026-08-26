@@ -100,6 +100,45 @@ func TestUDBRowEndpoints(t *testing.T) {
 	}
 }
 
+func TestUDBViewEndpoints(t *testing.T) {
+	_, srv := setup(t)
+	defer srv.Close()
+	dbID := createTestDB(t, srv.URL, "T")
+	selCol := addTestColumn(t, srv.URL, dbID, map[string]any{"name": "Stage", "type": "select",
+		"options": []map[string]any{{"value": "A"}}})
+
+	// table view
+	body, _ := json.Marshal(map[string]any{"name": "All", "kind": "table"})
+	res, _ := http.Post(srv.URL+"/api/udb/"+dbID+"/views", "application/json", bytes.NewReader(body))
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("table view status %d", res.StatusCode)
+	}
+
+	// kanban with valid select group -> 201
+	kb, _ := json.Marshal(map[string]any{"name": "Board", "kind": "kanban",
+		"config": map[string]any{"group_by": selCol}})
+	res, _ = http.Post(srv.URL+"/api/udb/"+dbID+"/views", "application/json", bytes.NewReader(kb))
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("kanban view status %d", res.StatusCode)
+	}
+
+	// calendar without a date field -> 400 invalid_view_config
+	cal, _ := json.Marshal(map[string]any{"name": "Cal", "kind": "calendar",
+		"config": map[string]any{"date_field": selCol}})
+	res, _ = http.Post(srv.URL+"/api/udb/"+dbID+"/views", "application/json", bytes.NewReader(cal))
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for bad calendar, got %d", res.StatusCode)
+	}
+
+	// list
+	res, _ = http.Get(srv.URL + "/api/udb/" + dbID + "/views")
+	var views []map[string]any
+	json.NewDecoder(res.Body).Decode(&views)
+	if len(views) != 2 {
+		t.Fatalf("expected 2 views, got %d", len(views))
+	}
+}
+
 func TestUDBDatabaseEndpoints(t *testing.T) {
 	_, srv := setup(t)
 
