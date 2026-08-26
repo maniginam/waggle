@@ -283,6 +283,64 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			},
 			"required": []string{"query"},
 		}),
+
+		// --- Generic typed database (UDB) tools ---
+		toolDef("waggle_list_databases", "List all user-defined databases. Optionally filter by project.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": prop("string", "Filter by project ID (optional)"),
+			},
+		}),
+		toolDef("waggle_create_database", "Create a new user-defined typed database.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":       prop("string", "Database name"),
+				"project_id": prop("string", "Project ID this database belongs to (optional)"),
+			},
+			"required": []string{"name"},
+		}),
+		toolDef("waggle_add_column", "Add a typed column to a user-defined database.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"db_id":   prop("string", "Database ID"),
+				"name":    prop("string", "Column name"),
+				"type":    propEnum("string", []string{"text", "number", "boolean", "date", "select"}, "Column type"),
+				"options": map[string]any{"type": "object", "description": "Optional column options (e.g. select choices)"},
+			},
+			"required": []string{"db_id", "name", "type"},
+		}),
+		toolDef("waggle_list_rows", "List all rows (with schema) for a user-defined database.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"db_id": prop("string", "Database ID"),
+			},
+			"required": []string{"db_id"},
+		}),
+		toolDef("waggle_create_row", "Insert a new row into a user-defined database.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"db_id": prop("string", "Database ID"),
+				"data":  map[string]any{"type": "object", "description": "Map of column ID to value"},
+			},
+			"required": []string{"db_id"},
+		}),
+		toolDef("waggle_update_row", "Update cell values in an existing row.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"db_id":  prop("string", "Database ID"),
+				"row_id": prop("string", "Row ID to update"),
+				"data":   map[string]any{"type": "object", "description": "Map of column ID to new value"},
+			},
+			"required": []string{"db_id", "row_id", "data"},
+		}),
+		toolDef("waggle_delete_row", "Delete a row from a user-defined database.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"db_id":  prop("string", "Database ID"),
+				"row_id": prop("string", "Row ID to delete"),
+			},
+			"required": []string{"db_id", "row_id"},
+		}),
 	}
 
 	a.sendResult(req.ID, map[string]any{"tools": tools})
@@ -576,6 +634,79 @@ func (a *Adapter) executeTool(name string, args map[string]any) (any, error) {
 			params = append(params, "project_id="+url.QueryEscape(pid))
 		}
 		return a.get("/api/pages/search?" + strings.Join(params, "&"))
+
+	// --- Generic typed database (UDB) tools ---
+
+	case "waggle_list_databases":
+		path := "/api/udb"
+		if pid, ok := args["project_id"].(string); ok && pid != "" {
+			path += "?project_id=" + url.QueryEscape(pid)
+		}
+		return a.get(path)
+
+	case "waggle_create_database":
+		name, _ := args["name"].(string)
+		if name == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		body := map[string]any{"name": name}
+		if pid, ok := args["project_id"].(string); ok && pid != "" {
+			body["project_id"] = pid
+		}
+		return a.postJSON("/api/udb", body)
+
+	case "waggle_add_column":
+		dbID, _ := args["db_id"].(string)
+		name, _ := args["name"].(string)
+		typ, _ := args["type"].(string)
+		if dbID == "" || name == "" || typ == "" {
+			return nil, fmt.Errorf("db_id, name, and type are required")
+		}
+		body := map[string]any{"name": name, "type": typ}
+		if opts, ok := args["options"]; ok {
+			body["options"] = opts
+		}
+		return a.postJSON("/api/udb/"+url.PathEscape(dbID)+"/columns", body)
+
+	case "waggle_list_rows":
+		dbID, _ := args["db_id"].(string)
+		if dbID == "" {
+			return nil, fmt.Errorf("db_id is required")
+		}
+		cols, err := a.get("/api/udb/" + url.PathEscape(dbID) + "/columns")
+		if err != nil {
+			return nil, err
+		}
+		rows, err := a.get("/api/udb/" + url.PathEscape(dbID) + "/rows")
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"columns": cols, "rows": rows}, nil
+
+	case "waggle_create_row":
+		dbID, _ := args["db_id"].(string)
+		if dbID == "" {
+			return nil, fmt.Errorf("db_id is required")
+		}
+		data, _ := args["data"].(map[string]any)
+		return a.postJSON("/api/udb/"+url.PathEscape(dbID)+"/rows", map[string]any{"data": data})
+
+	case "waggle_update_row":
+		dbID, _ := args["db_id"].(string)
+		rowID, _ := args["row_id"].(string)
+		if dbID == "" || rowID == "" {
+			return nil, fmt.Errorf("db_id and row_id are required")
+		}
+		data, _ := args["data"].(map[string]any)
+		return a.patchJSON("/api/udb/"+url.PathEscape(dbID)+"/rows/"+url.PathEscape(rowID), map[string]any{"data": data})
+
+	case "waggle_delete_row":
+		dbID, _ := args["db_id"].(string)
+		rowID, _ := args["row_id"].(string)
+		if dbID == "" || rowID == "" {
+			return nil, fmt.Errorf("db_id and row_id are required")
+		}
+		return a.deleteJSON("/api/udb/" + url.PathEscape(dbID) + "/rows/" + url.PathEscape(rowID))
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)

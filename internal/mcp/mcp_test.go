@@ -134,6 +134,8 @@ func TestToolsList(t *testing.T) {
 		"waggle_list_projects", "waggle_update_project",
 		"waggle_send_message", "waggle_read_messages",
 		"waggle_list_pages", "waggle_get_page", "waggle_write_page", "waggle_search_pages",
+		"waggle_list_databases", "waggle_create_database", "waggle_add_column",
+		"waggle_list_rows", "waggle_create_row", "waggle_update_row", "waggle_delete_row",
 	}
 
 	if len(tools) != len(expected) {
@@ -394,6 +396,87 @@ func TestSendAndReadMessages(t *testing.T) {
 	result = readResp["result"].(map[string]any)
 	if result["isError"] != nil && result["isError"].(bool) {
 		t.Fatalf("read failed: %v", result)
+	}
+}
+
+func TestUDBTools_CreateAndListRows(t *testing.T) {
+	adapter, _ := setupMCP(t)
+
+	// Step 1: create a database
+	dbResp := callMCP(t, adapter, "tools/call", 20, map[string]any{
+		"name":      "waggle_create_database",
+		"arguments": map[string]any{"name": "T"},
+	})
+	dbResult := dbResp["result"].(map[string]any)
+	if dbResult["isError"] != nil && dbResult["isError"].(bool) {
+		t.Fatalf("create_database failed: %v", dbResult)
+	}
+	dbContent := dbResult["content"].([]any)
+	dbText := dbContent[0].(map[string]any)["text"].(string)
+	var dbObj map[string]any
+	if err := json.Unmarshal([]byte(dbText), &dbObj); err != nil {
+		t.Fatalf("bad create_database JSON: %v (%s)", err, dbText)
+	}
+	dbID, _ := dbObj["id"].(string)
+	if dbID == "" {
+		t.Fatalf("expected db id, got %v", dbObj)
+	}
+
+	// Step 2: add a column
+	colResp := callMCP(t, adapter, "tools/call", 21, map[string]any{
+		"name": "waggle_add_column",
+		"arguments": map[string]any{
+			"db_id": dbID,
+			"name":  "Name",
+			"type":  "text",
+		},
+	})
+	colResult := colResp["result"].(map[string]any)
+	if colResult["isError"] != nil && colResult["isError"].(bool) {
+		t.Fatalf("add_column failed: %v", colResult)
+	}
+	colContent := colResult["content"].([]any)
+	colText := colContent[0].(map[string]any)["text"].(string)
+	var colObj map[string]any
+	if err := json.Unmarshal([]byte(colText), &colObj); err != nil {
+		t.Fatalf("bad add_column JSON: %v (%s)", err, colText)
+	}
+	colID, _ := colObj["id"].(string)
+	if colID == "" {
+		t.Fatalf("expected column id, got %v", colObj)
+	}
+
+	// Step 3: create a row
+	rowResp := callMCP(t, adapter, "tools/call", 22, map[string]any{
+		"name": "waggle_create_row",
+		"arguments": map[string]any{
+			"db_id": dbID,
+			"data":  map[string]any{colID: "Ada"},
+		},
+	})
+	rowResult := rowResp["result"].(map[string]any)
+	if rowResult["isError"] != nil && rowResult["isError"].(bool) {
+		t.Fatalf("create_row failed: %v", rowResult)
+	}
+
+	// Step 4: list rows — expect columns + rows, with 1 row
+	listResp := callMCP(t, adapter, "tools/call", 23, map[string]any{
+		"name":      "waggle_list_rows",
+		"arguments": map[string]any{"db_id": dbID},
+	})
+	listResult := listResp["result"].(map[string]any)
+	if listResult["isError"] != nil && listResult["isError"].(bool) {
+		t.Fatalf("list_rows failed: %v", listResult)
+	}
+	listContent := listResult["content"].([]any)
+	listText := listContent[0].(map[string]any)["text"].(string)
+	var listObj map[string]any
+	if err := json.Unmarshal([]byte(listText), &listObj); err != nil {
+		t.Fatalf("bad list_rows JSON: %v (%s)", err, listText)
+	}
+	rows, _ := listObj["rows"].([]any)
+	if len(rows) != 1 {
+		t.Errorf("expected 1 row, got %d (full: %s)", len(rows), listText)
 	}
 }
 
