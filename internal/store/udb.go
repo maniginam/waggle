@@ -2,7 +2,9 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/maniginam/waggle/internal/model"
@@ -99,4 +101,109 @@ func (s *Store) DeleteDatabase(dbID string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func validColumnType(t string) bool {
+	switch t {
+	case model.ColumnTypeText, model.ColumnTypeNumber, model.ColumnTypeDate,
+		model.ColumnTypeSelect, model.ColumnTypeCheckbox:
+		return true
+	}
+	return false
+}
+
+const colCols = "id, db_id, name, type, position, options_json, created_at"
+
+func scanColumn(row scanner) (*model.Column, error) {
+	var c model.Column
+	var opts, created string
+	err := row.Scan(&c.ID, &c.DBID, &c.Name, &c.Type, &c.Position, &opts, &created)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if opts != "" {
+		json.Unmarshal([]byte(opts), &c.Options)
+	}
+	c.CreatedAt, _ = time.Parse(time.RFC3339, created)
+	return &c, nil
+}
+
+func (s *Store) AddColumn(c *model.Column) error {
+	if !validColumnType(c.Type) {
+		return ErrInvalidColumnType
+	}
+	if c.ID == "" {
+		c.ID = id.New()
+	}
+	c.CreatedAt = time.Now().UTC()
+	optsJSON := ""
+	if len(c.Options) > 0 {
+		b, _ := json.Marshal(c.Options)
+		optsJSON = string(b)
+	}
+	_, err := s.db.Exec("INSERT INTO udb_column ("+colCols+") VALUES (?,?,?,?,?,?,?)",
+		c.ID, c.DBID, c.Name, c.Type, c.Position, optsJSON, c.CreatedAt.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) GetColumn(colID string) (*model.Column, error) {
+	return scanColumn(s.db.QueryRow("SELECT "+colCols+" FROM udb_column WHERE id = ?", colID))
+}
+
+func (s *Store) ListColumns(dbID string) ([]*model.Column, error) {
+	rows, err := s.db.Query("SELECT "+colCols+" FROM udb_column WHERE db_id = ? ORDER BY position ASC, created_at ASC", dbID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*model.Column
+	for rows.Next() {
+		c, err := scanColumn(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) UpdateColumn(colID string, updates map[string]any) (*model.Column, error) {
+	if _, err := s.GetColumn(colID); err != nil {
+		return nil, err
+	}
+	var sets []string
+	var args []any
+	for k, v := range updates {
+		switch k {
+		case "name", "position":
+			sets = append(sets, k+" = ?")
+			args = append(args, v)
+		case "options":
+			b, _ := json.Marshal(v)
+			sets = append(sets, "options_json = ?")
+			args = append(args, string(b))
+		}
+	}
+	if len(sets) == 0 {
+		return s.GetColumn(colID)
+	}
+	args = append(args, colID)
+	if _, err := s.db.Exec("UPDATE udb_column SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...); err != nil {
+		return nil, err
+	}
+	return s.GetColumn(colID)
+}
+
+func (s *Store) DeleteColumn(colID string) error {
+	res, err := s.db.Exec("DELETE FROM udb_column WHERE id = ?", colID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

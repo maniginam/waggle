@@ -37,3 +37,41 @@ func TestDatabaseCRUD(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestColumnCRUD(t *testing.T) {
+	s := tempStore(t)
+	db := &model.Database{Name: "T"}
+	s.CreateDatabase(db)
+
+	col := &model.Column{DBID: db.ID, Name: "Status", Type: model.ColumnTypeSelect,
+		Options: []model.SelectOption{{Value: "Todo"}, {Value: "Done"}}}
+	if err := s.AddColumn(col); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if col.ID == "" {
+		t.Fatal("expected id")
+	}
+	cols, _ := s.ListColumns(db.ID)
+	if len(cols) != 1 || cols[0].Type != model.ColumnTypeSelect || len(cols[0].Options) != 2 {
+		t.Fatalf("list roundtrip wrong: %+v", cols)
+	}
+
+	bad := &model.Column{DBID: db.ID, Name: "X", Type: "bogus"}
+	if err := s.AddColumn(bad); err != ErrInvalidColumnType {
+		t.Fatalf("expected ErrInvalidColumnType, got %v", err)
+	}
+
+	if _, err := s.UpdateColumn(col.ID, map[string]any{"name": "State"}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, _ := s.GetColumn(col.ID)
+	if got.Name != "State" {
+		t.Fatalf("update not applied: %q", got.Name)
+	}
+	if err := s.DeleteColumn(col.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if cols, _ := s.ListColumns(db.ID); len(cols) != 0 {
+		t.Fatalf("expected 0 columns, got %d", len(cols))
+	}
+}
