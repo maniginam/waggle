@@ -179,7 +179,61 @@ func (a *API) handleUDBColumns(w http.ResponseWriter, r *http.Request, dbID stri
 	}
 }
 func (a *API) handleUDBRows(w http.ResponseWriter, r *http.Request, dbID string, rest []string) {
-	w.WriteHeader(http.StatusNotImplemented)
+	if len(rest) == 0 || rest[0] == "" {
+		switch r.Method {
+		case http.MethodGet:
+			rows, err := a.store.ListRows(dbID)
+			if udbMapErr(w, err) {
+				return
+			}
+			if rows == nil {
+				rows = []*model.Row{}
+			}
+			writeJSON(w, http.StatusOK, rows)
+		case http.MethodPost:
+			var body struct {
+				Data map[string]any `json:"data"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+				return
+			}
+			row := model.Row{DBID: dbID, Data: body.Data}
+			if err := a.store.CreateRow(&row); udbMapErr(w, err) {
+				return
+			}
+			a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+			writeJSON(w, http.StatusCreated, row)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	rowID := rest[0]
+	switch r.Method {
+	case http.MethodPatch:
+		var body struct {
+			Data map[string]any `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		row, err := a.store.UpdateRow(rowID, body.Data)
+		if udbMapErr(w, err) {
+			return
+		}
+		a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+		writeJSON(w, http.StatusOK, row)
+	case http.MethodDelete:
+		if err := a.store.DeleteRow(rowID); udbMapErr(w, err) {
+			return
+		}
+		a.emit(&model.Event{Type: model.EventDatabaseChanged, Payload: map[string]string{"db_id": dbID}})
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 func (a *API) handleUDBViews(w http.ResponseWriter, r *http.Request, dbID string, rest []string) {
 	w.WriteHeader(http.StatusNotImplemented)

@@ -53,6 +53,53 @@ func TestUDBColumnEndpoints(t *testing.T) {
 	}
 }
 
+func TestUDBRowEndpoints(t *testing.T) {
+	_, srv := setup(t)
+	dbID := createTestDB(t, srv.URL, "T")
+	nameCol := addTestColumn(t, srv.URL, dbID, map[string]any{"name": "Name", "type": "text"})
+	ageCol := addTestColumn(t, srv.URL, dbID, map[string]any{"name": "Age", "type": "number"})
+
+	// create row
+	body, _ := json.Marshal(map[string]any{"data": map[string]any{nameCol: "Ada", ageCol: 36}})
+	res, _ := http.Post(srv.URL+"/api/udb/"+dbID+"/rows", "application/json", bytes.NewReader(body))
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("create row status %d", res.StatusCode)
+	}
+	var row map[string]any
+	json.NewDecoder(res.Body).Decode(&row)
+	rowID := row["id"].(string)
+
+	// wrong type -> 400 invalid_cell
+	badBody, _ := json.Marshal(map[string]any{"data": map[string]any{ageCol: "old"}})
+	res, _ = http.Post(srv.URL+"/api/udb/"+dbID+"/rows", "application/json", bytes.NewReader(badBody))
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for bad cell, got %d", res.StatusCode)
+	}
+
+	// list
+	res, _ = http.Get(srv.URL + "/api/udb/" + dbID + "/rows")
+	var rows []map[string]any
+	json.NewDecoder(res.Body).Decode(&rows)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	// patch
+	patch, _ := json.Marshal(map[string]any{"data": map[string]any{nameCol: "Grace"}})
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/udb/"+dbID+"/rows/"+rowID, bytes.NewReader(patch))
+	res, _ = http.DefaultClient.Do(req)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("patch status %d", res.StatusCode)
+	}
+
+	// delete
+	req, _ = http.NewRequest(http.MethodDelete, srv.URL+"/api/udb/"+dbID+"/rows/"+rowID, nil)
+	res, _ = http.DefaultClient.Do(req)
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status %d", res.StatusCode)
+	}
+}
+
 func TestUDBDatabaseEndpoints(t *testing.T) {
 	_, srv := setup(t)
 
