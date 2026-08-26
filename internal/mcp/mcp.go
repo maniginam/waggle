@@ -304,7 +304,7 @@ func (a *Adapter) handleToolsList(req *jsonrpcRequest) {
 			"properties": map[string]any{
 				"db_id":   prop("string", "Database ID"),
 				"name":    prop("string", "Column name"),
-				"type":    propEnum("string", []string{"text", "number", "boolean", "date", "select"}, "Column type"),
+				"type":    propEnum("string", []string{"text", "number", "date", "select", "checkbox"}, "Column type"),
 				"options": map[string]any{"type": "object", "description": "Optional column options (e.g. select choices)"},
 			},
 			"required": []string{"db_id", "name", "type"},
