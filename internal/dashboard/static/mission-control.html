@@ -2010,7 +2010,7 @@ document.querySelectorAll('#dashboard-filters .filter-btn').forEach(btn => {
 let currentView = 'dashboard';
 
 // --- Databases view state (C2 Task 11) ---
-let udbState = { projectId: '', databases: [], currentDBId: null, columns: [], rows: [], views: [], currentViewId: null, editingRowId: null };
+let udbState = { projectId: '', databases: [], currentDBId: null, columns: [], rows: [], views: [], currentViewId: null, editingRowId: null, calYear: null, calMonth: null };
 
 function switchView(view) {
   currentView = view;
@@ -2191,6 +2191,7 @@ async function selectDatabase(id) {
   ]);
   udbState.columns = cols; udbState.rows = rows; udbState.views = views;
   udbState.currentViewId = views[0] ? views[0].id : null;
+  udbState.calYear = null; udbState.calMonth = null;
   renderUDBSidebar();
   renderUDBMain();
 }
@@ -2200,8 +2201,9 @@ function renderUDBMain() {
   if (!udbState.currentDBId) { el.innerHTML = '<p>Select or create a database.</p>'; return; }
   el.innerHTML =
     renderColumnBar() +
-    renderViewTabs() +
-    '<div id="udb-view-body">' + renderTableView() + '</div>';
+    renderUdbViewTabs() +
+    '<div id="udb-view-body"></div>';
+  renderUdbViewBody();
 }
 
 function renderColumnBar() {
@@ -2213,13 +2215,75 @@ function renderColumnBar() {
     '<button onclick="addColumn()">+ column</button></div>';
 }
 
-function renderViewTabs() { return ''; } // replaced in Task 12
+// ============================================================
+// UDB VIEW TABS + BODY (Task 12)
+// ============================================================
 
-function renderTableView() {
+function udbCurrentView() { return udbState.views.find(v => v.id === udbState.currentViewId); }
+
+function renderUdbViewTabs() {
+  const tabs = (udbState.views || []).map(v =>
+    '<button class="udb-view-tab' + (v.id === udbState.currentViewId ? ' active' : '') + '"' +
+    ' onclick="selectUdbView(\'' + esc(v.id) + '\')">' +
+    esc(v.name) + ' <small>' + esc(v.kind) + '</small>' +
+    ' <span onclick="event.stopPropagation();deleteUdbView(\'' + esc(v.id) + '\')">x</span></button>'
+  ).join('');
+  return '<div class="udb-view-tabs">' + tabs + '<button onclick="createUdbView()">+ view</button></div>';
+}
+
+function selectUdbView(id) { udbState.currentViewId = id; renderUdbViewBody(); }
+
+function renderUdbViewBody() {
+  const body = document.getElementById('udb-view-body');
+  if (!body) return;
+  const v = udbCurrentView();
+  if (!v || v.kind === 'table') { body.innerHTML = renderUdbTableView(); return; }
+  if (v.kind === 'kanban') { body.innerHTML = renderUdbKanbanView(v); return; }
+  if (v.kind === 'calendar') { body.innerHTML = renderUdbCalendarView(v); return; }
+  body.innerHTML = renderUdbTableView();
+}
+
+function applyUdbViewConfig(rows, cfg) {
+  cfg = cfg || {};
+  let out = rows.slice();
+  (cfg.filters || []).forEach(f => {
+    out = out.filter(r => {
+      const v = r.data ? r.data[f.col] : undefined;
+      switch (f.op) {
+        case 'eq':       return v === f.value;
+        case 'neq':      return v !== f.value;
+        case 'contains': return String(v ?? '').toLowerCase().includes(String(f.value ?? '').toLowerCase());
+        case 'gt':       return Number(v) > Number(f.value);
+        case 'lt':       return Number(v) < Number(f.value);
+        default:         return true;
+      }
+    });
+  });
+  (cfg.sort || []).slice().reverse().forEach(s => {
+    out.sort((a, b) => {
+      const av = a.data ? a.data[s.col] : undefined;
+      const bv = b.data ? b.data[s.col] : undefined;
+      if (av === bv) return 0;
+      const r = (av > bv ? 1 : -1);
+      return s.dir === 'desc' ? -r : r;
+    });
+  });
+  return out;
+}
+
+function udbFormatCell(v, col) {
+  if (v === undefined || v === null) return '';
+  if (col.type === 'checkbox') return v ? '✓' : '';
+  return String(v);
+}
+
+function renderUdbTableView() {
   const cols = udbState.columns;
+  const cv = udbCurrentView();
+  const rows = applyUdbViewConfig(udbState.rows, (cv || {config: {}}).config);
   const head = cols.map(c => '<th>' + esc(c.name) + '</th>').join('') + '<th></th>';
-  const body = udbState.rows.map(r => {
-    const cells = cols.map(c => '<td>' + esc(formatCell(r.data ? r.data[c.id] : undefined, c)) + '</td>').join('');
+  const body = rows.map(r => {
+    const cells = cols.map(c => '<td>' + esc(udbFormatCell(r.data ? r.data[c.id] : undefined, c)) + '</td>').join('');
     return '<tr>' + cells + '<td><button onclick="editRow(\'' + esc(r.id) + '\')">edit</button>' +
       ' <button onclick="deleteRow(\'' + esc(r.id) + '\')">x</button></td></tr>';
   }).join('');
@@ -2227,11 +2291,158 @@ function renderTableView() {
     '<button onclick="addRow()">+ row</button>';
 }
 
-function formatCell(v, col) {
-  if (v === undefined || v === null) return '';
-  if (col.type === 'checkbox') return v ? '✓' : '';
-  return String(v);
+function renderUdbKanbanView(v) {
+  const groupCol = udbState.columns.find(c => c.id === v.config.group_by);
+  if (!groupCol) return '<p>Invalid kanban config.</p>';
+  const rows = applyUdbViewConfig(udbState.rows, v.config);
+  const lanes = (groupCol.options || []).map(o => o.value).concat(['(empty)']);
+  return '<div class="udb-kanban">' + lanes.map(lane => {
+    const laneRows = rows.filter(r => ((r.data && r.data[groupCol.id]) || '(empty)') === lane);
+    const cards = laneRows.map(r => {
+      const title = udbState.columns[0] ? esc(String(r.data ? (r.data[udbState.columns[0].id] ?? '') : '')) : esc(r.id);
+      return '<div class="udb-card" onclick="editRow(\'' + esc(r.id) + '\')">' + title + '</div>';
+    }).join('');
+    return '<div class="udb-lane"><h4>' + esc(lane) + '</h4>' + cards + '</div>';
+  }).join('') + '</div>';
 }
+
+function renderUdbCalendarView(v) {
+  const dateCol = v.config ? v.config.date_field : null;
+  if (!dateCol) return '<p>Invalid calendar config.</p>';
+  const rows = applyUdbViewConfig(udbState.rows, v.config);
+
+  // Init month state if not set
+  if (udbState.calYear == null || udbState.calMonth == null) {
+    // Try to pick a sensible default from the row data
+    let defaultDate = null;
+    for (const r of rows) {
+      const d = r.data ? r.data[dateCol] : null;
+      if (d) { defaultDate = d; break; }
+    }
+    const ref = defaultDate ? new Date(defaultDate + 'T00:00:00') : new Date();
+    udbState.calYear  = ref.getFullYear();
+    udbState.calMonth = ref.getMonth();
+  }
+
+  const year  = udbState.calYear;
+  const month = udbState.calMonth;
+
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DAY_NAMES   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const today = new Date();
+
+  // Bucket rows by day
+  const rowsByDay  = {};
+  const unscheduled = [];
+  for (const r of rows) {
+    const rawDate = r.data ? r.data[dateCol] : null;
+    if (!rawDate) { unscheduled.push(r); continue; }
+    const parts = String(rawDate).split('T')[0].split('-');
+    if (parts.length < 3) { unscheduled.push(r); continue; }
+    const rY = parseInt(parts[0], 10);
+    const rM = parseInt(parts[1], 10) - 1;
+    const rD = parseInt(parts[2], 10);
+    if (rY === year && rM === month) {
+      if (!rowsByDay[rD]) rowsByDay[rD] = [];
+      rowsByDay[rD].push(r);
+    }
+  }
+
+  const firstOfMonth  = new Date(year, month, 1);
+  const startDow      = firstOfMonth.getDay();
+  const daysInMonth   = new Date(year, month + 1, 0).getDate();
+  const daysInPrevM   = new Date(year, month, 0).getDate();
+  const totalCells    = Math.ceil((startDow + daysInMonth) / 7) * 7;
+
+  const dowHeaders = DAY_NAMES.map(d => '<div class="cal-day-header">' + d + '</div>').join('');
+
+  let cellsHTML = '';
+  for (let i = 0; i < totalCells; i++) {
+    let dayNum, isCurMonth;
+    if (i < startDow) {
+      dayNum = daysInPrevM - startDow + i + 1; isCurMonth = false;
+    } else if (i >= startDow + daysInMonth) {
+      dayNum = i - startDow - daysInMonth + 1; isCurMonth = false;
+    } else {
+      dayNum = i - startDow + 1; isCurMonth = true;
+    }
+    const isToday = isCurMonth && year === today.getFullYear() && month === today.getMonth() && dayNum === today.getDate();
+    let cellClass = 'cal-cell' + (!isCurMonth ? ' other-month' : '') + (isToday ? ' today' : '');
+    let chipsHTML = '';
+    if (isCurMonth && rowsByDay[dayNum]) {
+      const dayRows = rowsByDay[dayNum];
+      const MAX_CHIPS = 3;
+      for (const r of dayRows.slice(0, MAX_CHIPS)) {
+        const label = udbState.columns[0] ? String(r.data ? (r.data[udbState.columns[0].id] ?? '') : '') : r.id;
+        chipsHTML += '<button class="cal-chip cal-chip-low" onclick="editRow(\'' + esc(r.id) + '\')">' + esc(label) + '</button>';
+      }
+      if (dayRows.length > MAX_CHIPS) chipsHTML += '<div class="cal-more">+' + (dayRows.length - MAX_CHIPS) + ' more</div>';
+    }
+    cellsHTML += '<div class="' + cellClass + '"><div class="cal-date-num">' + dayNum + '</div>' + chipsHTML + '</div>';
+  }
+
+  let unscheduledHTML = '';
+  if (unscheduled.length > 0) {
+    const chips = unscheduled.map(r => {
+      const label = udbState.columns[0] ? String(r.data ? (r.data[udbState.columns[0].id] ?? '') : '') : r.id;
+      return '<button class="cal-unscheduled-chip" onclick="editRow(\'' + esc(r.id) + '\')">' + esc(label) + '</button>';
+    }).join('');
+    unscheduledHTML = '<div class="cal-unscheduled"><div class="cal-unscheduled-title">Unscheduled <span style="font-size:11px;font-weight:400">(' + unscheduled.length + ')</span></div><div class="cal-unscheduled-chips">' + chips + '</div></div>';
+  }
+
+  return '<div class="cal-header">' +
+    '<button class="cal-nav-btn" onclick="udbCalNav(-1)">&#8249;</button>' +
+    '<div class="cal-month-label">' + esc(MONTH_NAMES[month]) + ' ' + year + '</div>' +
+    '<button class="cal-nav-btn" onclick="udbCalNav(1)">&#8250;</button>' +
+    '</div>' +
+    '<div class="cal-grid">' + dowHeaders + cellsHTML + '</div>' +
+    unscheduledHTML;
+}
+
+function udbCalNav(delta) {
+  if (udbState.calYear == null || udbState.calMonth == null) {
+    const now = new Date();
+    udbState.calYear = now.getFullYear();
+    udbState.calMonth = now.getMonth();
+  }
+  let year = udbState.calYear;
+  let month = udbState.calMonth + delta;
+  if (month < 0)  { month += 12; year -= 1; }
+  if (month > 11) { month -= 12; year += 1; }
+  udbState.calYear = year;
+  udbState.calMonth = month;
+  renderUdbViewBody();
+}
+
+async function createUdbView() {
+  const name = prompt('View name'); if (!name) return;
+  const kind = prompt('Kind: table, kanban, calendar', 'table'); if (!kind) return;
+  const config = {};
+  if (kind === 'kanban') {
+    const sel = udbState.columns.find(c => c.type === 'select');
+    if (!sel) { alert('Add a select column first for kanban.'); return; }
+    config.group_by = sel.id;
+  } else if (kind === 'calendar') {
+    const dt = udbState.columns.find(c => c.type === 'date');
+    if (!dt) { alert('Add a date column first for calendar.'); return; }
+    config.date_field = dt.id;
+  }
+  const res = await fetch('/api/udb/' + udbState.currentDBId + '/views', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, kind, config})});
+  if (!res.ok) { alert('Create view failed'); return; }
+  selectDatabase(udbState.currentDBId);
+}
+
+async function deleteUdbView(id) {
+  if (!confirm('Delete view?')) return;
+  await fetch('/api/udb/' + udbState.currentDBId + '/views/' + id, {method: 'DELETE'});
+  selectDatabase(udbState.currentDBId);
+}
+
+// ============================================================
+// END UDB VIEW TABS (Task 12)
+// ============================================================
 
 async function addColumn() {
   const name = prompt('Column name'); if (!name) return;
