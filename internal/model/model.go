@@ -138,6 +138,10 @@ const (
 	EventPageCreated         EventType = "page_created"
 	EventPageUpdated         EventType = "page_updated"
 	EventPageDeleted         EventType = "page_deleted"
+	EventDatabaseCreated EventType = "database_created"
+	EventDatabaseUpdated EventType = "database_updated"
+	EventDatabaseDeleted EventType = "database_deleted"
+	EventDatabaseChanged EventType = "database_changed" // columns/rows/views mutated; Payload {db_id}
 )
 
 type Event struct {
@@ -203,6 +207,79 @@ type Page struct {
 	Position  float64   `json:"position"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// --- User-defined databases (udb) ---
+
+const (
+	ColumnTypeText     = "text"
+	ColumnTypeNumber   = "number"
+	ColumnTypeDate     = "date"
+	ColumnTypeSelect   = "select"
+	ColumnTypeCheckbox = "checkbox"
+
+	ViewKindTable    = "table"
+	ViewKindKanban   = "kanban"
+	ViewKindCalendar = "calendar"
+)
+
+type Database struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id,omitempty"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type SelectOption struct {
+	Value string `json:"value"`
+	Color string `json:"color,omitempty"`
+}
+
+type Column struct {
+	ID        string         `json:"id"`
+	DBID      string         `json:"db_id"`
+	Name      string         `json:"name"`
+	Type      string         `json:"type"`
+	Position  int            `json:"position"`
+	Options   []SelectOption `json:"options,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+}
+
+type Row struct {
+	ID        string         `json:"id"`
+	DBID      string         `json:"db_id"`
+	Data      map[string]any `json:"data"`
+	Position  int            `json:"position"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+}
+
+type ViewFilter struct {
+	Col   string `json:"col"`
+	Op    string `json:"op"`
+	Value any    `json:"value"`
+}
+
+type ViewSort struct {
+	Col string `json:"col"`
+	Dir string `json:"dir"`
+}
+
+type ViewConfig struct {
+	Filters   []ViewFilter `json:"filters,omitempty"`
+	Sort      []ViewSort   `json:"sort,omitempty"`
+	GroupBy   string       `json:"group_by,omitempty"`
+	DateField string       `json:"date_field,omitempty"`
+}
+
+type View struct {
+	ID       string     `json:"id"`
+	DBID     string     `json:"db_id"`
+	Name     string     `json:"name"`
+	Kind     string     `json:"kind"`
+	Config   ViewConfig `json:"config"`
+	Position int        `json:"position"`
 }
 
 type Message struct {
