@@ -124,24 +124,24 @@ type Agent struct {
 type EventType string
 
 const (
-	EventTaskCreated         EventType = "task_created"
-	EventTaskUpdated         EventType = "task_updated"
-	EventTaskClaimed         EventType = "task_claimed"
-	EventTaskUnclaimed       EventType = "task_unclaimed"
-	EventTaskCompleted       EventType = "task_completed"
-	EventTaskDeleted         EventType = "task_deleted"
-	EventAgentJoined         EventType = "agent_joined"
-	EventAgentLeft           EventType = "agent_left"
-	EventAgentStale          EventType = "agent_stale"
-	EventAgentStatusChanged  EventType = "agent_status_changed"
-	EventMessage             EventType = "message"
-	EventPageCreated         EventType = "page_created"
-	EventPageUpdated         EventType = "page_updated"
-	EventPageDeleted         EventType = "page_deleted"
-	EventDatabaseCreated EventType = "database_created"
-	EventDatabaseUpdated EventType = "database_updated"
-	EventDatabaseDeleted EventType = "database_deleted"
-	EventDatabaseChanged EventType = "database_changed" // columns/rows/views mutated; Payload {db_id}
+	EventTaskCreated        EventType = "task_created"
+	EventTaskUpdated        EventType = "task_updated"
+	EventTaskClaimed        EventType = "task_claimed"
+	EventTaskUnclaimed      EventType = "task_unclaimed"
+	EventTaskCompleted      EventType = "task_completed"
+	EventTaskDeleted        EventType = "task_deleted"
+	EventAgentJoined        EventType = "agent_joined"
+	EventAgentLeft          EventType = "agent_left"
+	EventAgentStale         EventType = "agent_stale"
+	EventAgentStatusChanged EventType = "agent_status_changed"
+	EventMessage            EventType = "message"
+	EventPageCreated        EventType = "page_created"
+	EventPageUpdated        EventType = "page_updated"
+	EventPageDeleted        EventType = "page_deleted"
+	EventDatabaseCreated    EventType = "database_created"
+	EventDatabaseUpdated    EventType = "database_updated"
+	EventDatabaseDeleted    EventType = "database_deleted"
+	EventDatabaseChanged    EventType = "database_changed" // columns/rows/views mutated; Payload {db_id}
 )
 
 type Event struct {
@@ -297,12 +297,12 @@ type Message struct {
 type ProjectStatus string
 
 const (
-	ProjectActive       ProjectStatus = "active"
-	ProjectDormant      ProjectStatus = "dormant"
-	ProjectPaused       ProjectStatus = "paused"
-	ProjectEarning      ProjectStatus = "earning"
-	ProjectBroken       ProjectStatus = "broken"
-	ProjectKilled       ProjectStatus = "killed"
+	ProjectActive  ProjectStatus = "active"
+	ProjectDormant ProjectStatus = "dormant"
+	ProjectPaused  ProjectStatus = "paused"
+	ProjectEarning ProjectStatus = "earning"
+	ProjectBroken  ProjectStatus = "broken"
+	ProjectKilled  ProjectStatus = "killed"
 )
 
 func (s ProjectStatus) Valid() bool {
@@ -323,12 +323,12 @@ const (
 )
 
 type Session struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	StartedAt time.Time `json:"started_at"`
+	ID        string     `json:"id"`
+	ProjectID string     `json:"project_id"`
+	StartedAt time.Time  `json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
-	Summary   string    `json:"summary,omitempty"`
-	Account   string    `json:"account,omitempty"`
+	Summary   string     `json:"summary,omitempty"`
+	Account   string     `json:"account,omitempty"`
 }
 
 type Progress struct {
@@ -349,4 +349,3 @@ type Revenue struct {
 	Date      string    `json:"date"`
 	CreatedAt time.Time `json:"created_at"`
 }
-
