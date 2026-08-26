@@ -82,6 +82,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/api/pages", a.handlePages)
 	mux.HandleFunc("/api/pages/search", a.handlePageSearch)
 	mux.HandleFunc("/api/pages/", a.handlePage)
+	mux.HandleFunc("/api/udb", a.handleUDB)
+	mux.HandleFunc("/api/udb/", a.handleUDBItem)
 	// Middleware chain: rate limit → body size limit → request log → route
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Rate limiting (per-IP, 120 req/min for writes, unlimited reads)
